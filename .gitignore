@@ -1,0 +1,10 @@
+.env
+.secrets/
+client_secret*.json
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.venv/
+plan/
