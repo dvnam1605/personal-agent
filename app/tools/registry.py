@@ -4,6 +4,8 @@ from collections.abc import Callable, Iterable
 from fnmatch import fnmatchcase
 from typing import TypeAlias
 
+import structlog
+
 from app.domain.enums import ActionClass
 from app.domain.errors import (
     ConfigurationError,
@@ -13,7 +15,9 @@ from app.domain.errors import (
 from app.domain.errors import (
     ValidationError as DomainValidationError,
 )
-from app.domain.models import ToolDefinition
+from app.domain.models import ToolDefinition, ToolRestriction
+
+logger = structlog.get_logger(__name__)
 
 MutationClassifier: TypeAlias = Callable[[ToolDefinition], ActionClass | str | None]
 ToolDefinitions: TypeAlias = list[ToolDefinition]
@@ -113,6 +117,14 @@ class ToolRegistry:
             )
         ]
 
+    def restrict(self, restriction: ToolRestriction) -> "ScopedToolView":
+        """Create a restricted ScopedToolView applying allow/deny filters."""
+        return _apply_tool_restriction(
+            tools=self._tools.values(),
+            restriction=restriction,
+            is_read_only=False,
+        )
+
     def as_read_only(self) -> "ToolRegistryView":
         """Create an immutable snapshot containing no mutation tools."""
         return ToolRegistryView(
@@ -155,6 +167,15 @@ class ToolRegistry:
         if action_class != tool.action_class:
             return tool.model_copy(update={"action_class": action_class})
         return tool
+
+    def __contains__(self, tool_name: object) -> bool:
+        return tool_name in self._tools
+
+    def __iter__(self):
+        yield from self.list()
+
+    def __len__(self) -> int:
+        return len(self._tools)
 
     @staticmethod
     def _normalize_patterns(capability: str | Iterable[str]) -> tuple[str, ...]:
@@ -231,6 +252,14 @@ class ToolRegistryView:
             )
         ]
 
+    def restrict(self, restriction: ToolRestriction) -> "ScopedToolView":
+        """Create a restricted ScopedToolView applying allow/deny filters."""
+        return _apply_tool_restriction(
+            tools=self._tools.values(),
+            restriction=restriction,
+            is_read_only=self._is_read_only,
+        )
+
     def as_read_only(self) -> "ToolRegistryView":
         """Narrow the current view to read-only tools without widening access."""
         return ToolRegistryView(
@@ -252,11 +281,112 @@ class ToolRegistryView:
         return len(self._tools)
 
 
+class ScopedToolView(ToolRegistryView):
+    """Immutable tool view with active ToolRestriction constraints enforced."""
+
+    def __init__(
+        self,
+        tools: Iterable[ToolDefinition],
+        *,
+        is_read_only: bool = False,
+        restricted_tools: Iterable[ToolDefinition] | None = None,
+    ) -> None:
+        super().__init__(tools, is_read_only=is_read_only)
+        self._restricted_tools: dict[str, ToolDefinition] = {
+            t.name: t.model_copy(deep=True) for t in (restricted_tools or ())
+        }
+
+    @property
+    def restricted_tool_names(self) -> tuple[str, ...]:
+        """Names of tools known in the base scope but blocked by active restriction."""
+        return tuple(self._restricted_tools)
+
+    def get(self, tool_name: str, *, agent_name: str | None = None) -> ToolDefinition:
+        """Return an exposed tool, or reject and log if tool is restricted."""
+        if tool_name in self._restricted_tools:
+            logger.warning(
+                "Restricted tool invocation rejected by policy",
+                tool_name=tool_name,
+                agent_name=agent_name,
+                reason="tool_restricted_by_policy",
+            )
+            raise PermissionDeniedError(
+                f"Tool '{tool_name}' is restricted for agent '{agent_name or 'unknown'}'.",
+                details={"tool_name": tool_name, "agent_name": agent_name},
+            )
+        return super().get(tool_name)
+
+    def restrict(self, restriction: ToolRestriction) -> "ScopedToolView":
+        """Apply an additional restriction to narrow this scoped view further."""
+        return _apply_tool_restriction(
+            tools=self._tools.values(),
+            restriction=restriction,
+            is_read_only=self._is_read_only,
+            prior_restricted=self._restricted_tools.values(),
+        )
+
+    def as_read_only(self) -> "ScopedToolView":
+        """Narrow this scoped view to read-only tools."""
+        return ScopedToolView(
+            (tool for tool in self._tools.values() if not tool.is_mutation),
+            is_read_only=True,
+            restricted_tools=self._restricted_tools.values(),
+        )
+
+
+def _apply_tool_restriction(
+    tools: Iterable[ToolDefinition],
+    restriction: ToolRestriction,
+    *,
+    is_read_only: bool = False,
+    prior_restricted: Iterable[ToolDefinition] | None = None,
+) -> ScopedToolView:
+    """Evaluate ToolRestriction rules against tools and partition into visible vs restricted."""
+    visible: list[ToolDefinition] = []
+    restricted: dict[str, ToolDefinition] = {
+        t.name: t.model_copy(deep=True) for t in (prior_restricted or ())
+    }
+
+    for tool in tools:
+        is_allowed = True
+        # If allow list is provided, tool must match at least one allow pattern
+        if restriction.allow is not None:
+            matches_allow = any(
+                capability_matches(pattern, candidate)
+                for pattern in restriction.allow
+                for candidate in tool.capability_names
+            )
+            if not matches_allow:
+                is_allowed = False
+
+        # If deny list is provided, tool must not match any deny pattern
+        if is_allowed and restriction.deny is not None:
+            matches_deny = any(
+                capability_matches(pattern, candidate)
+                for pattern in restriction.deny
+                for candidate in tool.capability_names
+            )
+            if matches_deny:
+                is_allowed = False
+
+        if is_allowed:
+            visible.append(tool)
+        else:
+            restricted[tool.name] = tool.model_copy(deep=True)
+
+    return ScopedToolView(
+        visible,
+        is_read_only=is_read_only,
+        restricted_tools=restricted.values(),
+    )
+
+
 ReadOnlyToolRegistry = ToolRegistryView
 
 __all__ = [
     "MutationClassifier",
     "ReadOnlyToolRegistry",
+    "ScopedToolView",
     "ToolDefinitions",
     "ToolRegistry",
     "ToolRegistryView",

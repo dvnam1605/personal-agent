@@ -153,3 +153,28 @@ def test_evaluate_budget_token_and_cost_violations() -> None:
         "total_tokens",
         "estimated_cost_usd",
     }
+
+
+def test_delegation_depth_budget_tracking_and_violations() -> None:
+    """Verify max_delegation_depth and BudgetUsage delegation recording."""
+    budget = ExecutionBudget(max_delegation_depth=2)
+    assert budget.max_delegation_depth == 2
+
+    usage = BudgetUsage()
+    usage.record_delegation_depth(1)
+    assert usage.delegation_depth == 1
+    usage.record_delegation_depth(2)
+    assert usage.delegation_depth == 2
+    usage.record_delegation_depth(1)  # Stays at max reached depth
+    assert usage.delegation_depth == 2
+
+    with pytest.raises(ValueError, match="Delegation depth must be non-negative"):
+        usage.record_delegation_depth(-1)
+
+    # Within budget
+    assert len(evaluate_budget_violations(budget, usage)) == 0
+
+    # Exceeding budget
+    usage.record_delegation_depth(3)
+    violations = evaluate_budget_violations(budget, usage)
+    assert any(v.resource_type == "delegation_depth" and v.actual == 3.0 for v in violations)

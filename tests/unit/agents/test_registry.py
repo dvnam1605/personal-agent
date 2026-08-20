@@ -50,3 +50,29 @@ def test_agent_registry_returns_defensive_copies() -> None:
     returned.capabilities.append("untrusted.write")
 
     assert registry.get("ResearchAgent").capabilities == ["knowledge.read", "drive.read"]
+
+
+def test_agent_delegation_scope_metadata_validation() -> None:
+    agent = AgentDefinition(
+        name="DelegatingAgent",
+        description="Agent with delegation permissions",
+        domain=Domain.GENERAL,
+        capabilities=["task.manage"],
+        allowed_tool_categories=["tasks"],
+        delegation_allowed=True,
+        max_child_depth=2,
+        inherits_parent_tools=True,
+    )
+    assert agent.delegation_allowed is True
+    assert agent.max_child_depth == 2
+    assert agent.inherits_parent_tools is True
+
+    # Negative child depth is rejected
+    with pytest.raises(ValueError, match="max_child_depth"):
+        AgentDefinition(
+            name="InvalidAgent",
+            description="Agent with invalid depth",
+            domain=Domain.SYSTEM,
+            max_child_depth=-1,
+        )
+

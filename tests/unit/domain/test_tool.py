@@ -172,3 +172,25 @@ def test_tool_execution_metadata_naive_timestamp_rejected() -> None:
             latency_ms=5.0,
             timestamp=naive_dt,
         )
+
+
+def test_tool_restriction_validation() -> None:
+    """Verify ToolRestriction validation and pattern normalization."""
+    from app.domain.models import ToolRestriction
+
+    res = ToolRestriction(allow=["gmail.*", "calendar.read"], deny=["gmail.send"])
+    assert res.allow == ["gmail.*", "calendar.read"]
+    assert res.deny == ["gmail.send"]
+
+    # Either allow or deny must be present
+    with pytest.raises(ValidationError, match="must specify at least 'allow' or 'deny'"):
+        ToolRestriction()
+
+    # Empty pattern list rejected
+    with pytest.raises(ValidationError, match="cannot be empty"):
+        ToolRestriction(allow=[])
+
+    # Blank pattern entries rejected
+    with pytest.raises(ValidationError, match="cannot be blank"):
+        ToolRestriction(allow=[" "])
+

@@ -254,5 +254,44 @@ class ToolResult(BaseModel):
                 raise ValueError(
                     f"ToolResult for '{self.tool_name}' has success=False and must contain an error message."
                 )
-
         return self
+
+
+class ToolRestriction(BaseModel):
+    """Tool filtering restriction specifying allowed and/or denied tool patterns."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allow: list[str] | None = Field(
+        default=None,
+        description="Explicit allowlist of tool names or wildcard patterns.",
+    )
+    deny: list[str] | None = Field(
+        default=None,
+        description="Explicit denylist of tool names or wildcard patterns.",
+    )
+
+    @field_validator("allow", "deny", mode="after")
+    @classmethod
+    def normalize_filter_list(cls, values: list[str] | None) -> list[str] | None:
+        """Normalize filter list strings and reject empty string items."""
+        if values is None:
+            return None
+        normalized: list[str] = []
+        for val in values:
+            item = val.strip()
+            if not item:
+                raise ValueError("ToolRestriction pattern entries cannot be blank.")
+            if item not in normalized:
+                normalized.append(item)
+        if not normalized:
+            raise ValueError("ToolRestriction pattern list cannot be empty when provided.")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_has_constraints(self) -> "ToolRestriction":
+        """Ensure at least one of allow or deny is specified."""
+        if self.allow is None and self.deny is None:
+            raise ValueError("ToolRestriction must specify at least 'allow' or 'deny'.")
+        return self
+

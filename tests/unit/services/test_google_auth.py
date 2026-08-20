@@ -211,6 +211,14 @@ async def test_missing_scopes_are_reported_and_rejected(async_session: AsyncSess
         GoogleScopeValidator.require(["scope.a"], ["scope.a", "scope.b"])
 
 
+def test_calendar_write_scope_covers_readonly_requirement_but_not_reverse() -> None:
+    full_calendar = "https://www.googleapis.com/auth/calendar"
+    readonly_calendar = "https://www.googleapis.com/auth/calendar.readonly"
+
+    assert GoogleScopeValidator.missing([full_calendar], [readonly_calendar]) == []
+    assert GoogleScopeValidator.missing([readonly_calendar], [full_calendar]) == [full_calendar]
+
+
 @pytest.mark.asyncio
 async def test_status_reports_missing_scopes_without_token_leakage(
     async_session: AsyncSession,

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -68,6 +69,26 @@ class GoogleResourceAdapter:
         self.retry_policy = retry_policy or RetryPolicy()
         self.sleep = sleep
         self.last_retry_count = 0
+        self._operation_retry_count: ContextVar[int] = ContextVar(
+            "google_operation_retry_count", default=0
+        )
+        self._collect_operation_retries: ContextVar[bool] = ContextVar(
+            "google_collect_operation_retries", default=False
+        )
+
+    @property
+    def last_operation_retry_count(self) -> int:
+        """Return the retry count for the current async logical operation."""
+        return self._operation_retry_count.get()
+
+    def begin_operation(self) -> None:
+        """Start collecting retry attempts for one logical tool operation."""
+        self._operation_retry_count.set(0)
+        self._collect_operation_retries.set(True)
+
+    def finish_operation(self) -> None:
+        """Stop collecting retries while retaining the completed operation count."""
+        self._collect_operation_retries.set(False)
 
     async def _request_json(
         self,
@@ -77,12 +98,15 @@ class GoogleResourceAdapter:
         operation: str,
         params: Mapping[str, Any] | None = None,
         json: Any = None,
+        headers: Mapping[str, str] | None = None,
         allow_empty: bool = False,
         retryable: bool | None = None,
     ) -> Any:
         """Make one bounded request and return only provider JSON data."""
         url = self._url(path)
         self.last_retry_count = 0
+        if not self._collect_operation_retries.get():
+            self._operation_retry_count.set(0)
         can_retry = (
             retryable
             if retryable is not None
@@ -90,15 +114,21 @@ class GoogleResourceAdapter:
         )
         for attempt in range(1, self.retry_policy.max_attempts + 1):
             try:
+                request_kwargs: dict[str, Any] = {
+                    "params": dict(params) if params else None,
+                    "json": json,
+                }
+                if headers:
+                    request_kwargs["headers"] = dict(headers)
                 response = await self.client.request(
                     method,
                     url,
-                    params=dict(params) if params else None,
-                    json=json,
+                    **request_kwargs,
                 )
             except (httpx.HTTPError, OSError) as exc:
                 if can_retry and attempt < self.retry_policy.max_attempts:
                     self.last_retry_count = attempt
+                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
                     await self.sleep(self.retry_policy.delay_for_retry(attempt))
                     continue
                 raise ExternalServiceError(
@@ -114,6 +144,7 @@ class GoogleResourceAdapter:
                 and attempt < self.retry_policy.max_attempts
             ):
                 self.last_retry_count = attempt
+                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
                 await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
                 continue
 

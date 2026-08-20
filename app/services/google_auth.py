@@ -118,7 +118,16 @@ class InMemoryOAuthStateStore:
 
 
 class GoogleScopeValidator:
-    """Validate exact Google OAuth scope grants without broadening permissions."""
+    """Validate Google OAuth grants without treating a narrower scope as broader."""
+
+    _SCOPE_COVERAGE: dict[str, frozenset[str]] = {
+        "https://www.googleapis.com/auth/calendar": frozenset(
+            {
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/calendar.readonly",
+            }
+        ),
+    }
 
     @staticmethod
     def normalize(scopes: Iterable[str] | str) -> list[str]:
@@ -137,7 +146,15 @@ class GoogleScopeValidator:
         cls, granted_scopes: Iterable[str] | str, required_scopes: Iterable[str] | str
     ) -> list[str]:
         granted = set(cls.normalize(granted_scopes))
-        return [scope for scope in cls.normalize(required_scopes) if scope not in granted]
+        missing: list[str] = []
+        for scope in cls.normalize(required_scopes):
+            if scope in granted or any(
+                scope in cls._SCOPE_COVERAGE.get(granted_scope, frozenset())
+                for granted_scope in granted
+            ):
+                continue
+            missing.append(scope)
+        return missing
 
     @classmethod
     def require(
