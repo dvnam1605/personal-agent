@@ -4,7 +4,7 @@ from typing import Any
 
 from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError, ValidationError
-from app.domain.models.tool import ToolDefinition, ToolResult
+from app.domain.models.tool import ToolDefinition
 from app.services.spill import SpillStore
 from app.tools.registry import ToolRegistry
 

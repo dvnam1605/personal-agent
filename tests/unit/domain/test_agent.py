@@ -136,4 +136,3 @@ def test_delegation_context_and_result() -> None:
             domain=Domain.COMMUNICATION,
             max_child_depth=-1,
         )
-

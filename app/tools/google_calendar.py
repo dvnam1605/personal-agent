@@ -437,8 +437,12 @@ class GoogleCalendarTools:
                 args.get("event_id", ""), str(args.get("calendar_id") or "primary")
             )
         if name == "calendar.get_free_busy":
-            start = _parse_datetime_argument(args.get("time_min"), time_zone=time_zone, label="time_min")
-            end = _parse_datetime_argument(args.get("time_max"), time_zone=time_zone, label="time_max")
+            start = _parse_datetime_argument(
+                args.get("time_min"), time_zone=time_zone, label="time_min"
+            )
+            end = _parse_datetime_argument(
+                args.get("time_max"), time_zone=time_zone, label="time_max"
+            )
             return await self.service.get_free_busy(
                 start,
                 end,
@@ -458,7 +462,9 @@ class GoogleCalendarTools:
                 int(args.get("duration_minutes", 0)),
                 calendar_ids=args.get("calendar_ids", ["primary"]),
                 slot_step_minutes=(
-                    int(args["slot_step_minutes"]) if args.get("slot_step_minutes") is not None else None
+                    int(args["slot_step_minutes"])
+                    if args.get("slot_step_minutes") is not None
+                    else None
                 ),
                 max_results=int(args.get("max_results", 20)),
                 time_zone=time_zone,

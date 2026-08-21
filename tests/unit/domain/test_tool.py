@@ -193,4 +193,3 @@ def test_tool_restriction_validation() -> None:
     # Blank pattern entries rejected
     with pytest.raises(ValidationError, match="cannot be blank"):
         ToolRestriction(allow=[" "])
-

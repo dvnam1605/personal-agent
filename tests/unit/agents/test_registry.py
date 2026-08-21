@@ -75,4 +75,3 @@ def test_agent_delegation_scope_metadata_validation() -> None:
             domain=Domain.SYSTEM,
             max_child_depth=-1,
         )
-

@@ -121,9 +121,7 @@ def find_deterministic_free_slots(
     if max_results < 1:
         raise DomainValidationError("Calendar max_results must be positive.")
 
-    start, end, zone_name = _normalize_window(
-        window_start, window_end, time_zone=time_zone
-    )
+    start, end, zone_name = _normalize_window(window_start, window_end, time_zone=time_zone)
     merged = _merge_busy_intervals(
         busy_intervals,
         window_start=start,
@@ -263,7 +261,9 @@ class CalendarService:
         *,
         send_updates: str = "all",
     ) -> CalendarEvent:
-        normalized = attendee if isinstance(attendee, CalendarAttendee) else CalendarAttendee(email=attendee)
+        normalized = (
+            attendee if isinstance(attendee, CalendarAttendee) else CalendarAttendee(email=attendee)
+        )
         return await self.calendar.add_attendee(
             event_id,
             normalized,

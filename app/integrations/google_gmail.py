@@ -133,8 +133,7 @@ def _raw_to_payload(value: str) -> dict[str, Any]:
 
     def part_payload(part: Message) -> dict[str, Any]:
         headers = [
-            {"name": name, "value": str(header_value)}
-            for name, header_value in part.items()
+            {"name": name, "value": str(header_value)} for name, header_value in part.items()
         ]
         result: dict[str, Any] = {
             "mimeType": part.get_content_type(),
@@ -143,9 +142,15 @@ def _raw_to_payload(value: str) -> dict[str, Any]:
         }
         if part.is_multipart():
             children = part.get_payload()
-            result["parts"] = [
-                part_payload(child) for child in children if isinstance(children, list) and isinstance(child, Message)
-            ] if isinstance(children, list) else []
+            result["parts"] = (
+                [
+                    part_payload(child)
+                    for child in children
+                    if isinstance(children, list) and isinstance(child, Message)
+                ]
+                if isinstance(children, list)
+                else []
+            )
             return result
         decoded = part.get_payload(decode=True)
         if not isinstance(decoded, bytes):
@@ -208,7 +213,11 @@ def _extract_body(payload: dict[str, Any]) -> tuple[str, str | None, bool]:
         body = part.get("body")
         if isinstance(filename, str) and filename.strip():
             has_attachments = True
-        if isinstance(body, dict) and body.get("attachmentId") and not mime_type.startswith("text/"):
+        if (
+            isinstance(body, dict)
+            and body.get("attachmentId")
+            and not mime_type.startswith("text/")
+        ):
             has_attachments = True
         parts = part.get("parts")
         if isinstance(parts, list) and parts:
@@ -255,9 +264,13 @@ def _message_from_payload(payload: object) -> GmailMessage:
     message_id = data.get("id")
     thread_id = data.get("threadId")
     if not isinstance(message_id, str) or not message_id.strip():
-        raise ExternalServiceError("Google returned an invalid Gmail message.", service_name="gmail")
+        raise ExternalServiceError(
+            "Google returned an invalid Gmail message.", service_name="gmail"
+        )
     if not isinstance(thread_id, str) or not thread_id.strip():
-        raise ExternalServiceError("Google returned an invalid Gmail message.", service_name="gmail")
+        raise ExternalServiceError(
+            "Google returned an invalid Gmail message.", service_name="gmail"
+        )
     try:
         return GmailMessage(
             id=message_id,
@@ -275,7 +288,9 @@ def _message_from_payload(payload: object) -> GmailMessage:
             body_text=body_text,
             body_html=body_html,
             has_attachments=has_attachments,
-            size_estimate=data.get("sizeEstimate") if isinstance(data.get("sizeEstimate"), int) else None,
+            size_estimate=data.get("sizeEstimate")
+            if isinstance(data.get("sizeEstimate"), int)
+            else None,
             history_id=str(data["historyId"]) if data.get("historyId") is not None else None,
         )
     except (PydanticValidationError, TypeError, ValueError) as exc:
@@ -450,7 +465,9 @@ class GmailAdapter(GoogleResourceAdapter):
         values = require_list(data, "messages", "Gmail message search")
         return GmailMessagePage(
             items=[_summary_from_payload(value) for value in values],
-            next_page_token=data.get("nextPageToken") if isinstance(data.get("nextPageToken"), str) else None,
+            next_page_token=data.get("nextPageToken")
+            if isinstance(data.get("nextPageToken"), str)
+            else None,
             result_size_estimate=(
                 data.get("resultSizeEstimate")
                 if isinstance(data.get("resultSizeEstimate"), int)
@@ -531,7 +548,9 @@ class GmailAdapter(GoogleResourceAdapter):
         values = require_list(data, "threads", "Gmail thread search")
         return GmailThreadPage(
             items=[_thread_summary_from_payload(value) for value in values],
-            next_page_token=data.get("nextPageToken") if isinstance(data.get("nextPageToken"), str) else None,
+            next_page_token=data.get("nextPageToken")
+            if isinstance(data.get("nextPageToken"), str)
+            else None,
             result_size_estimate=(
                 data.get("resultSizeEstimate")
                 if isinstance(data.get("resultSizeEstimate"), int)
@@ -699,7 +718,9 @@ class GmailAdapter(GoogleResourceAdapter):
 
     async def archive(self, message_id: str) -> GmailMutationResult:
         """Remove the Inbox label without deleting the message."""
-        return await self._modify_labels(message_id, remove_label_ids=["INBOX"], operation="archive")
+        return await self._modify_labels(
+            message_id, remove_label_ids=["INBOX"], operation="archive"
+        )
 
     async def trash(self, message_id: str) -> GmailMutationResult:
         """Move a message to the Gmail trash."""
@@ -790,7 +811,9 @@ class GmailAdapter(GoogleResourceAdapter):
         data = require_object(payload, "Gmail draft response")
         identifier = data.get("id")
         if not isinstance(identifier, str) or not identifier.strip():
-            raise ExternalServiceError("Google returned an invalid Gmail draft.", service_name="gmail")
+            raise ExternalServiceError(
+                "Google returned an invalid Gmail draft.", service_name="gmail"
+            )
         message = data.get("message")
         return GmailDraft(
             id=identifier,
@@ -802,7 +825,9 @@ class GmailAdapter(GoogleResourceAdapter):
         data = require_object(payload, "Gmail send response")
         identifier = data.get("id")
         if not isinstance(identifier, str) or not identifier.strip():
-            raise ExternalServiceError("Google returned an invalid Gmail send result.", service_name="gmail")
+            raise ExternalServiceError(
+                "Google returned an invalid Gmail send result.", service_name="gmail"
+            )
         return GmailSendResult(
             id=identifier,
             thread_id=data.get("threadId") if isinstance(data.get("threadId"), str) else None,
@@ -810,10 +835,16 @@ class GmailAdapter(GoogleResourceAdapter):
         )
 
     @staticmethod
-    def _mutation_from_payload(payload: object, fallback_id: str, operation: str) -> GmailMutationResult:
+    def _mutation_from_payload(
+        payload: object, fallback_id: str, operation: str
+    ) -> GmailMutationResult:
         data = require_object(payload, f"Gmail {operation} response")
         raw_identifier = data.get("id")
-        identifier = raw_identifier if isinstance(raw_identifier, str) and raw_identifier.strip() else fallback_id
+        identifier = (
+            raw_identifier
+            if isinstance(raw_identifier, str) and raw_identifier.strip()
+            else fallback_id
+        )
         return GmailMutationResult(
             resource_id=identifier,
             operation=operation,

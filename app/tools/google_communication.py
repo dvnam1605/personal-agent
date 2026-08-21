@@ -113,7 +113,19 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Create a Gmail draft without sending it.",
         category="gmail",
         capabilities=["gmail.drafts", "gmail.write"],
-        parameters_schema={"type": "object", "properties": {"to": {"type": "array"}, "subject": _STRING, "body_text": _STRING, "cc": {"type": "array"}, "bcc": {"type": "array"}, "body_html": _STRING, "thread_id": _STRING}, "required": ["to"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "to": {"type": "array"},
+                "subject": _STRING,
+                "body_text": _STRING,
+                "cc": {"type": "array"},
+                "bcc": {"type": "array"},
+                "body_html": _STRING,
+                "thread_id": _STRING,
+            },
+            "required": ["to"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.SAFE_WRITE,
         risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -124,7 +136,20 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Replace the contents of an existing Gmail draft.",
         category="gmail",
         capabilities=["gmail.drafts", "gmail.write"],
-        parameters_schema={"type": "object", "properties": {"draft_id": _STRING, "to": {"type": "array"}, "subject": _STRING, "body_text": _STRING, "cc": {"type": "array"}, "bcc": {"type": "array"}, "body_html": _STRING, "thread_id": _STRING}, "required": ["draft_id", "to"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "draft_id": _STRING,
+                "to": {"type": "array"},
+                "subject": _STRING,
+                "body_text": _STRING,
+                "cc": {"type": "array"},
+                "bcc": {"type": "array"},
+                "body_html": _STRING,
+                "thread_id": _STRING,
+            },
+            "required": ["draft_id", "to"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.SAFE_WRITE,
         risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -135,7 +160,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Permanently delete a Gmail draft.",
         category="gmail",
         capabilities=["gmail.drafts", "gmail.delete"],
-        parameters_schema={"type": "object", "properties": {"draft_id": _STRING}, "required": ["draft_id"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"draft_id": _STRING},
+            "required": ["draft_id"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.DESTRUCTIVE,
         risk_level=ActionRiskLevel.IRREVERSIBLE,
@@ -146,7 +175,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Send an existing Gmail draft as external communication.",
         category="gmail",
         capabilities=["gmail.send", "gmail.write"],
-        parameters_schema={"type": "object", "properties": {"draft_id": _STRING}, "required": ["draft_id"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"draft_id": _STRING},
+            "required": ["draft_id"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.EXTERNAL_COMMUNICATION,
         risk_level=ActionRiskLevel.HIGH_IMPACT_WRITE,
@@ -157,7 +190,17 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Send a deterministic reply in an existing Gmail thread.",
         category="gmail",
         capabilities=["gmail.send", "gmail.write"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING, "body_text": _STRING, "cc": {"type": "array"}, "bcc": {"type": "array"}, "body_html": _STRING}, "required": ["message_id", "body_text"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "message_id": _STRING,
+                "body_text": _STRING,
+                "cc": {"type": "array"},
+                "bcc": {"type": "array"},
+                "body_html": _STRING,
+            },
+            "required": ["message_id", "body_text"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.EXTERNAL_COMMUNICATION,
         risk_level=ActionRiskLevel.HIGH_IMPACT_WRITE,
@@ -168,7 +211,18 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Send a deterministic forward of an existing Gmail message.",
         category="gmail",
         capabilities=["gmail.send", "gmail.write"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING, "to": {"type": "array"}, "body_text": _STRING, "cc": {"type": "array"}, "bcc": {"type": "array"}, "body_html": _STRING}, "required": ["message_id", "to", "body_text"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "message_id": _STRING,
+                "to": {"type": "array"},
+                "body_text": _STRING,
+                "cc": {"type": "array"},
+                "bcc": {"type": "array"},
+                "body_html": _STRING,
+            },
+            "required": ["message_id", "to", "body_text"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.EXTERNAL_COMMUNICATION,
         risk_level=ActionRiskLevel.HIGH_IMPACT_WRITE,
@@ -179,7 +233,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Remove the Inbox label from a Gmail message.",
         category="gmail",
         capabilities=["gmail.modify", "gmail.labels"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING}, "required": ["message_id"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"message_id": _STRING},
+            "required": ["message_id"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.SAFE_WRITE,
         risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -190,7 +248,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Move a Gmail message to trash.",
         category="gmail",
         capabilities=["gmail.modify", "gmail.delete"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING}, "required": ["message_id"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"message_id": _STRING},
+            "required": ["message_id"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.DESTRUCTIVE,
         risk_level=ActionRiskLevel.IRREVERSIBLE,
@@ -201,7 +263,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Add one or more labels to a Gmail message.",
         category="gmail",
         capabilities=["gmail.modify", "gmail.labels"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING, "label_ids": {"type": "array"}}, "required": ["message_id", "label_ids"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"message_id": _STRING, "label_ids": {"type": "array"}},
+            "required": ["message_id", "label_ids"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.SAFE_WRITE,
         risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -212,7 +278,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Remove one or more labels from a Gmail message.",
         category="gmail",
         capabilities=["gmail.modify", "gmail.labels"],
-        parameters_schema={"type": "object", "properties": {"message_id": _STRING, "label_ids": {"type": "array"}}, "required": ["message_id", "label_ids"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"message_id": _STRING, "label_ids": {"type": "array"}},
+            "required": ["message_id", "label_ids"],
+        },
         required_scopes=_GMAIL_READ,
         action_class=ActionClass.SAFE_WRITE,
         risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -223,7 +293,15 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Search Google Contacts with deterministic pagination.",
         category="contacts",
         capabilities=["contacts.read", "contacts.search"],
-        parameters_schema={"type": "object", "properties": {"query": _STRING, "page_size": {"type": "integer", "minimum": 1, "maximum": 30}, "page_token": _STRING}, "required": ["query"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "query": _STRING,
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 30},
+                "page_token": _STRING,
+            },
+            "required": ["query"],
+        },
         required_scopes=_CONTACTS_READ,
     ),
     _tool(
@@ -231,7 +309,11 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Fetch one normalized Google Contact.",
         category="contacts",
         capabilities=["contacts.read"],
-        parameters_schema={"type": "object", "properties": {"resource_name": _STRING}, "required": ["resource_name"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {"resource_name": _STRING},
+            "required": ["resource_name"],
+        },
         required_scopes=_CONTACTS_READ,
     ),
     _tool(
@@ -239,12 +321,22 @@ COMMUNICATION_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         "Resolve a person by exact deterministic email/name matching; never guess among candidates.",
         category="contacts",
         capabilities=["contacts.read", "contacts.resolve"],
-        parameters_schema={"type": "object", "properties": {"query": _STRING, "page_size": {"type": "integer", "minimum": 1, "maximum": 30}, "max_pages": {"type": "integer", "minimum": 1, "maximum": 20}}, "required": ["query"]},
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "query": _STRING,
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 30},
+                "max_pages": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "required": ["query"],
+        },
         required_scopes=_CONTACTS_READ,
     ),
 )
 
-_DEFINITIONS_BY_NAME = {definition.name: definition for definition in COMMUNICATION_TOOL_DEFINITIONS}
+_DEFINITIONS_BY_NAME = {
+    definition.name: definition for definition in COMMUNICATION_TOOL_DEFINITIONS
+}
 
 
 def communication_tool_definitions() -> tuple[ToolDefinition, ...]:
@@ -316,9 +408,13 @@ class GoogleCommunicationTools:
                 include_spam_trash=bool(args.get("include_spam_trash", False)),
             )
         if name == "gmail.get_message":
-            return await self.service.get_message(args.get("message_id", ""), format=args.get("format", "full"))
+            return await self.service.get_message(
+                args.get("message_id", ""), format=args.get("format", "full")
+            )
         if name == "gmail.get_thread":
-            return await self.service.get_thread(args.get("thread_id", ""), format=args.get("format", "full"))
+            return await self.service.get_thread(
+                args.get("thread_id", ""), format=args.get("format", "full")
+            )
         if name == "gmail.list_threads":
             return await self.service.list_threads(
                 str(args.get("query") or ""),
@@ -373,9 +469,13 @@ class GoogleCommunicationTools:
         if name == "gmail.trash":
             return await self.service.trash(args.get("message_id", ""))
         if name == "gmail.add_label":
-            return await self.service.add_label(args.get("message_id", ""), args.get("label_ids", []))
+            return await self.service.add_label(
+                args.get("message_id", ""), args.get("label_ids", [])
+            )
         if name == "gmail.remove_label":
-            return await self.service.remove_label(args.get("message_id", ""), args.get("label_ids", []))
+            return await self.service.remove_label(
+                args.get("message_id", ""), args.get("label_ids", [])
+            )
         if name == "contacts.search":
             return await self.service.search_contacts(
                 args.get("query", ""),

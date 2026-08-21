@@ -174,9 +174,7 @@ async def test_calendar_tool_dispatches_free_busy_and_normalizes_output() -> Non
     assert result.success is True
     free_busy = result.output
     assert free_busy is not None
-    assert free_busy.calendars["primary"].busy[0].start == datetime(
-        2026, 8, 20, 2, 30, tzinfo=UTC
-    )
+    assert free_busy.calendars["primary"].busy[0].start == datetime(2026, 8, 20, 2, 30, tzinfo=UTC)
     assert result.metadata.retry_count == 0
 
 

@@ -59,7 +59,9 @@ async def test_audit_outbox_worker_delivers_and_commits(
     assert await worker.run_once() == 1
 
     async with session_factory() as session:
-        projection = await session.scalar(select(ToolExecution).where(ToolExecution.run_id == "run_worker"))
+        projection = await session.scalar(
+            select(ToolExecution).where(ToolExecution.run_id == "run_worker")
+        )
         outbox = await session.scalar(select(AuditOutbox).where(AuditOutbox.run_id == "run_worker"))
         assert projection is not None
         assert outbox is not None

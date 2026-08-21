@@ -34,10 +34,7 @@ def capability_matches(pattern: str, candidate: str) -> bool:
     return (
         normalized_pattern == normalized_candidate
         or normalized_candidate.startswith(f"{normalized_pattern}.")
-        or (
-            normalized_pattern.endswith(".*")
-            and normalized_candidate == normalized_pattern[:-2]
-        )
+        or (normalized_pattern.endswith(".*") and normalized_candidate == normalized_pattern[:-2])
         or fnmatchcase(normalized_candidate, normalized_pattern)
     )
 
@@ -220,9 +217,7 @@ class ToolRegistryView:
     def register(self, tool: ToolDefinition) -> None:
         """Prevent a view consumer from widening its own capability boundary."""
         del tool
-        raise PermissionDeniedError(
-            "Tool registry views are immutable and cannot register tools."
-        )
+        raise PermissionDeniedError("Tool registry views are immutable and cannot register tools.")
 
     def get(self, tool_name: str) -> ToolDefinition:
         """Return an exposed tool or behave as if an unavailable tool does not exist."""

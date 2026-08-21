@@ -204,7 +204,9 @@ async def test_contact_resolution_is_exact_and_ambiguous_results_never_guess() -
             _json_response(
                 200,
                 {
-                    "results": [{"person": _person("people/1", "Alice Example", "alice@example.com")}],
+                    "results": [
+                        {"person": _person("people/1", "Alice Example", "alice@example.com")}
+                    ],
                 },
             )
         ]
@@ -244,13 +246,19 @@ async def test_contact_search_pagination_is_consumed_by_resolution() -> None:
             _json_response(
                 200,
                 {
-                    "results": [{"person": _person("people/1", "Other Person", "other@example.com")}],
+                    "results": [
+                        {"person": _person("people/1", "Other Person", "other@example.com")}
+                    ],
                     "nextPageToken": "contacts-next",
                 },
             ),
             _json_response(
                 200,
-                {"results": [{"person": _person("people/2", "Target Person", "target@example.com")}]},
+                {
+                    "results": [
+                        {"person": _person("people/2", "Target Person", "target@example.com")}
+                    ]
+                },
             ),
         ]
     )
@@ -314,7 +322,9 @@ async def test_all_gmail_write_operations_use_typed_provider_requests() -> None:
             _json_response(200, {"id": "forward-1", "threadId": "thread-2"}),
             _json_response(200, {"id": "message-1", "threadId": "thread-1", "labelIds": []}),
             _json_response(200, {"id": "message-1", "threadId": "thread-1", "labelIds": ["TRASH"]}),
-            _json_response(200, {"id": "message-1", "threadId": "thread-1", "labelIds": ["STARRED"]}),
+            _json_response(
+                200, {"id": "message-1", "threadId": "thread-1", "labelIds": ["STARRED"]}
+            ),
             _json_response(200, {"id": "message-1", "threadId": "thread-1", "labelIds": []}),
         ]
     )

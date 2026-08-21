@@ -114,9 +114,7 @@ async def test_calendar_service_fails_closed_on_per_calendar_free_busy_error() -
                 "calendars": {
                     "primary": {
                         "busy": [],
-                        "errors": [
-                            {"reason": "notFound", "message": "Calendar was not found."}
-                        ],
+                        "errors": [{"reason": "notFound", "message": "Calendar was not found."}],
                     }
                 }
             },

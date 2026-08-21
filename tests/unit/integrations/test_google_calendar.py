@@ -80,7 +80,9 @@ def _event_payload(
         "summary": "Planning",
         "description": "Discuss roadmap",
         "location": "Room 1",
-        "start": {"date": start} if all_day else {"dateTime": start, "timeZone": "Asia/Ho_Chi_Minh"},
+        "start": {"date": start}
+        if all_day
+        else {"dateTime": start, "timeZone": "Asia/Ho_Chi_Minh"},
         "end": {"date": end} if all_day else {"dateTime": end, "timeZone": "Asia/Ho_Chi_Minh"},
         "attendees": [
             {
@@ -245,7 +247,9 @@ async def test_calendar_free_busy_retries_transient_read_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_calendar_create_update_delete_are_typed_and_not_retried_as_external_mutations() -> None:
+async def test_calendar_create_update_delete_are_typed_and_not_retried_as_external_mutations() -> (
+    None
+):
     payload = _event_payload(event_id="event-2")
     transport = FakeGoogleTransport(
         [
@@ -319,9 +323,7 @@ async def test_calendar_attendee_mutations_fetch_once_and_patch_without_duplicat
     added = await adapter.add_attendee(
         "event-1", CalendarAttendee(email="new@example.com"), send_updates="none"
     )
-    removed = await adapter.remove_attendee(
-        "event-1", "new@example.com", send_updates="none"
-    )
+    removed = await adapter.remove_attendee("event-1", "new@example.com", send_updates="none")
 
     assert [call[0] for call in transport.calls] == ["GET", "PATCH", "GET", "PATCH"]
     assert added.attendees[0].email == "new@example.com"
@@ -396,7 +398,9 @@ def test_calendar_slot_finder_merges_overlapping_meetings_and_respects_all_day_e
 
     all_day = CalendarEvent(
         id="all-day",
-        start=CalendarEventTime(value=date(2026, 8, 20), all_day=True, time_zone="Asia/Ho_Chi_Minh"),
+        start=CalendarEventTime(
+            value=date(2026, 8, 20), all_day=True, time_zone="Asia/Ho_Chi_Minh"
+        ),
         end=CalendarEventTime(value=date(2026, 8, 22), all_day=True, time_zone="Asia/Ho_Chi_Minh"),
     )
     all_day_busy = busy_intervals_from_events([all_day], time_zone="Asia/Ho_Chi_Minh")

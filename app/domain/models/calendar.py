@@ -146,14 +146,10 @@ class CalendarEventTime(BaseModel):
             time_zone = None
         raw_date = payload.get("date")
         if isinstance(raw_date, str):
-            return cls(
-                value=parse_calendar_value(raw_date), time_zone=time_zone, all_day=True
-            )
+            return cls(value=parse_calendar_value(raw_date), time_zone=time_zone, all_day=True)
         raw_datetime = payload.get("dateTime")
         if isinstance(raw_datetime, str):
-            return cls(
-                value=parse_calendar_value(raw_datetime), time_zone=time_zone, all_day=False
-            )
+            return cls(value=parse_calendar_value(raw_datetime), time_zone=time_zone, all_day=False)
         raise ValueError("Google Calendar event time has neither date nor dateTime.")
 
 
@@ -483,7 +479,10 @@ class CalendarEventUpdate(BaseModel):
                 raise ValueError("Calendar event start and end must both be timed or all-day.")
             if self.start.as_datetime() >= self.end.as_datetime():
                 raise ValueError("Calendar event end must be after start.")
-        if all(value is None for value in (self.summary, self.start, self.description, self.location, self.attendees)):
+        if all(
+            value is None
+            for value in (self.summary, self.start, self.description, self.location, self.attendees)
+        ):
             raise ValueError("At least one Calendar event field must be updated.")
         return self
 
@@ -581,8 +580,10 @@ def _coerce_attendees(
 ) -> list[CalendarAttendee]:
     result: list[CalendarAttendee] = []
     for attendee in attendees:
-        value = attendee if isinstance(attendee, CalendarAttendee) else (
-            {"email": attendee} if isinstance(attendee, str) else attendee
+        value = (
+            attendee
+            if isinstance(attendee, CalendarAttendee)
+            else ({"email": attendee} if isinstance(attendee, str) else attendee)
         )
         result.append(CalendarAttendee.model_validate(value))
     return result

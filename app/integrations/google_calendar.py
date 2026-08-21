@@ -95,7 +95,9 @@ def _normalize_optional_bounds(
     *,
     time_zone: str | None,
 ) -> tuple[datetime | None, datetime | None]:
-    start = normalize_aware_datetime(time_min, time_zone=time_zone) if time_min is not None else None
+    start = (
+        normalize_aware_datetime(time_min, time_zone=time_zone) if time_min is not None else None
+    )
     end = normalize_aware_datetime(time_max, time_zone=time_zone) if time_max is not None else None
     if start is not None and end is not None and end <= start:
         raise DomainValidationError("Calendar time_max must be after time_min.")

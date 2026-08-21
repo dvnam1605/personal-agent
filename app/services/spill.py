@@ -1,18 +1,17 @@
 """Spill storage and preview retention policy subsystem for oversized tool outputs."""
 
-from abc import ABC, abstractmethod
-from datetime import UTC, datetime
 import hashlib
 import json
-from pathlib import Path
 import re
-from typing import Any
 import uuid
+from abc import ABC, abstractmethod
+from datetime import UTC, datetime
+from pathlib import Path
 
 import structlog
 
 from app.domain.errors import NotFoundError, ValidationError
-from app.domain.models.spill import SpillPolicyConfig, SpillRef, SpilledOutput
+from app.domain.models.spill import SpilledOutput, SpillPolicyConfig, SpillRef
 from app.domain.models.tool import ToolResult
 
 logger = structlog.get_logger(__name__)
@@ -146,9 +145,7 @@ class InMemorySpillStore(SpillStore):
 
     def list_spills(self, session_id: str) -> list[SpillRef]:
         target_session = session_id.strip()
-        return [
-            ref for ref, _ in self._entries.values() if ref.session_id == target_session
-        ]
+        return [ref for ref, _ in self._entries.values() if ref.session_id == target_session]
 
 
 class LocalFileSpillStore(SpillStore):
@@ -360,9 +357,7 @@ class SpillPolicy:
         raw_bytes = ref.byte_count
 
         # Estimate notice size and structural separator overheads ("\n...\n" is 5 bytes, "\n\n" is 2 bytes)
-        sample_notice = (
-            f"(Omitted {raw_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
-        )
+        sample_notice = f"(Omitted {raw_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
         notice_bytes = len(sample_notice.encode("utf-8"))
         structural_overhead = 7  # 5 for "\n...\n", 2 for "\n\n"
 
@@ -381,9 +376,7 @@ class SpillPolicy:
         kept_bytes = len(head_text.encode("utf-8")) + len(tail_text.encode("utf-8"))
         omitted_bytes = max(0, raw_bytes - kept_bytes)
 
-        notice = (
-            f"(Omitted {omitted_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
-        )
+        notice = f"(Omitted {omitted_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
 
         if head_text and tail_text:
             preview = f"{head_text}\n...\n{tail_text}"
@@ -403,9 +396,7 @@ class SpillPolicy:
                 head_text = head_text[:-1]
             kept_bytes = len(head_text.encode("utf-8")) + len(tail_text.encode("utf-8"))
             omitted_bytes = max(0, raw_bytes - kept_bytes)
-            notice = (
-                f"(Omitted {omitted_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
-            )
+            notice = f"(Omitted {omitted_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
             if head_text and tail_text:
                 preview = f"{head_text}\n...\n{tail_text}"
                 formatted = f"{preview}\n\n{notice}"

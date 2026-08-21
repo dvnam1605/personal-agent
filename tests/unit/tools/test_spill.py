@@ -2,18 +2,15 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+
 import pytest
 
 from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError, ValidationError
 from app.domain.models import ToolExecutionMetadata, ToolResult
-from app.domain.models.spill import SpillPolicyConfig, SpillRef
+from app.domain.models.spill import SpillPolicyConfig
 from app.services.spill import InMemorySpillStore, LocalFileSpillStore, SpillPolicy
 from app.tools.spill import (
-    SPILL_FETCH_TOOL,
-    SPILL_INFO_TOOL,
-    SPILL_SLICE_TOOL,
-    SPILL_TOOL_DEFINITIONS,
     SpillInspectionTools,
     build_spill_tool_registry,
 )

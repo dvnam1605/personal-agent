@@ -27,9 +27,7 @@ def _tool(
         category=category,
         capabilities=capabilities or [],
         risk_level=(
-            ActionRiskLevel.HIGH_IMPACT_WRITE
-            if is_mutation
-            else ActionRiskLevel.READ_ONLY
+            ActionRiskLevel.HIGH_IMPACT_WRITE if is_mutation else ActionRiskLevel.READ_ONLY
         ),
         is_mutation=is_mutation,
         action_class=action_class,
@@ -57,9 +55,7 @@ def test_filter_by_capability_supports_namespace_and_fine_grained_labels() -> No
         "gmail.search",
         "gmail.send",
     ]
-    assert [tool.name for tool in registry.filter_by_capability("gmail.read")] == [
-        "gmail.search"
-    ]
+    assert [tool.name for tool in registry.filter_by_capability("gmail.read")] == ["gmail.search"]
 
 
 def test_tool_identity_and_capability_labels_are_canonicalized() -> None:
@@ -148,7 +144,6 @@ def test_registry_returns_defensive_copies() -> None:
     assert registry.get("gmail.search").capabilities == ["gmail.read"]
 
 
-
 def test_tool_registry_restriction_allow_and_deny() -> None:
     """Verify ToolRegistry.restrict applies allow and deny constraints."""
     from app.domain.models import ToolRestriction
@@ -231,6 +226,7 @@ def test_future_mock_agents_scale_test() -> None:
 def test_tool_output_spill_triggers_above_threshold_and_preserves_locator() -> None:
     """Verify tool output spill triggers above threshold and preserves locator in tool view execution."""
     from datetime import UTC, datetime
+
     from app.domain.models import ToolExecutionMetadata, ToolResult
     from app.domain.models.spill import SpillPolicyConfig
     from app.services.spill import InMemorySpillStore, SpillPolicy
@@ -265,5 +261,3 @@ def test_tool_output_spill_triggers_above_threshold_and_preserves_locator() -> N
     spills = store.list_spills("session-user-1")
     assert len(spills) == 1
     assert store.read_text(spills[0].locator) == large_output
-
-

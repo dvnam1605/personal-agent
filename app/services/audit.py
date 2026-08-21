@@ -184,10 +184,7 @@ class AuditOutboxService:
         retryable = or_(
             AuditOutbox.status == "pending",
             (AuditOutbox.status == "failed")
-            & (
-                AuditOutbox.next_attempt_at.is_(None)
-                | (AuditOutbox.next_attempt_at <= now)
-            ),
+            & (AuditOutbox.next_attempt_at.is_(None) | (AuditOutbox.next_attempt_at <= now)),
         )
         stmt = (
             select(AuditOutbox)
@@ -207,7 +204,9 @@ class AuditOutboxService:
         return entries
 
     @staticmethod
-    def _projection_model(event_kind: str) -> type[ToolExecution] | type[LLMExecution] | type[AuditEvent]:
+    def _projection_model(
+        event_kind: str,
+    ) -> type[ToolExecution] | type[LLMExecution] | type[AuditEvent]:
         if event_kind == "tool_execution":
             return ToolExecution
         if event_kind == "llm_execution":
@@ -367,7 +366,9 @@ class AuditService:
             "agent_name": _sanitize_column(agent_name, 64),
             "tool_name": _sanitize_column(tool_name, 64) or "unknown",
             "input_parameters": sanitize_payload(input_parameters),
-            "output_summary": sanitize_payload(output_summary) if output_summary is not None else None,
+            "output_summary": sanitize_payload(output_summary)
+            if output_summary is not None
+            else None,
             "success": success,
             "error_message": sanitize_payload(error_message) if error_message is not None else None,
             "latency_ms": latency_ms,

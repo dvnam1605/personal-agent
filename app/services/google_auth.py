@@ -109,9 +109,7 @@ class InMemoryOAuthStateStore:
 
     def _purge(self, now: datetime) -> None:
         expired = [
-            state
-            for state, record in self._states.items()
-            if now - record.issued_at > self._ttl
+            state for state, record in self._states.items() if now - record.issued_at > self._ttl
         ]
         for state in expired:
             self._states.pop(state, None)
@@ -125,6 +123,18 @@ class GoogleScopeValidator:
             {
                 "https://www.googleapis.com/auth/calendar",
                 "https://www.googleapis.com/auth/calendar.readonly",
+            }
+        ),
+        "https://www.googleapis.com/auth/drive": frozenset(
+            {
+                "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/drive.file",
+            }
+        ),
+        "https://www.googleapis.com/auth/drive.file": frozenset(
+            {
+                "https://www.googleapis.com/auth/drive.file",
             }
         ),
     }
@@ -212,12 +222,16 @@ class GoogleTokenSet(BaseModel):
     ) -> GoogleTokenSet:
         access_token = payload.get("access_token")
         if not isinstance(access_token, str) or not access_token.strip():
-            raise ExternalServiceError("Google did not return an access token.", service_name="google")
+            raise ExternalServiceError(
+                "Google did not return an access token.", service_name="google"
+            )
         raw_expires = payload.get("expires_in", 3600)
         try:
             expires_in = max(0, int(raw_expires))
         except (TypeError, ValueError) as exc:
-            raise ExternalServiceError("Google returned an invalid token lifetime.", service_name="google") from exc
+            raise ExternalServiceError(
+                "Google returned an invalid token lifetime.", service_name="google"
+            ) from exc
         raw_scopes = payload.get("scope")
         scopes = GoogleScopeValidator.normalize(raw_scopes) if raw_scopes else []
         if not scopes and fallback_to_requested_scopes:
@@ -362,24 +376,32 @@ class GoogleOAuthClient:
             try:
                 return await self.transport.post(url, **kwargs)
             except (httpx.HTTPError, OSError) as exc:
-                raise ExternalServiceError("Google OAuth request failed.", service_name="google") from exc
+                raise ExternalServiceError(
+                    "Google OAuth request failed.", service_name="google"
+                ) from exc
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 return await client.post(url, **kwargs)
         except (httpx.HTTPError, OSError) as exc:
-            raise ExternalServiceError("Google OAuth request failed.", service_name="google") from exc
+            raise ExternalServiceError(
+                "Google OAuth request failed.", service_name="google"
+            ) from exc
 
     async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
         if self.transport is not None:
             try:
                 return await self.transport.get(url, **kwargs)
             except (httpx.HTTPError, OSError) as exc:
-                raise ExternalServiceError("Google OAuth request failed.", service_name="google") from exc
+                raise ExternalServiceError(
+                    "Google OAuth request failed.", service_name="google"
+                ) from exc
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 return await client.get(url, **kwargs)
         except (httpx.HTTPError, OSError) as exc:
-            raise ExternalServiceError("Google OAuth request failed.", service_name="google") from exc
+            raise ExternalServiceError(
+                "Google OAuth request failed.", service_name="google"
+            ) from exc
 
     @staticmethod
     def _provider_payload(response: httpx.Response, operation: str) -> dict[str, Any]:
@@ -665,21 +687,19 @@ class GoogleOAuthService:
         try:
             return self._get_cipher().decrypt(ciphertext)
         except TokenEncryptionError as exc:
-            raise AuthenticationError("Stored Google credentials are unavailable; reconnect Google.") from exc
+            raise AuthenticationError(
+                "Stored Google credentials are unavailable; reconnect Google."
+            ) from exc
 
     @staticmethod
-    async def _get_integration(
-        session: AsyncSession, user_id: str
-    ) -> GoogleIntegration | None:
+    async def _get_integration(session: AsyncSession, user_id: str) -> GoogleIntegration | None:
         result = await session.execute(
             select(GoogleIntegration).where(GoogleIntegration.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def _ensure_user(
-        session: AsyncSession, user_id: str, email: str | None
-    ) -> User:
+    async def _ensure_user(session: AsyncSession, user_id: str, email: str | None) -> User:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user is None:

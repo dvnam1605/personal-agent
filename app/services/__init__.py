@@ -17,6 +17,7 @@ from app.services.calendar import (
 )
 from app.services.capability_gate import CapabilityGate
 from app.services.communication import CommunicationService, GoogleCommunicationService
+from app.services.drive import DriveService, GoogleDriveService
 from app.services.google_auth import (
     GoogleApiClient,
     GoogleClientFactory,
@@ -46,10 +47,12 @@ __all__ = [
     "CapabilityGate",
     "CalendarService",
     "CommunicationService",
+    "DriveService",
     "GoogleApiClient",
     "GoogleClientFactory",
     "GoogleCalendarService",
     "GoogleCommunicationService",
+    "GoogleDriveService",
     "GoogleIntegrationStatus",
     "GoogleOAuthClient",
     "GoogleOAuthService",

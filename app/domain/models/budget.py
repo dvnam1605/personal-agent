@@ -257,7 +257,9 @@ def evaluate_budget_violations(
                 resource_type="total_tokens",
                 limit=float(budget.max_total_tokens),
                 actual=float(usage.total_tokens),
-                message=(f"Total token limit exceeded: {usage.total_tokens} > {budget.max_total_tokens}"),
+                message=(
+                    f"Total token limit exceeded: {usage.total_tokens} > {budget.max_total_tokens}"
+                ),
             )
         )
 

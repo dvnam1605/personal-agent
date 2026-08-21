@@ -294,4 +294,3 @@ class ToolRestriction(BaseModel):
         if self.allow is None and self.deny is None:
             raise ValueError("ToolRestriction must specify at least 'allow' or 'deny'.")
         return self
-

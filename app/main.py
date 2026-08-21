@@ -139,7 +139,9 @@ def create_app() -> FastAPI:
 
     # Route mounting
     app.include_router(health_router, prefix="")  # Root /health and /ready
-    app.include_router(google_auth_router, prefix="")  # OAuth callback matches local Google client JSON
+    app.include_router(
+        google_auth_router, prefix=""
+    )  # OAuth callback matches local Google client JSON
     app.include_router(api_router, prefix=settings.api_prefix)
 
     return app

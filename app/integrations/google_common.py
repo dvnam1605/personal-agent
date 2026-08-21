@@ -139,8 +139,7 @@ class GoogleResourceAdapter:
 
             if (
                 can_retry
-                and
-                response.status_code in self.retry_policy.retry_statuses
+                and response.status_code in self.retry_policy.retry_statuses
                 and attempt < self.retry_policy.max_attempts
             ):
                 self.last_retry_count = attempt
@@ -178,7 +177,141 @@ class GoogleResourceAdapter:
             details={"operation": operation},
         )
 
+    async def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        operation: str,
+        params: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        retryable: bool | None = None,
+    ) -> tuple[bytes, dict[str, str]]:
+        """Make one bounded request and return the raw response bytes and headers."""
+        url = self._url(path)
+        self.last_retry_count = 0
+        if not self._collect_operation_retries.get():
+            self._operation_retry_count.set(0)
+        can_retry = retryable if retryable is not None else method.upper() in {"GET", "HEAD"}
+        for attempt in range(1, self.retry_policy.max_attempts + 1):
+            try:
+                request_kwargs: dict[str, Any] = {
+                    "params": dict(params) if params else None,
+                }
+                if headers:
+                    request_kwargs["headers"] = dict(headers)
+                response = await self.client.request(
+                    method,
+                    url,
+                    **request_kwargs,
+                )
+            except (httpx.HTTPError, OSError) as exc:
+                if can_retry and attempt < self.retry_policy.max_attempts:
+                    self.last_retry_count = attempt
+                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                    await self.sleep(self.retry_policy.delay_for_retry(attempt))
+                    continue
+                raise ExternalServiceError(
+                    "Google API request failed.",
+                    service_name="google",
+                    details={"operation": operation, "retry_count": attempt - 1},
+                ) from exc
+
+            if (
+                can_retry
+                and response.status_code in self.retry_policy.retry_statuses
+                and attempt < self.retry_policy.max_attempts
+            ):
+                self.last_retry_count = attempt
+                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
+                continue
+
+            if not 200 <= response.status_code < 300:
+                self._raise_provider_error(response, operation, attempt - 1)
+
+            return response.content, dict(response.headers)
+
+        raise ExternalServiceError(
+            "Google API request failed.",
+            service_name="google",
+            details={"operation": operation},
+        )
+
+    async def _request_raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        operation: str,
+        params: Mapping[str, Any] | None = None,
+        content: bytes | str | None = None,
+        json: Any = None,
+        headers: Mapping[str, str] | None = None,
+        retryable: bool | None = None,
+    ) -> httpx.Response:
+        """Make one request with custom payload/headers and return the raw response."""
+        url = self._url(path)
+        self.last_retry_count = 0
+        if not self._collect_operation_retries.get():
+            self._operation_retry_count.set(0)
+        can_retry = (
+            retryable
+            if retryable is not None
+            else method.upper() in {"GET", "HEAD", "PUT", "DELETE"}
+        )
+        for attempt in range(1, self.retry_policy.max_attempts + 1):
+            try:
+                request_kwargs: dict[str, Any] = {
+                    "params": dict(params) if params else None,
+                }
+                if content is not None:
+                    request_kwargs["content"] = content
+                elif json is not None:
+                    request_kwargs["json"] = json
+                if headers:
+                    request_kwargs["headers"] = dict(headers)
+                response = await self.client.request(
+                    method,
+                    url,
+                    **request_kwargs,
+                )
+            except (httpx.HTTPError, OSError) as exc:
+                if can_retry and attempt < self.retry_policy.max_attempts:
+                    self.last_retry_count = attempt
+                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                    await self.sleep(self.retry_policy.delay_for_retry(attempt))
+                    continue
+                raise ExternalServiceError(
+                    "Google API request failed.",
+                    service_name="google",
+                    details={"operation": operation, "retry_count": attempt - 1},
+                ) from exc
+
+            if (
+                can_retry
+                and response.status_code in self.retry_policy.retry_statuses
+                and attempt < self.retry_policy.max_attempts
+            ):
+                self.last_retry_count = attempt
+                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
+                continue
+
+            if not 200 <= response.status_code < 300:
+                self._raise_provider_error(response, operation, attempt - 1)
+
+            return response
+
+        raise ExternalServiceError(
+            "Google API request failed.",
+            service_name="google",
+            details={"operation": operation},
+        )
+
     def _url(self, path: str) -> str:
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.client.base_url.rstrip('/')}{normalized_path}"
 

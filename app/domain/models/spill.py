@@ -1,7 +1,6 @@
 """Domain models for tool output spill storage, preview retention, and locators."""
 
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 

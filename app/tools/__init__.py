@@ -13,6 +13,12 @@ from app.tools.google_communication import (
     build_communication_tool_registry,
     communication_tool_definitions,
 )
+from app.tools.google_drive import (
+    DRIVE_TOOL_DEFINITIONS,
+    GoogleDriveTools,
+    build_drive_tool_registry,
+    drive_tool_definitions,
+)
 from app.tools.registry import (
     MutationClassifier,
     ReadOnlyToolRegistry,
@@ -34,8 +40,10 @@ __all__ = [
     "MutationClassifier",
     "COMMUNICATION_TOOL_DEFINITIONS",
     "CALENDAR_TOOL_DEFINITIONS",
+    "DRIVE_TOOL_DEFINITIONS",
     "GoogleCalendarTools",
     "GoogleCommunicationTools",
+    "GoogleDriveTools",
     "ReadOnlyToolRegistry",
     "SPILL_FETCH_TOOL",
     "SPILL_INFO_TOOL",
@@ -49,8 +57,10 @@ __all__ = [
     "ToolRestriction",
     "build_communication_tool_registry",
     "build_calendar_tool_registry",
+    "build_drive_tool_registry",
     "build_spill_tool_registry",
     "capability_matches",
     "communication_tool_definitions",
     "calendar_tool_definitions",
+    "drive_tool_definitions",
 ]

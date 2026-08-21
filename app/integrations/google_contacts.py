@@ -82,7 +82,9 @@ def _contact_from_payload(payload: object) -> Contact:
         return Contact(
             resource_name=resource_name,
             etag=data.get("etag") if isinstance(data.get("etag"), str) else None,
-            display_name=name.get("displayName") if isinstance(name.get("displayName"), str) else None,
+            display_name=name.get("displayName")
+            if isinstance(name.get("displayName"), str)
+            else None,
             given_name=name.get("givenName") if isinstance(name.get("givenName"), str) else None,
             family_name=name.get("familyName") if isinstance(name.get("familyName"), str) else None,
             emails=emails,
@@ -157,7 +159,9 @@ class ContactsAdapter(GoogleResourceAdapter):
             contacts.append(_contact_from_payload(person))
         return ContactPage(
             items=self._deduplicate(contacts),
-            next_page_token=data.get("nextPageToken") if isinstance(data.get("nextPageToken"), str) else None,
+            next_page_token=data.get("nextPageToken")
+            if isinstance(data.get("nextPageToken"), str)
+            else None,
             result_size_estimate=(
                 data.get("totalItems") if isinstance(data.get("totalItems"), int) else None
             ),
