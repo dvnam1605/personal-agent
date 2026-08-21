@@ -30,6 +30,11 @@ class ExecutionBudget(BaseModel):
         ge=0,
         description="Maximum replanning/delegation loops for the Supervisor.",
     )
+    max_delegation_depth: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum delegation chain depth allowed.",
+    )
     timeout_seconds: float = Field(
         default=30.0,
         gt=0.0,
@@ -67,6 +72,7 @@ class BudgetUsage(BaseModel):
     tool_calls: int = Field(default=0, ge=0)
     react_steps: int = Field(default=0, ge=0)
     supervisor_iterations: int = Field(default=0, ge=0)
+    delegation_depth: int = Field(default=0, ge=0)
     elapsed_seconds: float = Field(default=0.0, ge=0.0)
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
@@ -96,6 +102,13 @@ class BudgetUsage(BaseModel):
         if count <= 0:
             raise ValueError(f"Increment count must be positive, got {count}.")
         self.supervisor_iterations += count
+
+    def record_delegation_depth(self, depth: int) -> None:
+        """Record or update current maximum delegation depth."""
+        if depth < 0:
+            raise ValueError(f"Delegation depth must be non-negative, got {depth}.")
+        if depth > self.delegation_depth:
+            self.delegation_depth = depth
 
     def record_llm_metrics(
         self,
@@ -187,6 +200,19 @@ def evaluate_budget_violations(
             )
         )
 
+    if usage.delegation_depth > budget.max_delegation_depth:
+        violations.append(
+            BudgetViolation(
+                resource_type="delegation_depth",
+                limit=float(budget.max_delegation_depth),
+                actual=float(usage.delegation_depth),
+                message=(
+                    f"Delegation depth limit exceeded: "
+                    f"{usage.delegation_depth} > {budget.max_delegation_depth}"
+                ),
+            )
+        )
+
     if usage.elapsed_seconds > budget.timeout_seconds:
         violations.append(
             BudgetViolation(
@@ -231,7 +257,9 @@ def evaluate_budget_violations(
                 resource_type="total_tokens",
                 limit=float(budget.max_total_tokens),
                 actual=float(usage.total_tokens),
-                message=(f"Total token limit exceeded: {usage.total_tokens} > {budget.max_total_tokens}"),
+                message=(
+                    f"Total token limit exceeded: {usage.total_tokens} > {budget.max_total_tokens}"
+                ),
             )
         )
 

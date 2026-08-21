@@ -49,9 +49,7 @@ class User(Base, TimestampMixin):
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -77,9 +75,7 @@ class GoogleIntegration(Base, TimestampMixin):
 
     __tablename__ = "google_integrations"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -107,9 +103,7 @@ class Conversation(Base, TimestampMixin):
 
     __tablename__ = "conversations"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
@@ -132,9 +126,7 @@ class AssistantRun(Base, TimestampMixin):
 
     __tablename__ = "assistant_runs"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("conversations.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -180,7 +172,9 @@ class AssistantRun(Base, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="runs")
-    conversation: Mapped["Conversation | None"] = relationship("Conversation", back_populates="runs")
+    conversation: Mapped["Conversation | None"] = relationship(
+        "Conversation", back_populates="runs"
+    )
     tool_executions: Mapped[list["ToolExecution"]] = relationship(
         "ToolExecution", back_populates="run", cascade="all, delete-orphan"
     )
@@ -223,9 +217,7 @@ class Message(Base):
 
     __tablename__ = "messages"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     conversation_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("conversations.id"), nullable=False
     )
@@ -259,9 +251,7 @@ class Entity(Base, TimestampMixin):
 
     __tablename__ = "entities"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     canonical_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -282,9 +272,7 @@ class Memory(Base, TimestampMixin):
 
     __tablename__ = "memories"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     memory_type: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -306,9 +294,7 @@ class Document(Base, TimestampMixin):
 
     __tablename__ = "documents"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     logical_document_id: Mapped[str] = mapped_column(
         String(36), default=lambda: str(uuid.uuid4()), nullable=False
@@ -358,12 +344,8 @@ class DocumentChunk(Base):
 
     __tablename__ = "document_chunks"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("documents.id"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     hierarchy_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     node_type: Mapped[str] = mapped_column(String(32), default="chunk", nullable=False)
@@ -398,9 +380,7 @@ class DocumentChunk(Base):
     parent: Mapped["DocumentChunk | None"] = relationship(
         "DocumentChunk", remote_side="DocumentChunk.id", back_populates="children"
     )
-    children: Mapped[list["DocumentChunk"]] = relationship(
-        "DocumentChunk", back_populates="parent"
-    )
+    children: Mapped[list["DocumentChunk"]] = relationship("DocumentChunk", back_populates="parent")
 
     __table_args__ = (Index("ix_chunks_doc_idx", "document_id", "chunk_index"),)
 
@@ -414,9 +394,7 @@ class ToolExecution(Base):
 
     __tablename__ = "tool_executions"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     outbox_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("assistant_runs.id"), nullable=False)
     agent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -453,9 +431,7 @@ class LLMExecution(Base):
 
     __tablename__ = "llm_executions"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     outbox_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("assistant_runs.id"), nullable=False)
     agent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -493,9 +469,7 @@ class ApprovalRequest(Base):
 
     __tablename__ = "approval_requests"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("assistant_runs.id"), nullable=False)
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -560,9 +534,7 @@ class AuditEvent(Base):
 
     __tablename__ = "audit_events"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     outbox_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
     run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("assistant_runs.id"), nullable=True
@@ -598,9 +570,7 @@ class AuditOutbox(Base):
 
     __tablename__ = "audit_outbox"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("assistant_runs.id"), nullable=True
     )
@@ -645,9 +615,7 @@ class Skill(Base, TimestampMixin):
 
     __tablename__ = "skills"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     version: Mapped[str] = mapped_column(String(16), default="1.0.0", nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -661,9 +629,7 @@ class WorkflowRun(Base):
 
     __tablename__ = "workflow_runs"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("assistant_runs.id"), nullable=False)
     workflow_name: Mapped[str] = mapped_column(String(64), nullable=False)
     workflow_version: Mapped[str] = mapped_column(String(16), default="1.0.0", nullable=False)

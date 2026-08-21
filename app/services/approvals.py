@@ -187,11 +187,7 @@ class ApprovalRequestService:
             raise ValueError(f"Unknown approval status: {request.status}")
         current_time = _utc(now) or datetime.now(UTC)
         expires_at = _utc(request.expires_at)
-        if (
-            request.status == "pending"
-            and expires_at is not None
-            and expires_at <= current_time
-        ):
+        if request.status == "pending" and expires_at is not None and expires_at <= current_time:
             _validate_approval_transition(request.status, "expired")
             request.status = "expired"
             request.approved = False
@@ -216,19 +212,13 @@ class ApprovalRequestService:
         if not approver_id.strip():
             raise ValueError("approver_id is required")
         request = await session.scalar(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == approval_id)
-            .with_for_update()
+            select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
         )
         if request is None:
             raise ValueError(f"Approval request not found: {approval_id}")
         current_time = _utc(now) or datetime.now(UTC)
         expires_at = _utc(request.expires_at)
-        if (
-            request.status == "pending"
-            and expires_at is not None
-            and expires_at <= current_time
-        ):
+        if request.status == "pending" and expires_at is not None and expires_at <= current_time:
             _validate_approval_transition(request.status, "expired")
             request.status = "expired"
             request.approved = False

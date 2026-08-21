@@ -250,7 +250,9 @@ class RunPersistenceService:
         run.total_latency_ms = total_latency_ms
         run.completed_at = datetime.now(UTC)
         run.updated_at = datetime.now(UTC)
-        run.error_summary = sanitize_payload(error_summary, max_string_len=1000) if error_summary else None
+        run.error_summary = (
+            sanitize_payload(error_summary, max_string_len=1000) if error_summary else None
+        )
         run.prompt_tokens = prompt_tokens
         run.completion_tokens = completion_tokens
         run.total_tokens = total_tokens

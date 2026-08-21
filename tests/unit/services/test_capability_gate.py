@@ -24,9 +24,7 @@ def _tool(
         category=category,
         capabilities=capabilities,
         risk_level=(
-            ActionRiskLevel.HIGH_IMPACT_WRITE
-            if is_mutation
-            else ActionRiskLevel.READ_ONLY
+            ActionRiskLevel.HIGH_IMPACT_WRITE if is_mutation else ActionRiskLevel.READ_ONLY
         ),
         is_mutation=is_mutation,
         action_class=action_class,
@@ -91,7 +89,13 @@ def test_research_read_only_mock_cannot_retrieve_mutation_by_name() -> None:
     tools = ToolRegistry(
         [
             _tool("knowledge.search", category="knowledge", capabilities=["knowledge.read"]),
-            _tool("drive.delete", category="drive", capabilities=["drive.delete"], is_mutation=True, action_class=ActionClass.DESTRUCTIVE),
+            _tool(
+                "drive.delete",
+                category="drive",
+                capabilities=["drive.delete"],
+                is_mutation=True,
+                action_class=ActionClass.DESTRUCTIVE,
+            ),
         ]
     )
     agents = AgentRegistry(

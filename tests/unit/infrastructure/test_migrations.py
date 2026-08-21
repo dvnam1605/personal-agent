@@ -14,7 +14,9 @@ from app.core.config import settings
 from app.infrastructure.db.base import Base
 
 
-def test_alembic_upgrade_head_creates_hardened_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_alembic_upgrade_head_creates_hardened_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Exercise the actual Alembic upgrade path through the P5 schema revision."""
     database_path = tmp_path / "p5_migration.db"
     monkeypatch.setattr(settings.database, "url", f"sqlite+aiosqlite:///{database_path.as_posix()}")

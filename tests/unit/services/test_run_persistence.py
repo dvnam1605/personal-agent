@@ -120,7 +120,9 @@ async def test_full_run_lifecycle_persistence(db_session: AsyncSession) -> None:
 
     delivered = await AuditOutboxService.deliver_pending(db_session, run_id=run_id)
     assert delivered == 2
-    assert (await db_session.execute(select(ToolExecution))).scalar_one().tool_name == "calendar.create_event"
+    assert (
+        await db_session.execute(select(ToolExecution))
+    ).scalar_one().tool_name == "calendar.create_event"
     assert (await db_session.execute(select(LLMExecution))).scalar_one().total_tokens == 600
 
     # 5. Complete Run
@@ -214,7 +216,9 @@ async def test_audit_outbox_projection_is_idempotent(db_session: AsyncSession) -
 
 
 @pytest.mark.asyncio
-async def test_waiting_approval_checkpoint_and_terminal_transition_rules(db_session: AsyncSession) -> None:
+async def test_waiting_approval_checkpoint_and_terminal_transition_rules(
+    db_session: AsyncSession,
+) -> None:
     """Verify pause checkpoints persist and terminal states can only be written through completion."""
     user = User(email="checkpoint_user@example.com")
     db_session.add(user)

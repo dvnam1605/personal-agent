@@ -8,3 +8,5 @@ __pycache__/
 .pyright/
 .venv/
 plan/
+.coverage
+deepseek-harness/

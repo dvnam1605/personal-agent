@@ -61,10 +61,7 @@ class AgentRegistry:
         """List one agent's capabilities or a catalog for all registered agents."""
         if agent_name is not None:
             return list(self.get(agent_name).capabilities)
-        return {
-            name: list(agent.capabilities)
-            for name, agent in self._agents.items()
-        }
+        return {name: list(agent.capabilities) for name, agent in self._agents.items()}
 
     def __contains__(self, agent_name: object) -> bool:
         return agent_name in self._agents

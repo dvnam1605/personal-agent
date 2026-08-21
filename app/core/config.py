@@ -47,9 +47,7 @@ class LLMProviderSettings(BaseModel):
 class GoogleOAuthSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    client_id: str | None = Field(
-        default=None, repr=False, description="Google OAuth Client ID"
-    )
+    client_id: str | None = Field(default=None, repr=False, description="Google OAuth Client ID")
     client_secret: str | None = Field(
         default=None, repr=False, exclude=True, description="Google OAuth Client Secret"
     )
@@ -244,9 +242,7 @@ class Settings(BaseSettings):
     google_client_secrets_file: str | None = Field(default=None, repr=False, exclude=True)
     google_redirect_uri: str | None = Field(default=None, repr=False, exclude=True)
     google_token_encryption_key: str | None = Field(default=None, repr=False, exclude=True)
-    google_token_encryption_key_file: str | None = Field(
-        default=None, repr=False, exclude=True
-    )
+    google_token_encryption_key_file: str | None = Field(default=None, repr=False, exclude=True)
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)

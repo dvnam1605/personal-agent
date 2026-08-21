@@ -97,9 +97,7 @@ class CapabilityGate:
         # An explicit category is authoritative. The name namespace is only a
         # fallback for legacy declarations that omit category metadata.
         candidates = (
-            (tool.tool_category,)
-            if tool.category is not None
-            else (tool.tool_category, tool.name)
+            (tool.tool_category,) if tool.category is not None else (tool.tool_category, tool.name)
         )
         return any(
             capability_matches(pattern, candidate)

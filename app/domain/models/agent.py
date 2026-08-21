@@ -79,6 +79,26 @@ class AgentDefinition(BaseModel):
         default=ExecutionMode.DIRECT,
         description="Default specialist execution mode for this agent role.",
     )
+    delegation_allowed: bool = Field(
+        default=True,
+        description="Whether this agent is permitted to delegate tasks to sub-agents.",
+    )
+    max_child_depth: int | None = Field(
+        default=3,
+        description="Maximum child delegation depth allowed for this agent.",
+    )
+    inherits_parent_tools: bool = Field(
+        default=False,
+        description="Whether delegated child executions inherit parent tool scopes.",
+    )
+
+    @field_validator("max_child_depth", mode="after")
+    @classmethod
+    def validate_child_depth(cls, value: int | None) -> int | None:
+        """Ensure max_child_depth is non-negative when configured."""
+        if value is not None and value < 0:
+            raise ValueError("max_child_depth must be non-negative.")
+        return value
 
     @field_validator("name", "description", mode="after")
     @classmethod
@@ -99,6 +119,49 @@ class AgentDefinition(BaseModel):
                 raise ValueError("Agent capability values cannot be blank.")
             if item not in normalized:
                 normalized.append(item)
+        return normalized
+
+
+class DelegationContext(BaseModel):
+    """Frozen execution scope and policy boundaries for delegated agent activation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    parent_agent: str = Field(
+        ...,
+        min_length=1,
+        description="Identifier of the delegating parent agent.",
+    )
+    target_agent: str = Field(
+        ...,
+        min_length=1,
+        description="Identifier of the delegated child agent.",
+    )
+    delegation_depth: int = Field(
+        default=0,
+        ge=0,
+        description="Current depth in the delegation hierarchy.",
+    )
+    allowed_tools: list[str] = Field(
+        default_factory=list,
+        description="Restricted subset of tools explicitly permitted for the child.",
+    )
+    read_only: bool = Field(
+        default=False,
+        description="Whether the child is restricted strictly to read-only tools.",
+    )
+    policy_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Inherited or scoped policy constraints.",
+    )
+
+    @field_validator("parent_agent", "target_agent", mode="after")
+    @classmethod
+    def reject_blank_agent_names(cls, value: str) -> str:
+        """Reject blank agent identifiers in delegation context."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Agent names in DelegationContext cannot be blank.")
         return normalized
 
 
@@ -196,4 +259,18 @@ class AgentResult(BaseModel):
     capability_requests: list[CapabilityRequest] = Field(
         default_factory=list,
         description="Requests for capabilities outside this agent's boundary.",
+    )
+
+
+class DelegationResult(AgentResult):
+    """Extended result for delegated execution turns, tracking approval and chain depth."""
+
+    needs_approval: bool = Field(
+        default=False,
+        description="Whether delegated execution paused awaiting user/policy approval.",
+    )
+    delegation_depth: int = Field(
+        default=0,
+        ge=0,
+        description="Delegation depth at which this result was produced.",
     )

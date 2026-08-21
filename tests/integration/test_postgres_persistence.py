@@ -64,50 +64,51 @@ async def test_postgres_migration_contract(pg_session: AsyncSession) -> None:
     """Run the real Alembic path and validate P3 contracts plus P5 Google storage."""
     assert await pg_session.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")) == 1
     assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
-    assert await pg_session.scalar(
-        text("SELECT to_regclass('google_integrations')")
-    ) == "google_integrations"
+    assert (
+        await pg_session.scalar(text("SELECT to_regclass('google_integrations')"))
+        == "google_integrations"
+    )
 
     columns = set(
-        (await pg_session.execute(
-            text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'assistant_runs'"
+        (
+            await pg_session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'assistant_runs'"
+                )
             )
-        )).scalars()
+        ).scalars()
     )
     assert {"state_version", "status", "completed_at"}.issubset(columns)
 
     indexes = set(
-        (await pg_session.execute(
-            text("SELECT indexname FROM pg_indexes WHERE tablename = 'audit_outbox'")
-        )).scalars()
+        (
+            await pg_session.execute(
+                text("SELECT indexname FROM pg_indexes WHERE tablename = 'audit_outbox'")
+            )
+        ).scalars()
     )
     assert {"ix_audit_outbox_pending", "ix_audit_outbox_run"}.issubset(indexes)
 
     constraints = set(
-        (await pg_session.execute(
-            text(
-                "SELECT conname FROM pg_constraint "
-                "WHERE conrelid = 'document_chunks'::regclass"
+        (
+            await pg_session.execute(
+                text(
+                    "SELECT conname FROM pg_constraint WHERE conrelid = 'document_chunks'::regclass"
+                )
             )
-        )).scalars()
+        ).scalars()
     )
     assert "fk_document_chunks_parent_id" in constraints
 
     document_constraints = set(
         (
             await pg_session.execute(
-                text(
-                    "SELECT conname FROM pg_constraint "
-                    "WHERE conrelid = 'documents'::regclass"
-                )
+                text("SELECT conname FROM pg_constraint WHERE conrelid = 'documents'::regclass")
             )
         ).scalars()
     )
-    assert {"ck_documents_status", "ck_documents_version_positive"}.issubset(
-        document_constraints
-    )
+    assert {"ck_documents_status", "ck_documents_version_positive"}.issubset(document_constraints)
     approval_constraints = set(
         (
             await pg_session.execute(

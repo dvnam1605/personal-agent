@@ -27,9 +27,7 @@ def _tool(
         category=category,
         capabilities=capabilities or [],
         risk_level=(
-            ActionRiskLevel.HIGH_IMPACT_WRITE
-            if is_mutation
-            else ActionRiskLevel.READ_ONLY
+            ActionRiskLevel.HIGH_IMPACT_WRITE if is_mutation else ActionRiskLevel.READ_ONLY
         ),
         is_mutation=is_mutation,
         action_class=action_class,
@@ -57,9 +55,7 @@ def test_filter_by_capability_supports_namespace_and_fine_grained_labels() -> No
         "gmail.search",
         "gmail.send",
     ]
-    assert [tool.name for tool in registry.filter_by_capability("gmail.read")] == [
-        "gmail.search"
-    ]
+    assert [tool.name for tool in registry.filter_by_capability("gmail.read")] == ["gmail.search"]
 
 
 def test_tool_identity_and_capability_labels_are_canonicalized() -> None:
@@ -146,3 +142,122 @@ def test_registry_returns_defensive_copies() -> None:
     returned.capabilities.append("dangerous.local_mutation")
 
     assert registry.get("gmail.search").capabilities == ["gmail.read"]
+
+
+def test_tool_registry_restriction_allow_and_deny() -> None:
+    """Verify ToolRegistry.restrict applies allow and deny constraints."""
+    from app.domain.models import ToolRestriction
+
+    registry = ToolRegistry(
+        [
+            _tool("gmail.search", capabilities=["gmail.read"]),
+            _tool(
+                "gmail.send",
+                capabilities=["gmail.send"],
+                is_mutation=True,
+                action_class=ActionClass.EXTERNAL_COMMUNICATION,
+            ),
+            _tool("calendar.list", capabilities=["calendar.read"]),
+            _tool(
+                "calendar.create",
+                capabilities=["calendar.write"],
+                is_mutation=True,
+                action_class=ActionClass.SAFE_WRITE,
+            ),
+        ]
+    )
+
+    # Allow gmail.* only
+    scoped = registry.restrict(ToolRestriction(allow=["gmail.*"]))
+    assert scoped.tool_names == ("gmail.search", "gmail.send")
+    assert "calendar.list" in scoped.restricted_tool_names
+
+    # Restricted tool rejected with PermissionDeniedError
+    with pytest.raises(PermissionDeniedError, match="restricted"):
+        scoped.get("calendar.list", agent_name="MockAgent")
+
+    # Unknown tool raises NotFoundError
+    with pytest.raises(NotFoundError):
+        scoped.get("nonexistent.tool")
+
+    # Deny mutations
+    scoped_no_mutations = scoped.restrict(ToolRestriction(deny=["gmail.send"]))
+    assert scoped_no_mutations.tool_names == ("gmail.search",)
+    with pytest.raises(PermissionDeniedError):
+        scoped_no_mutations.get("gmail.send", agent_name="MockAgent")
+
+
+def test_future_mock_agents_scale_test() -> None:
+    """Verify registry accepts mock future agents like TaskAgent and TravelAgent without architecture changes."""
+    from app.agents import AgentRegistry
+    from app.domain.enums import Domain
+    from app.domain.models import AgentDefinition
+
+    agent_registry = AgentRegistry()
+
+    task_agent = AgentDefinition(
+        name="TaskAgent",
+        description="Mock future task management agent",
+        domain=Domain.SYSTEM,
+        capabilities=["task.create", "task.list"],
+        allowed_tool_categories=["tasks"],
+        delegation_allowed=True,
+        max_child_depth=2,
+    )
+    travel_agent = AgentDefinition(
+        name="TravelAgent",
+        description="Mock future travel specialist agent",
+        domain=Domain.GENERAL,
+        capabilities=["flights.search", "hotels.book"],
+        allowed_tool_categories=["travel"],
+        delegation_allowed=False,
+        max_child_depth=0,
+    )
+
+    agent_registry.register(task_agent)
+    agent_registry.register(travel_agent)
+
+    assert "TaskAgent" in agent_registry
+    assert "TravelAgent" in agent_registry
+    assert agent_registry.get("TaskAgent").delegation_allowed is True
+    assert agent_registry.get("TravelAgent").delegation_allowed is False
+
+
+def test_tool_output_spill_triggers_above_threshold_and_preserves_locator() -> None:
+    """Verify tool output spill triggers above threshold and preserves locator in tool view execution."""
+    from datetime import UTC, datetime
+
+    from app.domain.models import ToolExecutionMetadata, ToolResult
+    from app.domain.models.spill import SpillPolicyConfig
+    from app.services.spill import InMemorySpillStore, SpillPolicy
+
+    store = InMemorySpillStore()
+    policy = SpillPolicy(store, SpillPolicyConfig(max_inline_bytes=256))
+
+    large_output = "Line item " * 50  # ~500 bytes
+    tool_result = ToolResult(
+        tool_name="gmail.list_messages",
+        success=True,
+        output=large_output,
+        metadata=ToolExecutionMetadata(
+            tool_name="gmail.list_messages",
+            latency_ms=10.0,
+            timestamp=datetime.now(UTC),
+        ),
+    )
+
+    processed = policy.process_tool_result(
+        tool_result,
+        session_id="session-user-1",
+        call_id="call-99",
+    )
+
+    # Replaced output has preview and locator
+    assert isinstance(processed.output, str)
+    assert "spill://session-user-1/" in processed.output
+    assert "Omitted" in processed.output
+
+    # The persisted artifact exists in store and full output matches
+    spills = store.list_spills("session-user-1")
+    assert len(spills) == 1
+    assert store.read_text(spills[0].locator) == large_output

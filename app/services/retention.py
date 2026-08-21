@@ -128,7 +128,9 @@ class RetentionService:
                 )
             )
             deleted["assistant_runs"] = _row_count(
-                await session.execute(delete(AssistantRun).where(AssistantRun.id.in_(expired_run_ids)))
+                await session.execute(
+                    delete(AssistantRun).where(AssistantRun.id.in_(expired_run_ids))
+                )
             )
         else:
             deleted.update(messages=0, workflow_runs=0, approval_requests=0, assistant_runs=0)

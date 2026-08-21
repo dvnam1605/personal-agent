@@ -1,10 +1,15 @@
 """Unit tests for Agent communication contracts."""
 
-from app.domain.enums import EvidenceType, TaskStatus
+import pytest
+
+from app.domain.enums import Domain, EvidenceType, TaskStatus
 from app.domain.models import (
+    AgentDefinition,
     AgentRequest,
     AgentResult,
     CapabilityRequest,
+    DelegationContext,
+    DelegationResult,
     EvidenceItem,
     EvidenceSource,
     ExecutionBudget,
@@ -78,3 +83,56 @@ def test_agent_result_with_tasks_and_evidence() -> None:
     assert len(agent_res.task_results) == 1
     assert agent_res.task_results[0].status == TaskStatus.COMPLETED
     assert len(agent_res.new_evidence) == 1
+
+
+def test_delegation_context_and_result() -> None:
+    """Verify DelegationContext frozen scoping and DelegationResult approval status."""
+    ctx = DelegationContext(
+        parent_agent="Supervisor",
+        target_agent="CommunicationAgent",
+        delegation_depth=1,
+        allowed_tools=["gmail.search"],
+        read_only=True,
+    )
+    assert ctx.parent_agent == "Supervisor"
+    assert ctx.target_agent == "CommunicationAgent"
+    assert ctx.delegation_depth == 1
+    assert ctx.allowed_tools == ["gmail.search"]
+    assert ctx.read_only is True
+
+    # Blank agent names are rejected
+    with pytest.raises(ValueError):
+        DelegationContext(parent_agent=" ", target_agent="CommAgent")
+
+    # DelegationResult extends AgentResult
+    del_res = DelegationResult(
+        agent_name="CommunicationAgent",
+        success=True,
+        output="Done",
+        needs_approval=True,
+        delegation_depth=1,
+    )
+    assert del_res.needs_approval is True
+    assert del_res.delegation_depth == 1
+    assert del_res.success is True
+
+    # AgentDefinition delegation policy metadata
+    agent_def = AgentDefinition(
+        name="CommunicationAgent",
+        description="Handles email and contacts",
+        domain=Domain.COMMUNICATION,
+        delegation_allowed=True,
+        max_child_depth=2,
+        inherits_parent_tools=False,
+    )
+    assert agent_def.delegation_allowed is True
+    assert agent_def.max_child_depth == 2
+    assert agent_def.inherits_parent_tools is False
+
+    with pytest.raises(ValueError, match="max_child_depth must be non-negative"):
+        AgentDefinition(
+            name="BadAgent",
+            description="Bad agent",
+            domain=Domain.COMMUNICATION,
+            max_child_depth=-1,
+        )
