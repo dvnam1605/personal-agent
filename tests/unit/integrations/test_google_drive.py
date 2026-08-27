@@ -99,8 +99,18 @@ def test_validate_identifier_and_page_size_edge_cases() -> None:
     # Valid identifier
     assert _validate_identifier("valid-id_123", "id") == "valid-id_123"
 
-    # Reject / \ ? # ..
-    for invalid in ["folder/path", "folder\\path", "id?query", "id#frag", "../parent", "   ", ""]:
+    # Reject / \ ? # ' " ..
+    for invalid in [
+        "folder/path",
+        "folder\\path",
+        "id?query",
+        "id#frag",
+        "../parent",
+        "   ",
+        "",
+        "id' or 'a'='a",  # Drive q single-quote injection
+        'id"quote',
+    ]:
         with pytest.raises(DomainValidationError, match="Invalid Google Drive"):
             _validate_identifier(invalid, "test")
 

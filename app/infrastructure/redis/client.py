@@ -122,8 +122,10 @@ class RedisManager:
     ) -> bool:
         """Atomically reserve non-refilling run budget capacity across workers.
 
-        The Lua script performs every limit check before incrementing any counter. Redis errors
-        intentionally propagate so callers can deny the new call rather than use local state.
+        The Lua script performs every limit check before incrementing any counter. The key TTL
+        is refreshed on every successful reservation (sliding window), so long-running runs
+        cannot lose their accumulated counters mid-execution. Redis errors intentionally
+        propagate so callers can deny the new call rather than use local state.
         """
         if ttl_seconds <= 0:
             raise ValueError("Budget reservation TTL must be positive.")
@@ -131,7 +133,6 @@ class RedisManager:
             raise ValueError("Budget reservation values must be non-negative.")
 
         lua = """
-        local key_exists = redis.call('EXISTS', KEYS[1])
         for i = 2, #ARGV, 3 do
             local field = ARGV[i]
             local requested = tonumber(ARGV[i + 1])
@@ -144,9 +145,7 @@ class RedisManager:
         for i = 2, #ARGV, 3 do
             redis.call('HINCRBY', KEYS[1], ARGV[i], tonumber(ARGV[i + 1]))
         end
-        if key_exists == 0 then
-            redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
-        end
+        redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
         return 1
         """
         arguments: list[str | int] = [ttl_seconds]

@@ -9,12 +9,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.core.sanitization import sanitize_string
 from app.domain.enums import RunStatus
 from app.domain.models import AssistantState, BudgetUsage
 from app.infrastructure.db.models import AssistantRun
 from app.services.audit import AuditOutboxService, create_sanitized_state_snapshot, sanitize_payload
 
 logger = structlog.get_logger(__name__)
+
+
+def _bounded_text(value: str | None, max_len: int) -> str | None:
+    """Sanitize and hard-truncate an internal bounded column value."""
+    if value is None:
+        return None
+    return sanitize_string(value, max_len)[:max_len] or None
+
 
 TERMINAL_STATUSES = {
     RunStatus.COMPLETED.value,
@@ -82,21 +91,21 @@ class RunPersistenceService:
         """Create and persist a new running execution record with sanitized inputs."""
         clean_request = sanitize_payload(request, max_string_len=2000)
         clean_goal = sanitize_payload(goal, max_string_len=1000) if goal else None
-
+        clean_domains = [sanitized for item in domains if (sanitized := _bounded_text(item, 64))]
         run = AssistantRun(
             id=run_id,
             session_id=session_id,
             user_id=user_id,
-            correlation_id=correlation_id,
+            correlation_id=_bounded_text(correlation_id, 64) or "unknown",
             langsmith_trace_id=langsmith_trace_id,
             langsmith_run_id=langsmith_run_id,
             request=clean_request,
             goal=clean_goal,
-            route_type=route_type,
-            domains=domains,
-            complexity=complexity,
-            workflow_name=workflow_name,
-            active_skill=active_skill,
+            route_type=_bounded_text(route_type, 32) or "unknown",
+            domains=clean_domains,
+            complexity=_bounded_text(complexity, 32) or "unknown",
+            workflow_name=_bounded_text(workflow_name, 64),
+            active_skill=_bounded_text(active_skill, 64),
             status=RunStatus.RUNNING.value,
             telemetry_degraded=False,
             created_at=datetime.now(UTC),

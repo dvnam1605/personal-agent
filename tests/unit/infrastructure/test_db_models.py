@@ -191,8 +191,8 @@ async def test_future_phase_tables_structure(async_session: AsyncSession) -> Non
         user_id=user.id,
         memory_type="preference",
         content="Prefers 30-min meetings",
-        embedding_model="text-embedding-3-large",
-        embedding_dimensions=1536,
+        embedding_model="AITeamVN/Vietnamese_Embedding",
+        embedding_dimensions=1024,
     )
     doc = Document(
         user_id=user.id,
@@ -211,8 +211,8 @@ async def test_future_phase_tables_structure(async_session: AsyncSession) -> Non
         heading_path=["Architecture"],
         content_raw="Architecture design overview...",
         content_embedding_text="Architecture design overview...",
-        embedding_model="text-embedding-3-large",
-        embedding_dimensions=1536,
+        embedding_model="AITeamVN/Vietnamese_Embedding",
+        embedding_dimensions=1024,
     )
     approval = ApprovalRequest(
         run_id=run.id,
@@ -242,7 +242,7 @@ async def test_future_phase_tables_structure(async_session: AsyncSession) -> Non
 
     assert entity.id is not None
     assert memory.id is not None
-    assert memory.embedding_model == "text-embedding-3-large"
+    assert memory.embedding_model == "AITeamVN/Vietnamese_Embedding"
     assert doc.id is not None
     assert doc.metadata_["access_token"] == "[REDACTED_SECRET]"
     assert doc.logical_document_id is not None

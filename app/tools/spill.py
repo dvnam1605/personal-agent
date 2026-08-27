@@ -3,26 +3,33 @@
 from typing import Any
 
 from app.domain.enums import ActionClass, ActionRiskLevel
-from app.domain.errors import NotFoundError, ValidationError
+from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationError
 from app.domain.models.tool import ToolDefinition
 from app.services.spill import SpillStore
 from app.tools.registry import ToolRegistry
+
+SPILL_LOCATOR_SCHEMA = {
+    "type": "string",
+    "description": "The spill locator URI of the artifact (e.g. 'spill://session/artifact_id').",
+}
+SPILL_SESSION_SCHEMA = {
+    "type": "string",
+    "description": "Session ID of the caller; the locator must belong to this session.",
+}
 
 SPILL_SLICE_TOOL = ToolDefinition(
     name="spill.slice",
     description=(
         "Fetch a slice of an oversized tool output that was spilled to storage. "
-        "Specify the locator string, character offset, and character limit."
+        "Specify the session ID, the locator string, character offset, and character limit."
     ),
     category="spill",
     capabilities=["spill.read", "system.spill"],
     parameters_schema={
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": "The spill locator URI (e.g. 'spill://session/artifact_id') or file path.",
-            },
+            "session_id": SPILL_SESSION_SCHEMA,
+            "locator": SPILL_LOCATOR_SCHEMA,
             "offset": {
                 "type": "integer",
                 "description": "Zero-based character offset to start reading from.",
@@ -36,7 +43,7 @@ SPILL_SLICE_TOOL = ToolDefinition(
                 "minimum": 1,
             },
         },
-        "required": ["locator"],
+        "required": ["session_id", "locator"],
     },
     risk_level=ActionRiskLevel.READ_ONLY,
     is_mutation=False,
@@ -45,7 +52,9 @@ SPILL_SLICE_TOOL = ToolDefinition(
 
 SPILL_FETCH_TOOL = ToolDefinition(
     name="spill.fetch",
-    description="Alias for spill.slice. Read a slice of a spilled tool result by locator.",
+    description=(
+        "Alias for spill.slice. Read a slice of a spilled tool result by session and locator."
+    ),
     category="spill",
     capabilities=["spill.read", "system.spill"],
     parameters_schema=SPILL_SLICE_TOOL.parameters_schema,
@@ -56,18 +65,19 @@ SPILL_FETCH_TOOL = ToolDefinition(
 
 SPILL_INFO_TOOL = ToolDefinition(
     name="spill.info",
-    description="Get metadata (total bytes, characters, producing tool, creation time) of a spilled artifact.",
+    description=(
+        "Get metadata (total bytes, characters, producing tool, creation time) of a spilled "
+        "artifact belonging to the caller's session."
+    ),
     category="spill",
     capabilities=["spill.read", "system.spill"],
     parameters_schema={
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": "The spill locator URI or path to inspect.",
-            },
+            "session_id": SPILL_SESSION_SCHEMA,
+            "locator": SPILL_LOCATOR_SCHEMA,
         },
-        "required": ["locator"],
+        "required": ["session_id", "locator"],
     },
     risk_level=ActionRiskLevel.READ_ONLY,
     is_mutation=False,
@@ -81,20 +91,44 @@ SPILL_TOOL_DEFINITIONS: list[ToolDefinition] = [
 ]
 
 
+def _require_locator_session(locator: str, session_id: str) -> None:
+    """Enforce per-session spill isolation at the tool boundary.
+
+    Only ``spill://<session>/<artifact>`` locators owned by ``session_id`` may be
+    inspected, so one execution can never read another session's spilled output.
+    """
+    if not session_id or not session_id.strip():
+        raise ValidationError("session_id must be provided to inspect spill artifacts.")
+    normalized = locator.strip()
+    if not normalized.startswith("spill://"):
+        raise ValidationError(
+            "Spill tools accept 'spill://session/artifact' locators only.",
+            details={"locator": locator},
+        )
+    owner_session = normalized[len("spill://") :].split("/", 1)[0]
+    if owner_session != session_id.strip():
+        raise PermissionDeniedError(
+            "Spill artifacts are isolated per session.",
+            details={"locator": locator, "requested_session": owner_session},
+        )
+
+
 class SpillInspectionTools:
     """Execution handler for inspecting spilled tool outputs."""
 
     def __init__(self, store: SpillStore) -> None:
         self.store = store
 
-    def slice_spill(self, locator: str, offset: int = 0, limit: int = 2000) -> dict[str, Any]:
-        """Read a character slice of the spilled text."""
-        if not locator or not locator.strip():
-            raise ValidationError("Locator must not be blank.")
-        text_slice = self.store.read_text(locator.strip(), offset=offset, limit=limit)
-        ref = self.store.get_ref(locator.strip())
+    def slice_spill(
+        self, locator: str, offset: int = 0, limit: int = 2000, *, session_id: str
+    ) -> dict[str, Any]:
+        """Read a character slice of a spill artifact owned by ``session_id``."""
+        _require_locator_session(locator, session_id)
+        normalized = locator.strip()
+        text_slice = self.store.read_text(normalized, offset=offset, limit=limit)
+        ref = self.store.get_ref(normalized)
         return {
-            "locator": locator.strip(),
+            "locator": normalized,
             "offset": offset,
             "limit": limit,
             "returned_characters": len(text_slice),
@@ -103,19 +137,21 @@ class SpillInspectionTools:
             "content": text_slice,
         }
 
-    def fetch_spill(self, locator: str, offset: int = 0, limit: int = 2000) -> dict[str, Any]:
+    def fetch_spill(
+        self, locator: str, offset: int = 0, limit: int = 2000, *, session_id: str
+    ) -> dict[str, Any]:
         """Alias for slice_spill."""
-        return self.slice_spill(locator, offset=offset, limit=limit)
+        return self.slice_spill(locator, offset=offset, limit=limit, session_id=session_id)
 
-    def get_info(self, locator: str) -> dict[str, Any]:
-        """Retrieve metadata for a spill locator."""
-        if not locator or not locator.strip():
-            raise ValidationError("Locator must not be blank.")
-        ref = self.store.get_ref(locator.strip())
+    def get_info(self, locator: str, *, session_id: str) -> dict[str, Any]:
+        """Retrieve metadata for a spill locator owned by ``session_id``."""
+        _require_locator_session(locator, session_id)
+        normalized = locator.strip()
+        ref = self.store.get_ref(normalized)
         if not ref:
             raise NotFoundError(
-                f"Spill artifact '{locator}' not found.",
-                details={"locator": locator},
+                f"Spill artifact '{normalized}' not found.",
+                details={"locator": normalized},
             )
         return {
             "locator": ref.locator,

@@ -47,6 +47,9 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
         alembic_config.attributes["connect_args"] = {
             "server_settings": {"search_path": f"{schema_name},public"}
         }
+        # Keep fileConfig out of the pytest process (would disable existing
+        # loggers for every subsequently-run test in the session).
+        alembic_config.attributes["configure_logger"] = False
         await asyncio.to_thread(command.upgrade, alembic_config, "head")
 
         session_maker = async_sessionmaker(session_engine, expire_on_commit=False)
@@ -63,7 +66,7 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
 async def test_postgres_migration_contract(pg_session: AsyncSession) -> None:
     """Run the real Alembic path and validate P3 contracts plus P5 Google storage."""
     assert await pg_session.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")) == 1
-    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
     assert (
         await pg_session.scalar(text("SELECT to_regclass('google_integrations')"))
         == "google_integrations"
@@ -132,25 +135,25 @@ async def test_pgvector_cosine_distance_query(pg_session: AsyncSession) -> None:
     pg_session.add(user)
     await pg_session.flush()
 
-    # Create two memories with 1536-dim dummy vectors
-    vec1 = [0.1] * 1536
-    vec2 = [0.9] * 1536
+    # Create two memories with 1024-dim dummy vectors
+    vec1 = [0.1] * 1024
+    vec2 = [0.9] * 1024
 
     mem1 = Memory(
         user_id=user.id,
         memory_type="user_fact",
         content="Likes fast response",
         embedding=vec1,
-        embedding_model="text-embedding-3-large",
-        embedding_dimensions=1536,
+        embedding_model="AITeamVN/Vietnamese_Embedding",
+        embedding_dimensions=1024,
     )
     mem2 = Memory(
         user_id=user.id,
         memory_type="user_fact",
         content="Prefers detailed analysis",
         embedding=vec2,
-        embedding_model="text-embedding-3-large",
-        embedding_dimensions=1536,
+        embedding_model="AITeamVN/Vietnamese_Embedding",
+        embedding_dimensions=1024,
     )
     pg_session.add_all([mem1, mem2])
     await pg_session.flush()

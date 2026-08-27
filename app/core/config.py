@@ -7,6 +7,17 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Repository root (app/core/config.py -> app/core -> app -> root).
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_project_path(value: str | Path) -> Path:
+    """Resolve a configured path relative to the project root, not the process CWD."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
 
 class Environment(StrEnum):
     DEVELOPMENT = "development"
@@ -123,9 +134,7 @@ class GoogleOAuthSettings(BaseModel):
         if not self.client_secrets_file:
             return self
 
-        path = Path(self.client_secrets_file).expanduser()
-        if not path.is_absolute():
-            path = Path.cwd() / path
+        path = resolve_project_path(self.client_secrets_file)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             client = payload.get("web") or payload.get("installed")
@@ -157,17 +166,84 @@ class LangSmithSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    model: str = Field(default="text-embedding-3-large", description="Embedding model name")
-    dimensions: int = Field(default=1536, description="Embedding vector dimensions")
+    model: str = Field(
+        default="AITeamVN/Vietnamese_Embedding",
+        description="Embedding model name (local snapshot by default, ADR 0012)",
+    )
+    dimensions: int = Field(default=1024, description="Embedding vector dimensions")
     batch_size: int = Field(default=64, description="Embedding generation batch size")
+    local_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional local HuggingFace snapshot directory; when set, the offline "
+            "model at this path is used instead of a hosted provider."
+        ),
+    )
 
 
 class RerankerSettings(BaseModel):
     model: str = Field(
-        default="BAAI/bge-reranker-large", description="Cross-encoder reranker model"
+        default="namdp-ptit/ViRanker",
+        description="Cross-encoder reranker model (local snapshot by default, ADR 0012)",
     )
     top_k: int = Field(default=5, description="Number of reranked candidates to return")
     threshold: float = Field(default=0.3, description="Minimum relevance score threshold")
+    local_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional local HuggingFace snapshot directory; when set, the offline "
+            "reranker at this path is used instead of downloading from the hub."
+        ),
+    )
+
+
+class ParsingSettings(BaseModel):
+    """Parse-quality gating and OCR fallback policy (spec P9B-3/P9B-4)."""
+
+    ocr_fallback_enabled: bool = Field(
+        default=False,
+        description=(
+            "Runtime V1 default OFF: scanned PDFs get typed NEEDS_OCR and are "
+            "queued for the offline OCR path (P9E) instead of inline OCR."
+        ),
+    )
+    min_useful_text_length: int = Field(
+        default=64,
+        description="Minimum extracted text length considered useful",
+    )
+    large_source_bytes: int = Field(
+        default=200_000,
+        description="Sources at or above this size with no useful text need OCR",
+    )
+    garbage_char_ratio: float = Field(
+        default=0.25,
+        description="Ratio of replacement/non-printable chars that marks a parse corrupt",
+    )
+
+
+class ChunkingSettings(BaseModel):
+    """Parent/child chunk budgets and merging policy (spec P9C)."""
+
+    parent_target_tokens: int = Field(
+        default=1600,
+        description="Target size for PARENT chunks (benchmark start ~1200-2000)",
+    )
+    parent_hard_max_tokens: int = Field(
+        default=2400,
+        description="Hard maximum for PARENT chunks before the split ladder kicks in",
+    )
+    child_target_tokens: int = Field(
+        default=500,
+        description="Target size for CHILD chunks (benchmark start ~350-650)",
+    )
+    child_hard_max_tokens: int = Field(
+        default=800,
+        description="Hard maximum for CHILD chunks; never exceeded by construction",
+    )
+    merge_small_nodes_below_tokens: int = Field(
+        default=40,
+        description="Adjacent tiny paragraphs/lists may merge within one parent",
+    )
 
 
 class ReActBudgetSettings(BaseModel):
@@ -221,6 +297,27 @@ class TimeoutsSettings(BaseModel):
     database_query_seconds: float = Field(default=5.0, description="Database query timeout")
 
 
+class SecuritySettings(BaseModel):
+    """Deployment-safety controls enforced at the HTTP boundary."""
+
+    api_key: str | None = Field(
+        default=None,
+        repr=False,
+        exclude=True,
+        description=(
+            "Shared API key required on every authenticated request (X-API-Key). "
+            "Unset keys fail closed outside development/testing."
+        ),
+    )
+    cors_allowed_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ],
+        description="Explicit CORS origin allowlist; never use '*' together with credentials.",
+    )
+
+
 class Settings(BaseSettings):
     """Main Application Settings."""
 
@@ -246,10 +343,18 @@ class Settings(BaseSettings):
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
+    parsing: ParsingSettings = Field(default_factory=ParsingSettings)
+    chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     react_budget: ReActBudgetSettings = Field(default_factory=ReActBudgetSettings)
     supervisor_budget: SupervisorBudgetSettings = Field(default_factory=SupervisorBudgetSettings)
     llm_budget: LLMBudgetSettings = Field(default_factory=LLMBudgetSettings)
     timeouts: TimeoutsSettings = Field(default_factory=TimeoutsSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
+
+    @property
+    def auth_enforced(self) -> bool:
+        """Whether requests must present a valid API key to be served."""
+        return self.environment not in (Environment.DEVELOPMENT, Environment.TESTING)
 
     @field_validator("debug", mode="before")
     @classmethod

@@ -58,6 +58,12 @@ DRIVE_PERMISSION_FIELDS = "id,role,type,emailAddress,displayName,domain,allowFil
 
 
 def _validate_identifier(value: str, label: str) -> str:
+    """Reject identifiers that could escape URL paths or Drive ``q`` quoting.
+
+    Single quotes are refused because folder/drive identifiers are interpolated
+    into single-quoted Drive query literals (``'<id>' in parents``); a quote
+    would allow tool-argument injection into the query expression.
+    """
     normalized = value.strip() if isinstance(value, str) else ""
     if (
         not normalized
@@ -65,6 +71,8 @@ def _validate_identifier(value: str, label: str) -> str:
         or "\\" in normalized
         or "?" in normalized
         or "#" in normalized
+        or "'" in normalized
+        or '"' in normalized
         or ".." in normalized
     ):
         raise DomainValidationError(f"Invalid Google Drive {label}.")

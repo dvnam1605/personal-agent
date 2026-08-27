@@ -23,6 +23,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.1.2",
     "langsmith>=0.11.0",
     "psycopg[binary]>=3.3.4",
+    "docling>=2.59,<3",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +34,15 @@ dev = [
     "ruff>=0.8.0",
     "pyright>=1.1.390",
     "aiosqlite>=0.20.0",
+]
+# P9E-2 dependency isolation: OCR engines NEVER enter the assistant runtime;
+# install these only on the external strong-GPU machine (see docs snippet).
+ocr-paddle = [
+    "paddleocr>=3.7,<4",
+    "paddlepaddle>=3.2.0",
+]
+ocr-surya = [
+    "surya-ocr>=0.17.0",
 ]
 
 [build-system]

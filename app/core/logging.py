@@ -23,28 +23,28 @@ SENSITIVE_KEYS = {
 }
 
 
+def _is_sensitive(key: str) -> bool:
+    return any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS)
+
+
+def _censor_value(key: str, value: Any) -> Any:
+    """Recursively redact sensitive keys inside dicts, lists, and tuples."""
+    if _is_sensitive(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {k: _censor_value(k, v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_censor_value(key, item) for item in value]
+    return value
+
+
 def censor_sensitive_data(
     logger: WrappedLogger | logging.Logger | None, method_name: str, event_dict: EventDict
 ) -> EventDict:
     """Censor potential tokens, passwords, and sensitive keys from log output."""
     for key, value in list(event_dict.items()):
-        if any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS):
-            event_dict[key] = "[REDACTED]"
-        elif isinstance(value, dict):
-            event_dict[key] = _censor_dict(value)
+        event_dict[key] = _censor_value(key, value)
     return event_dict
-
-
-def _censor_dict(d: dict[str, Any]) -> dict[str, Any]:
-    censored = {}
-    for k, v in d.items():
-        if any(sensitive in k.lower() for sensitive in SENSITIVE_KEYS):
-            censored[k] = "[REDACTED]"
-        elif isinstance(v, dict):
-            censored[k] = _censor_dict(v)
-        else:
-            censored[k] = v
-    return censored
 
 
 def setup_logging() -> None:

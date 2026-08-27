@@ -41,6 +41,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         asyncio.create_task(outbox_worker.run(stop_event), name="audit-outbox-worker"),
         asyncio.create_task(retention_worker.run(stop_event), name="retention-worker"),
     ]
+    if settings.auth_enforced and not settings.security.api_key:
+        logger.error(
+            "security.api_key_missing",
+            detail=(
+                "No SECURITY__API_KEY is configured while authentication is enforced; "
+                "authenticated endpoints will reject all requests."
+            ),
+        )
     try:
         yield
     finally:
@@ -60,11 +68,12 @@ def create_app() -> FastAPI:
         openapi_url=f"{settings.api_prefix}/openapi.json",
     )
 
-    # CORS configuration
+    # CORS configuration — explicit origin allowlist; credentials stay disabled
+    # because authentication is header-based, never cookie-based.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=settings.security.cors_allowed_origins,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

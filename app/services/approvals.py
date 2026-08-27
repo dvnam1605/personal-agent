@@ -183,6 +183,17 @@ class ApprovalRequestService:
         request = await ApprovalRequestService.get_request(session, approval_id)
         if request is None:
             raise ValueError(f"Approval request not found: {approval_id}")
+        await ApprovalRequestService._validate_loaded_request(session, request, now=now)
+        return request
+
+    @staticmethod
+    async def _validate_loaded_request(
+        session: AsyncSession,
+        request: ApprovalRequest,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Apply expiry and tamper checks to an already-loaded approval row."""
         if request.status not in APPROVAL_STATUSES:
             raise ValueError(f"Unknown approval status: {request.status}")
         current_time = _utc(now) or datetime.now(UTC)
@@ -194,10 +205,9 @@ class ApprovalRequestService:
             request.reason = "Approval request expired."
             request.decided_at = current_time
             await session.flush()
-            raise ValueError(f"Approval request expired: {approval_id}")
+            raise ValueError(f"Approval request expired: {request.id}")
         if request.proposal_hash and request.proposal_hash != _proposal_hash(request):
-            raise ValueError(f"Approval proposal has been modified: {approval_id}")
-        return request
+            raise ValueError(f"Approval proposal has been modified: {request.id}")
 
     @staticmethod
     async def decide(
@@ -211,22 +221,14 @@ class ApprovalRequestService:
         """Record one validated human decision with idempotent same-decision retries."""
         if not approver_id.strip():
             raise ValueError("approver_id is required")
+        # Single locked fetch keeps expiry/decision atomic with the row lock.
         request = await session.scalar(
             select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
         )
         if request is None:
             raise ValueError(f"Approval request not found: {approval_id}")
         current_time = _utc(now) or datetime.now(UTC)
-        expires_at = _utc(request.expires_at)
-        if request.status == "pending" and expires_at is not None and expires_at <= current_time:
-            _validate_approval_transition(request.status, "expired")
-            request.status = "expired"
-            request.approved = False
-            request.reason = "Approval request expired."
-            request.decided_at = current_time
-            await session.flush()
-            raise ValueError(f"Approval request expired: {approval_id}")
-        await ApprovalRequestService.validate_request(session, approval_id, now=current_time)
+        await ApprovalRequestService._validate_loaded_request(session, request, now=current_time)
         if request.status != "pending":
             if request.status == ("approved" if approved else "rejected"):
                 return request

@@ -1,12 +1,12 @@
 .env
 .secrets/
 client_secret*.json
+models/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .pyright/
 .venv/
-plan/
 .coverage
 deepseek-harness/

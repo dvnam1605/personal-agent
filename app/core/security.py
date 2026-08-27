@@ -5,6 +5,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from app.core.config import PROJECT_ROOT
+
 
 def generate_secure_token(nbytes: int = 32) -> str:
     """Generate a cryptographically secure random URL-safe token."""
@@ -34,7 +36,9 @@ class FernetTokenCipher:
         """Load a key from a private local file, creating it atomically on first use."""
         key_path = Path(path).expanduser()
         if not key_path.is_absolute():
-            key_path = Path.cwd() / key_path
+            # Relative configured paths anchor to the project root, not the CWD,
+            # so the same deployment layout works from any launch directory.
+            key_path = PROJECT_ROOT / key_path
         key_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:

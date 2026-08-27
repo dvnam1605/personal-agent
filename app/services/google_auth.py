@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import secrets
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -113,6 +114,83 @@ class InMemoryOAuthStateStore:
         ]
         for state in expired:
             self._states.pop(state, None)
+
+
+class RedisOAuthStateStore(OAuthStateStore):
+    """Redis-backed single-use OAuth state store for multi-worker deployments.
+
+    State survives process restarts and is shared across workers. Consumption
+    is atomic (GETDEL semantics) so a callback can never be replayed twice.
+    """
+
+    def __init__(
+        self,
+        client_factory: Callable[[], Awaitable[Any]],
+        *,
+        ttl_seconds: int = 600,
+        clock: Clock = utc_now,
+        key_prefix: str | None = None,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("OAuth state TTL must be positive.")
+        self._client_factory = client_factory
+        self._ttl_seconds = ttl_seconds
+        self._ttl = timedelta(seconds=ttl_seconds)
+        self._clock = clock
+        self._key_prefix = key_prefix
+
+    def _key(self, state: str) -> str:
+        if self._key_prefix is not None:
+            return f"{self._key_prefix}{state}"
+        return f"assistant:oauth-state:{state}"
+
+    async def issue(
+        self, user_id: str, redirect_uri: str, scopes: Iterable[str]
+    ) -> OAuthStateRecord:
+        now = _as_utc(self._clock())
+        state = secrets.token_urlsafe(32)
+        verifier = secrets.token_urlsafe(48)
+        record = OAuthStateRecord(
+            state=state,
+            user_id=user_id,
+            code_verifier=verifier,
+            redirect_uri=redirect_uri,
+            scopes=tuple(GoogleScopeValidator.normalize(scopes)),
+            issued_at=now,
+        )
+        payload = {
+            "user_id": record.user_id,
+            "code_verifier": record.code_verifier,
+            "redirect_uri": record.redirect_uri,
+            "scopes": list(record.scopes),
+            "issued_at": record.issued_at.isoformat(),
+        }
+        client = await self._client_factory()
+        await client.set(self._key(state), json.dumps(payload), ex=self._ttl_seconds)
+        return record
+
+    async def consume(self, state: str, user_id: str) -> OAuthStateRecord:
+        client = await self._client_factory()
+        raw = await client.getdel(self._key(state))
+        if not raw:
+            raise AuthenticationError("Invalid or expired Google OAuth state.")
+        try:
+            payload = json.loads(raw)
+            record = OAuthStateRecord(
+                state=state,
+                user_id=str(payload["user_id"]),
+                code_verifier=str(payload["code_verifier"]),
+                redirect_uri=str(payload["redirect_uri"]),
+                scopes=tuple(GoogleScopeValidator.normalize(payload.get("scopes", []))),
+                issued_at=datetime.fromisoformat(str(payload["issued_at"])),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AuthenticationError("Invalid or expired Google OAuth state.") from exc
+        if record.user_id != user_id:
+            raise AuthenticationError("Invalid or expired Google OAuth state.")
+        if _as_utc(self._clock()) - _as_utc(record.issued_at) > self._ttl:
+            raise AuthenticationError("Invalid or expired Google OAuth state.")
+        return record
 
 
 class GoogleScopeValidator:
@@ -743,4 +821,5 @@ __all__ = [
     "InMemoryOAuthStateStore",
     "OAuthStateRecord",
     "OAuthStateStore",
+    "RedisOAuthStateStore",
 ]

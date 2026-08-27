@@ -6,13 +6,40 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
-from app.core.config import settings
+from app.core.config import Environment, settings
 from app.domain.errors import ValidationError as DomainValidationError
 from app.infrastructure.db.session import get_db_session
-from app.services.google_auth import GoogleIntegrationStatus, GoogleOAuthService
+from app.infrastructure.redis.client import redis_manager
+from app.services.google_auth import (
+    GoogleIntegrationStatus,
+    GoogleOAuthService,
+    InMemoryOAuthStateStore,
+    OAuthStateStore,
+    RedisOAuthStateStore,
+)
 
 router = APIRouter(prefix="/auth/google", tags=["Google Authentication"])
-google_oauth_service = GoogleOAuthService(settings.google)
+
+
+def build_default_google_oauth_service() -> GoogleOAuthService:
+    """Select the OAuth state backend matching the deployment environment.
+
+    Development/testing keep the process-local store; staging/production share
+    single-use state through Redis so multi-worker deployments and restarts
+    cannot break or replay the authorization-code flow.
+    """
+    state_store: OAuthStateStore
+    if settings.environment in (Environment.DEVELOPMENT, Environment.TESTING):
+        state_store = InMemoryOAuthStateStore(ttl_seconds=settings.google.oauth_state_ttl_seconds)
+    else:
+        state_store = RedisOAuthStateStore(
+            redis_manager.get_client,
+            ttl_seconds=settings.google.oauth_state_ttl_seconds,
+        )
+    return GoogleOAuthService(settings.google, state_store=state_store)
+
+
+google_oauth_service = build_default_google_oauth_service()
 
 
 def get_google_oauth_service() -> GoogleOAuthService:
@@ -83,4 +110,4 @@ async def disconnect_google(
     return GoogleDisconnectResponse(disconnected=await service.disconnect(session, user_id))
 
 
-__all__ = ["get_google_oauth_service", "router"]
+__all__ = ["build_default_google_oauth_service", "get_google_oauth_service", "router"]

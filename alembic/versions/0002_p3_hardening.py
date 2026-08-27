@@ -39,11 +39,15 @@ def upgrade() -> None:
         )
     op.execute("UPDATE documents SET logical_document_id = id WHERE logical_document_id IS NULL")
     with op.batch_alter_table("documents") as batch_op:
-        batch_op.alter_column("logical_document_id", existing_type=sa.String(length=36), nullable=False)
+        batch_op.alter_column(
+            "logical_document_id", existing_type=sa.String(length=36), nullable=False
+        )
         batch_op.create_unique_constraint(
             "uq_documents_version", ["logical_document_id", "version_number"]
         )
-    op.create_index("ix_documents_logical_active", "documents", ["logical_document_id", "is_active"])
+    op.create_index(
+        "ix_documents_logical_active", "documents", ["logical_document_id", "is_active"]
+    )
 
     with op.batch_alter_table("document_chunks") as batch_op:
         batch_op.add_column(sa.Column("parent_id", sa.String(length=36), nullable=True))
@@ -57,7 +61,9 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("source_block_ids", sa.JSON(), nullable=False, server_default=sa.text("'[]'"))
         )
-        batch_op.add_column(sa.Column("parent_chunker_version", sa.String(length=64), nullable=True))
+        batch_op.add_column(
+            sa.Column("parent_chunker_version", sa.String(length=64), nullable=True)
+        )
         batch_op.add_column(sa.Column("child_chunker_version", sa.String(length=64), nullable=True))
         batch_op.create_foreign_key(
             "fk_document_chunks_parent_id", "document_chunks", ["parent_id"], ["id"]
@@ -79,7 +85,9 @@ def upgrade() -> None:
     with op.batch_alter_table("approval_requests") as batch_op:
         batch_op.add_column(sa.Column("target", sa.Text(), nullable=True))
         batch_op.add_column(
-            sa.Column("important_arguments", sa.JSON(), nullable=False, server_default=sa.text("'{}'"))
+            sa.Column(
+                "important_arguments", sa.JSON(), nullable=False, server_default=sa.text("'{}'")
+            )
         )
         batch_op.add_column(
             sa.Column("status", sa.String(length=32), nullable=False, server_default="pending")

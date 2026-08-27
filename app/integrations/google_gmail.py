@@ -40,6 +40,9 @@ from app.integrations.google_common import (
 )
 
 GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+# gmail.modify is intentionally reused as the read scope: it is the least-privilege
+# scope that still permits label/archive mutations, and gmail.readonly would break
+# every classified write tool. The alias documents that read paths need nothing wider.
 GMAIL_READ_SCOPE = GMAIL_MODIFY_SCOPE
 GMAIL_MAX_PAGE_SIZE = 500
 GMAIL_FORMATS = ("minimal", "full", "raw", "metadata")

@@ -107,8 +107,8 @@ class InMemorySpillStore(SpillStore):
         char_count = len(content)
 
         retrieval_hint = (
-            f"Use tool 'spill.slice' or 'spill.fetch' with locator='{locator}' "
-            "and optional offset/limit to inspect specific sections."
+            f"Use tool 'spill.slice' or 'spill.fetch' with session_id='{session_id.strip()}' "
+            f"and locator='{locator}' plus optional offset/limit to inspect sections."
         )
 
         ref = SpillRef(
@@ -209,8 +209,8 @@ class LocalFileSpillStore(SpillStore):
 
         locator = f"spill://{session_id.strip()}/{artifact_id}"
         retrieval_hint = (
-            f"Use tool 'spill.slice' or 'spill.fetch' with locator='{locator}' "
-            f"or local path '{file_path.as_posix()}' to read sections."
+            f"Use tool 'spill.slice' or 'spill.fetch' with session_id='{session_id.strip()}' "
+            f"and locator='{locator}' plus optional offset/limit to inspect sections."
         )
 
         ref = SpillRef(

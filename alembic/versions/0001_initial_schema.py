@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-08-17 17:00:00.000000+00:00
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -77,12 +78,19 @@ def upgrade() -> None:
         sa.Column("prompt_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("completion_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("estimated_cost_usd", sa.Numeric(precision=10, scale=6), nullable=False, server_default="0.000000"),
+        sa.Column(
+            "estimated_cost_usd",
+            sa.Numeric(precision=10, scale=6),
+            nullable=False,
+            server_default="0.000000",
+        ),
         sa.Column("parallel_time_ms", sa.Float(), nullable=False, server_default="0.0"),
         sa.Column("total_latency_ms", sa.Float(), nullable=False, server_default="0.0"),
         sa.Column("state_snapshot", sa.JSON(), nullable=True),
         sa.Column("error_summary", sa.Text(), nullable=True),
-        sa.Column("telemetry_degraded", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "telemetry_degraded", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
@@ -136,7 +144,12 @@ def upgrade() -> None:
         sa.Column("memory_type", sa.String(length=64), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("embedding", Vector(1536), nullable=True),
-        sa.Column("embedding_model", sa.String(length=64), nullable=False, server_default="text-embedding-3-large"),
+        sa.Column(
+            "embedding_model",
+            sa.String(length=64),
+            nullable=False,
+            server_default="text-embedding-3-large",
+        ),
         sa.Column("embedding_dimensions", sa.Integer(), nullable=False, server_default="1536"),
         sa.Column("importance", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("last_accessed_at", sa.DateTime(timezone=True), nullable=True),
@@ -174,7 +187,12 @@ def upgrade() -> None:
         sa.Column("content_raw", sa.Text(), nullable=False),
         sa.Column("content_embedding_text", sa.Text(), nullable=False),
         sa.Column("embedding", Vector(1536), nullable=True),
-        sa.Column("embedding_model", sa.String(length=64), nullable=False, server_default="text-embedding-3-large"),
+        sa.Column(
+            "embedding_model",
+            sa.String(length=64),
+            nullable=False,
+            server_default="text-embedding-3-large",
+        ),
         sa.Column("embedding_dimensions", sa.Integer(), nullable=False, server_default="1536"),
         sa.Column("provenance_uri", sa.Text(), nullable=True),
         sa.Column("citation_label", sa.String(length=128), nullable=True),
@@ -218,7 +236,12 @@ def upgrade() -> None:
         sa.Column("prompt_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("completion_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("estimated_cost_usd", sa.Numeric(precision=10, scale=6), nullable=False, server_default="0.000000"),
+        sa.Column(
+            "estimated_cost_usd",
+            sa.Numeric(precision=10, scale=6),
+            nullable=False,
+            server_default="0.000000",
+        ),
         sa.Column("latency_ms", sa.Float(), nullable=False),
         sa.Column("success", sa.Boolean(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),

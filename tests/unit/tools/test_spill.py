@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.domain.enums import ActionClass, ActionRiskLevel
-from app.domain.errors import NotFoundError, ValidationError
+from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationError
 from app.domain.models import ToolExecutionMetadata, ToolResult
 from app.domain.models.spill import SpillPolicyConfig
 from app.services.spill import InMemorySpillStore, LocalFileSpillStore, SpillPolicy
@@ -205,27 +205,51 @@ def test_spill_inspection_tools() -> None:
     tools = SpillInspectionTools(store)
 
     # Slice
-    sliced = tools.slice_spill(locator=ref.locator, offset=10, limit=5)
+    sliced = tools.slice_spill(locator=ref.locator, offset=10, limit=5, session_id="sess-inspect")
     assert sliced["content"] == "ABCDE"
     assert sliced["offset"] == 10
     assert sliced["limit"] == 5
     assert sliced["total_characters"] == len(content)
 
     # Fetch alias
-    fetched = tools.fetch_spill(locator=ref.locator, offset=0, limit=10)
+    fetched = tools.fetch_spill(locator=ref.locator, offset=0, limit=10, session_id="sess-inspect")
     assert fetched["content"] == "0123456789"
 
     # Info
-    info = tools.get_info(locator=ref.locator)
+    info = tools.get_info(locator=ref.locator, session_id="sess-inspect")
     assert info["locator"] == ref.locator
     assert info["character_count"] == len(content)
     assert info["session_id"] == "sess-inspect"
 
     # Error handling
     with pytest.raises(ValidationError):
-        tools.slice_spill(locator="")
+        tools.slice_spill(locator="", session_id="sess-inspect")
     with pytest.raises(NotFoundError):
-        tools.get_info(locator="spill://sess-inspect/not-there")
+        tools.get_info(locator="spill://sess-inspect/not-there", session_id="sess-inspect")
+
+
+def test_spill_inspection_rejects_cross_session_access() -> None:
+    store = InMemorySpillStore()
+    owner_ref = store.save_text(session_id="session-owner", content="secret", tool_name="t")
+    tools = SpillInspectionTools(store)
+
+    with pytest.raises(PermissionDeniedError):
+        tools.slice_spill(owner_ref.locator, session_id="session-attacker")
+    with pytest.raises(PermissionDeniedError):
+        tools.fetch_spill(owner_ref.locator, session_id="session-attacker")
+    with pytest.raises(PermissionDeniedError):
+        tools.get_info(owner_ref.locator, session_id="session-attacker")
+
+
+def test_spill_inspection_requires_session_and_uri_locator() -> None:
+    store = InMemorySpillStore()
+    ref = store.save_text(session_id="s1", content="data", tool_name="t")
+    tools = SpillInspectionTools(store)
+
+    with pytest.raises(ValidationError):
+        tools.slice_spill(ref.locator, session_id="")
+    with pytest.raises(ValidationError):
+        tools.slice_spill("C:/elsewhere/file.txt", session_id="s1")
 
 
 def test_spill_tool_definitions_and_registry() -> None:
