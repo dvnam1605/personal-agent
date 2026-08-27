@@ -1,7 +1,7 @@
 .env
 .secrets/
 client_secret*.json
-models/
+/models/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
