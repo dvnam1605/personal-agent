@@ -1,8 +1,9 @@
 # RAG Retrieval Strategy (P10)
 
-> Status: APPROVED structure for P10A; sections marked **(P10B/C)** are
-> binding decisions recorded now, with their behaviour landing in the named
-> sub-phase. Source of truth: `plan/phases/P10_retrieval_rag_engine_execution_specification.md`.
+> Status: P10A **APPROVED & CLOSED** (2026-08-27). Sections previously marked
+> **(P10B/C/D)** are binding decisions; those stamped **(P10B ✅)** were
+> implemented on 2026-08-27 and are awaiting the user review gate.
+> Source of truth: `plan/phases/P10_retrieval_rag_engine_execution_specification.md`.
 
 ## 1. Searchable unit
 
@@ -50,13 +51,15 @@ fusion_score(chunk) = Σ_over_sources 1 / (k + rank_source),  k = 60
   `retrieval_sources`.
 - No ad-hoc cross-score normalization (spec P10-05).
 
-## 5. Reranking **(P10B)**
+## 5. Reranking **(P10B ✅)**
 
-Pluggable `Reranker` protocol over fused candidates; V1 ships an identity
+Pluggable `Reranker` protocol over fused candidates (`async def rerank(query,
+candidates, top_k)`); provenance tracked on every chunk via
+`rerank_model` / `rerank_score` / `rerank_rank`. V1 ships an identity
 (no-op) adapter so the pipeline is complete before any cross-encoder lands.
 Model options pinned by ADR 0012.
 
-## 6. Context expansion policy **(P10B)**
+## 6. Context expansion policy **(P10B ✅)**
 
 `ExpansionPolicy ∈ {NONE, NEIGHBORS, PARENT}` carried on `RetrievalQuery`.
 
@@ -65,11 +68,20 @@ Model options pinned by ADR 0012.
   bounded by token budget.
 - PARENT: resolve full parent raw_text per top hit (dedup by parent id).
 
-## 7. Context packing **(P10B)**
+Deterministic resolution (no LLM): explicit query override wins; question
+hints map to PARENT; everything else defaults to NONE (NEIGHBORS reachable
+via override only). Hint matching folds case and strips diacritics, mirroring
+the FTS unaccent posture. TABLE_CHILD hits are never swapped for their
+parent — they stay standalone TABLE_CHILD evidence carrying heading-path
+caption context instead.
+
+## 7. Context packing **(P10B ✅)**
 
 Greedy fill under a caller-supplied token budget using the P9C estimator
 (`estimate_tokens`); hard max respected byte-exact; overflow items dropped
-with a warning rather than truncated mid-chunk.
+with a warning rather than truncated mid-chunk. Output is the normative
+`EvidenceBundle` shape (items / total_tokens / documents_used /
+parent_ids_used / retrieval_trace_id).
 
 ## 8. Compare-document diversity **(P10C)**
 

@@ -1,16 +1,15 @@
 # CURRENT PHASE
 
-Current phase: **P10A APPROVED & CLOSED (2026-08-27)**; next candidate is
-P10B (processing pipeline & expansion policies), which must not start before
-an explicit `APPROVED P10B` message. The P9 family (P9A..P9E) remains fully
-approved and CLOSED as of 2026-08-25.
+Current phase: **P10B implemented & self-reviewed — WAITING FOR USER REVIEW —
+P10B.** P9 family (P9A..P9E) and P10A are approved and CLOSED as of
+2026-08-25 / 2026-08-27 respectively.
 
 Read:
 1. `MASTER_PLAN.md`
 2. `phases/P09_document_ingestion_pipeline_execution_specification.md` (overview)
 3. Next phase spec when its gate is approved.
 
-Gate status: **P10A APPROVED 2026-08-27 (CLOSED) · NEXT GATE: APPROVED P10B**
+Gate status: **P10A CLOSED · P10B IMPLEMENTED & SELF-REVIEWED — WAITING FOR USER REVIEW — P10B**
 
 ## Gate ledger (single source of truth)
 
@@ -41,8 +40,11 @@ APPROVED P10A  received from user 2026-08-27 ("approved p10A") against
                formal `APPROVED P10` user message existed; treated as a
                process deviation, acknowledged and reconciled by this ledger
                plus the rewritten review pack (2026-08-27).
-NEXT GATE      `APPROVED P10B` — authorizes P10B (processing pipeline &
-               expansion policies, spec P10-06..13). Subsequent gates:
+NEXT GATE      `APPROVED P10B` received from user 2026-08-27 ("ok approved
+               p10b") and authorised implementing P10B same day. P10B was
+               implemented + self-reviewed + verified green
+               (pytest full unit suite / ruff / pyright); it now awaits its
+               formal user review message before closing. Subsequent gates:
                APPROVED P10C / APPROVED P10D.
 ```
 
@@ -91,8 +93,16 @@ P10       split approved (see P10 spec header); ownership entry requirement
                 pytest full unit suite / ruff / pyright. Rewritten Review
                 Pack at reviews/P10A_review_pack.md (v2).
                 **APPROVED & CLOSED 2026-08-27.**
-          P10B  processing pipeline & expansion policies (06..13) — blocked
-                until `APPROVED P10B`
+          P10B  processing pipeline & expansion policies — IMPLEMENTED +
+                self-reviewed (2026-08-27) under `ok approved p10b`: candidate
+                diversity/dedup/caps (06), pluggable reranker + identity
+                adapter (07), deterministic NONE/PARENT resolution (08),
+                parent resolver + documented scoring baseline (09/10),
+                neighbor windows within parent (11), TABLE_CHILD isolation
+                rule (12), budget-aware packing -> EvidenceBundle (13).
+                Verified green: pytest full unit suite / ruff / pyright.
+                Review Pack at reviews/P10B_review_pack.md. GATE OPEN —
+                awaiting explicit `APPROVED P10B` closure message.
           P10C  policies & safety — compare-doc, evidence/citation,
                 sufficiency/retry, answer synthesis, prompt-injection
                 boundary (14..20; heaviest sub-phase)
