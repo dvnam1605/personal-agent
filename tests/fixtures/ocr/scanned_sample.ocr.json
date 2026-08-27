@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source_file": "scanned.pdf",
+  "source_checksum": "86825d80d5783467183b805080bf456f522339fa40719ecfa3f72ddc1351502d",
+  "engine": "paddleocr_vl_1_6",
+  "engine_version": "3.3.0",
+  "device": "cuda:0",
+  "ocr_used": true,
+  "pages_processed": 2,
+  "warnings": [],
+  "duration_seconds": 41.817,
+  "dry_run": false,
+  "finished_at": "2026-08-25T10:00:00+00:00"
+}

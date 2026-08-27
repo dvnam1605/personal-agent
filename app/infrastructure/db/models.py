@@ -276,11 +276,11 @@ class Memory(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     memory_type: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Any | None] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Any | None] = mapped_column(Vector(1024), nullable=True)
     embedding_model: Mapped[str] = mapped_column(
-        String(64), default="text-embedding-3-large", nullable=False
+        String(64), default="AITeamVN/Vietnamese_Embedding", nullable=False
     )
-    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=1536, nullable=False)
+    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
     importance: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
     last_accessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -295,7 +295,8 @@ class Document(Base, TimestampMixin):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    # Nullable since P9D: pipeline-level ingestion has no end-user attribution.
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     logical_document_id: Mapped[str] = mapped_column(
         String(36), default=lambda: str(uuid.uuid4()), nullable=False
     )
@@ -306,13 +307,14 @@ class Document(Base, TimestampMixin):
     uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, default=dict, nullable=False
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="documents")
+    user: Mapped["User | None"] = relationship("User", back_populates="documents")
     chunks: Mapped[list["DocumentChunk"]] = relationship(
         "DocumentChunk", back_populates="document", cascade="all, delete-orphan"
     )
@@ -327,6 +329,7 @@ class Document(Base, TimestampMixin):
             postgresql_where=text("is_active = true"),
             sqlite_where=text("is_active = 1"),
         ),
+        Index("ix_documents_logical_fingerprint", "logical_document_id", "fingerprint"),
         CheckConstraint(
             "status IN ('pending', 'processing', 'ready', 'active', 'failed', 'archived')",
             name="ck_documents_status",
@@ -362,11 +365,11 @@ class DocumentChunk(Base):
     source_block_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     parent_chunker_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     child_chunker_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    embedding: Mapped[Any | None] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Any | None] = mapped_column(Vector(1024), nullable=True)
     embedding_model: Mapped[str] = mapped_column(
-        String(64), default="text-embedding-3-large", nullable=False
+        String(64), default="AITeamVN/Vietnamese_Embedding", nullable=False
     )
-    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=1536, nullable=False)
+    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
     provenance_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     citation_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
@@ -387,6 +390,46 @@ class DocumentChunk(Base):
     @validates("metadata_")
     def sanitize_metadata(self, _key: str, value: dict[str, Any]) -> dict[str, Any]:
         return _sanitize_json_mapping(value)
+
+
+class IngestionJobRecord(Base):
+    """Durable ingestion job with worker-safe claims (spec P9D-3, P3 patterns)."""
+
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    logical_document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    timings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    warnings: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    parent_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    child_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    table_child_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('QUEUED', 'RUNNING', 'PARSING', 'BUILDING_PARENTS', "
+            "'BUILDING_CHILDREN', 'EMBEDDING', 'PERSISTING', 'COMPLETED', "
+            "'FAILED', 'SKIPPED', 'NEEDS_OCR')",
+            name="ck_ingestion_jobs_status",
+        ),
+        Index("ix_ingestion_jobs_status_created", "status", "created_at"),
+    )
 
 
 class ToolExecution(Base):

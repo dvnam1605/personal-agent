@@ -1,0 +1,286 @@
+"""Ingestion orchestrator: parse -> chunk -> embed -> persist (spec P9D).
+
+Wires P9B parsing and P9C chunking into the complete pipeline with typed job
+statuses, per-stage durations, batch-safe failure isolation, and atomic
+version activation. One failed file never raises past this layer; callers
+inspect the returned observability record.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import time
+from collections.abc import Awaitable, Callable
+from uuid import uuid4
+
+from app.core.config import settings as app_settings
+from app.domain.models.chunks import ChunkLevel
+from app.domain.models.documents import FingerprintInputs, SourceDocument
+from app.domain.models.ingestion import (
+    IngestionObservability,
+    IngestionStatus,
+    StoredFingerprintState,
+)
+from app.domain.models.parsed_document import ParseStatus
+from app.services.ingestion.chunking.children import SentenceChildChunker
+from app.services.ingestion.chunking.identity import (
+    CHILD_CHUNKER_VERSION,
+    PARENT_CHUNKER_VERSION,
+)
+from app.services.ingestion.chunking.parents import SectionParentChunker
+from app.services.ingestion.chunking.protocols import ChunkContext
+from app.services.ingestion.embedding import LocalEmbeddingService
+from app.services.ingestion.fingerprint import compute_fingerprint
+from app.services.ingestion.parsing.base import parse_source
+from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
+from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
+
+StatusCallback = Callable[[IngestionStatus], Awaitable[None]]
+
+
+def logical_document_id_for(source_id: str) -> str:
+    """Deterministic grouping key within the String(36) column limit."""
+    return "ldg-" + hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:32]
+
+
+def document_id_for(logical_document_id: str, version_number: int) -> str:
+    """Deterministic candidate PK so chunk identity exists before insertion."""
+    payload = f"{logical_document_id}#v{version_number}".encode()
+    return "doc-" + hashlib.sha256(payload).hexdigest()[:32]
+
+
+def _parser_version_for(source: SourceDocument) -> str:
+    if source.source_type == "preparsed_markdown":
+        return MARKDOWN_PARSER_VERSION
+    from app.services.ingestion.parsing.docling_parser import docling_version
+
+    return docling_version()
+
+
+def _parser_name_for(source: SourceDocument) -> str:
+    return "markdown" if source.source_type == "preparsed_markdown" else "docling"
+
+
+class IngestionOrchestrator:
+    """Runs one source through the full pipeline with typed status tracking."""
+
+    def __init__(
+        self,
+        *,
+        repository: IngestionRepository,
+        transaction: UnitOfWork,
+        embedding: LocalEmbeddingService,
+    ) -> None:
+        self._repository = repository
+        self._transaction = transaction
+        self._embedding = embedding
+
+    async def ingest_source(
+        self,
+        source: SourceDocument,
+        content: bytes,
+        *,
+        job_id: str | None = None,
+        on_status: StatusCallback | None = None,
+    ) -> IngestionObservability:
+        obs = _Obs(job_id or str(uuid4()), source, len(content))
+        started_stage = time.perf_counter()
+
+        async def mark(status: IngestionStatus) -> None:
+            nonlocal started_stage
+            obs.status = status
+            started_stage = time.perf_counter()
+            if on_status is not None:
+                await on_status(status)
+
+        def stage_elapsed() -> float:
+            return round(time.perf_counter() - started_stage, 6)
+
+        try:
+            await mark(IngestionStatus.RUNNING)
+            fingerprint = compute_fingerprint(self._fingerprint_inputs(source)).fingerprint
+            logical_id = logical_document_id_for(source.source_id)
+
+            # Review LOW-4: this read sits outside the persist transaction,
+            # so two concurrent ingests of one source can both elect N+1;
+            # the documents PK makes the loser fail loud (no corruption).
+            state = await self._repository.latest_state(logical_id)
+            if state is not None and state.fingerprint == fingerprint:
+                # L3: an unchanged fingerprint is a healthy skip, not a failure.
+                obs.warnings.append("fingerprint unchanged; skipping reindex")
+                await mark(IngestionStatus.SKIPPED)
+                return obs.freeze()
+
+            version_number = state.version_number + 1 if state else 1
+            document_id = document_id_for(logical_id, version_number)
+
+            await mark(IngestionStatus.PARSING)
+            parsed = await parse_source(source, content)
+            obs.durations["parse"] = stage_elapsed()
+            if parsed.quality is not None:
+                obs.warnings.extend(parsed.quality.parse_warnings)
+
+            if parsed.status is ParseStatus.NEEDS_OCR:
+                await mark(IngestionStatus.NEEDS_OCR)
+                return obs.freeze()
+            if parsed.status is not ParseStatus.PARSED or parsed.document is None:
+                obs.failure_reason = parsed.failure_reason or f"parse {parsed.status.value}"
+                await mark(IngestionStatus.FAILED)
+                return obs.freeze()
+            tree = parsed.document
+
+            await mark(IngestionStatus.BUILDING_PARENTS)
+            chunk_context = self._chunk_context(source, document_id)
+            parents = SectionParentChunker(chunk_context).build_parents(tree)
+            obs.durations["parents"] = stage_elapsed()
+
+            await mark(IngestionStatus.BUILDING_CHILDREN)
+            child_chunker = SentenceChildChunker(chunk_context)
+            children = [
+                (child, parent)
+                for parent in parents
+                for child in child_chunker.build_children(parent)
+            ]
+            obs.durations["children"] = stage_elapsed()
+
+            await mark(IngestionStatus.EMBEDDING)
+            vectors = await self._embedding.embed_documents(
+                [child.embedding_text for child, _ in children]
+            )
+            obs.durations["embedding"] = stage_elapsed()
+
+            await mark(IngestionStatus.PERSISTING)
+            async with self._transaction.transaction() as session:
+                persisted_id, persisted_version = await self._repository.persist_candidate(
+                    session,
+                    source=source,
+                    logical_document_id=logical_id,
+                    document_id=document_id,
+                    version_number=version_number,
+                    fingerprint=fingerprint,
+                    parser_name=obs.parser_name,
+                    parser_version=obs.parser_version,
+                    parents=parents,
+                    children=[
+                        (child, vector)
+                        for (child, _), vector in zip(children, vectors, strict=True)
+                    ],
+                )
+                await self._repository.activate_candidate(
+                    session, logical_document_id=logical_id, document_id=document_id
+                )
+            obs.durations["persist"] = stage_elapsed()
+
+            obs.document_id = persisted_id
+            obs.document_version = persisted_version
+            obs.counts["parent"] = len(parents)
+            obs.counts["child"] = sum(1 for c, _ in children if c.level is ChunkLevel.CHILD)
+            obs.counts["table_child"] = sum(
+                1 for c, _ in children if c.level is ChunkLevel.TABLE_CHILD
+            )
+            await mark(IngestionStatus.COMPLETED)
+            return obs.freeze()
+        except Exception as exc:  # noqa: BLE001 - batch isolation contract
+            obs.failure_reason = f"{type(exc).__name__}: {exc}"
+            obs.status = IngestionStatus.FAILED
+            try:
+                await mark(IngestionStatus.FAILED)
+            except Exception:  # noqa: BLE001 - never mask the original failure
+                pass
+            return obs.freeze()
+
+    async def sync_decision(
+        self, source: SourceDocument
+    ) -> tuple[str, StoredFingerprintState | None]:
+        """NEW / MODIFIED / UNCHANGED without ingesting (spec P9D-4)."""
+        fingerprint = compute_fingerprint(self._fingerprint_inputs(source)).fingerprint
+        logical_id = logical_document_id_for(source.source_id)
+        state = await self._repository.latest_state(logical_id)
+        if state is None:
+            return "NEW", None
+        if state.fingerprint == fingerprint:
+            return "UNCHANGED", state
+        return "MODIFIED", state
+
+    async def deactivate_source(self, source_id: str) -> bool:
+        """Deleted-source policy: archive versions, never hard-delete."""
+        logical_id = logical_document_id_for(source_id)
+        async with self._transaction.transaction() as session:
+            return await self._repository.deactivate_logical_document(session, logical_id)
+
+    def _fingerprint_inputs(self, source: SourceDocument) -> FingerprintInputs:
+        embedding = app_settings.embedding
+        return FingerprintInputs(
+            source_id=source.source_id,
+            checksum=source.checksum,
+            modified_at=source.modified_at,
+            size_bytes=source.size_bytes,
+            parser_version=_parser_version_for(source),
+            parent_chunker_version=PARENT_CHUNKER_VERSION,
+            child_chunker_version=CHILD_CHUNKER_VERSION,
+            embedding_model=embedding.model,
+            embedding_dimensions=embedding.dimensions,
+        )
+
+    def _chunk_context(self, source: SourceDocument, document_id: str) -> ChunkContext:
+        embedding = app_settings.embedding
+        return ChunkContext(
+            document_id=document_id,
+            document_version_id=document_id,
+            source_id=source.source_id,
+            title=source.filename,
+            filename=source.filename,
+            mime_type=source.mime_type,
+            source_type=source.source_type,
+            embedding_model=embedding.model,
+        )
+
+
+class _Obs:
+    """Mutable accumulator finalized into the frozen observability record."""
+
+    def __init__(self, job_id: str, source: SourceDocument, content_size: int) -> None:
+        self.job_id = job_id
+        self.source_id = source.source_id
+        self.status = IngestionStatus.QUEUED
+        self.source_size_bytes = content_size
+        self.document_id: str | None = None
+        self.document_version: int | None = None
+        self.warnings: list[str] = []
+        self.failure_reason: str | None = None
+        self.parser_name = _parser_name_for(source)
+        self.parser_version = _parser_version_for(source)
+        self.durations: dict[str, float] = {
+            "parse": 0.0,
+            "parents": 0.0,
+            "children": 0.0,
+            "embedding": 0.0,
+            "persist": 0.0,
+        }
+        self.counts = {"parent": 0, "child": 0, "table_child": 0}
+
+    def freeze(self) -> IngestionObservability:
+        embedding = app_settings.embedding
+        return IngestionObservability(
+            job_id=self.job_id,
+            source_id=self.source_id,
+            document_id=self.document_id,
+            document_version=self.document_version,
+            status=self.status,
+            source_size_bytes=self.source_size_bytes,
+            parser_name=self.parser_name,
+            parser_version=self.parser_version,
+            parent_chunker_version=PARENT_CHUNKER_VERSION,
+            child_chunker_version=CHILD_CHUNKER_VERSION,
+            embedding_model=embedding.model,
+            parse_duration_seconds=self.durations["parse"],
+            parent_build_duration_seconds=self.durations["parents"],
+            child_build_duration_seconds=self.durations["children"],
+            embedding_duration_seconds=self.durations["embedding"],
+            persist_duration_seconds=self.durations["persist"],
+            parent_count=self.counts["parent"],
+            child_count=self.counts["child"],
+            table_child_count=self.counts["table_child"],
+            warnings=tuple(self.warnings),
+            failure_reason=self.failure_reason,
+        )
