@@ -14,6 +14,7 @@ active-version guard.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -63,6 +64,8 @@ WHERE c.hierarchy_level = {level}
 
 ANCHOR_SELECT_COLUMNS = """\
        d.title AS document_title,
+       c.node_type AS node_type,
+       c.heading_path AS heading_path,
        c.chunk_index AS chunk_index,
        c.page_start AS page_start,
        c.page_end AS page_end,
@@ -79,9 +82,76 @@ def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
     """
     anchors = {
         "document_title": row.get("document_title"),
+        "node_type": row.get("node_type"),
+        "heading_path": coerce_heading_list(row.get("heading_path")),
         "chunk_index": row.get("chunk_index"),
         "page_start": row.get("page_start"),
         "page_end": row.get("page_end"),
         "citation_label": row.get("citation_label"),
     }
-    return {key: value for key, value in anchors.items() if value is not None}
+    return {key: value for key, value in anchors.items() if value not in (None, [], "")}
+
+
+def coerce_heading_list(value: Any) -> list[str]:
+    """Heading paths arrive as JSON lists, already-parsed lists or NULL."""
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return []
+
+
+PARENT_FETCH_TEMPLATE = """
+SELECT c.id AS chunk_id,
+       c.document_id AS document_id,
+       c.content_raw AS content_raw,
+       c.heading_path AS heading_path
+FROM document_chunks c
+JOIN documents d ON c.document_id = d.id
+WHERE c.hierarchy_level = 0
+  AND c.id IN ({parent_ids})
+  AND d.is_active
+  AND {owner_scope}
+"""
+
+SIBLING_FETCH_TEMPLATE = """
+SELECT c.id AS chunk_id,
+       c.parent_id AS parent_id,
+       c.document_id AS document_id,
+       c.node_type AS node_type,
+       c.heading_path AS heading_path,
+       c.chunk_index AS chunk_index,
+       c.page_start AS page_start,
+       c.page_end AS page_end,
+       c.citation_label AS citation_label,
+       d.title AS document_title,
+       c.content_raw AS content_raw
+FROM document_chunks c
+JOIN documents d ON c.document_id = d.id
+WHERE c.hierarchy_level = 1
+  AND c.parent_id IN ({parent_ids})
+  AND d.is_active
+  AND {owner_scope}
+ORDER BY c.parent_id, c.chunk_index
+"""
+
+
+def parent_scope_sql(parent_ids: list[str]) -> str:
+    """Restrict a fetch to explicit parent chunk ids; validates every id."""
+    if not parent_ids:
+        return "FALSE"
+    literals = ", ".join(uuid_literal(parent_id) for parent_id in parent_ids)
+    return f"c.id IN ({literals})"
+
+
+def sibling_scope_sql(parent_ids: list[str]) -> str:
+    """IN-list over parent ids for sibling windows; validates every id."""
+    if not parent_ids:
+        return "FALSE"
+    literals = ", ".join(uuid_literal(parent_id) for parent_id in parent_ids)
+    return f"c.parent_id IN ({literals})"
