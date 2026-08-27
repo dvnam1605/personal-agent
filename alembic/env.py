@@ -12,10 +12,28 @@ from app.infrastructure.db.base import Base
 
 config = context.config
 
-if config.config_file_name is not None:
+# Programmatic callers (tests) may pass attributes["configure_logger"] = False
+# so fileConfig cannot disable already-imported loggers for the whole session.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+# Runtime-generated columns live only in migrations (migration 0007), never in
+# the ORM models: SQLite unit-runtime cannot evaluate to_tsvector() on INSERT.
+# Autogenerate compares DB -> metadata and would therefore emit a spurious
+# drop_column for them; filter those columns out of every diff instead.
+_GENERATED_FILTERED_COLUMNS = {"document_chunks": {"search_vector"}}
+
+
+def _include_object(obj, name, type_, reflected, compare_to) -> bool:  # noqa: ANN001
+    """Keep generated tsvector columns out of autogenerate diffs."""
+    table = getattr(obj, "table", None)
+    table_name = getattr(table, "name", None) if table is not None else None
+    if type_ == "column" and isinstance(table_name, str):
+        if name in _GENERATED_FILTERED_COLUMNS.get(table_name, set()):
+            return False
+    return True
 
 
 def migration_url() -> str:
@@ -29,6 +47,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=_include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -41,6 +60,7 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        include_object=_include_object,
         version_table_schema=config.get_main_option("version_table_schema") or None,
     )
 

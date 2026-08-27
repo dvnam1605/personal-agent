@@ -22,6 +22,9 @@ def test_alembic_upgrade_head_creates_hardened_schema(
     monkeypatch.setattr(settings.database, "url", f"sqlite+aiosqlite:///{database_path.as_posix()}")
     repository_root = Path(__file__).resolve().parents[3]
     alembic_config = Config(str(repository_root / "alembic.ini"))
+    # Keep fileConfig out of the pytest process: its disable_existing_loggers
+    # default would mute every imported logger for all subsequently-run tests.
+    alembic_config.attributes["configure_logger"] = False
 
     command.upgrade(alembic_config, "head")
 
@@ -42,9 +45,28 @@ def test_alembic_upgrade_head_creates_hardened_schema(
 
     assert "audit_outbox" in tables
     assert "google_integrations" in tables
+    assert "ingestion_jobs" in tables
+    document_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+    }
+    job_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(ingestion_jobs)").fetchall()
+    }
     assert {"state_version", "telemetry_degraded"}.issubset(run_columns)
     assert {"claimed_by", "claimed_at", "next_attempt_at"}.issubset(outbox_columns)
-    assert version == "0004"
+    assert "fingerprint" in document_columns
+    assert {
+        "status",
+        "payload",
+        "timings",
+        "parent_count",
+        "child_count",
+        "table_child_count",
+        "failure_reason",
+        "claimed_by",
+        "claimed_at",
+    }.issubset(job_columns)
+    assert version == "0008"
 
 
 @pytest.mark.asyncio
