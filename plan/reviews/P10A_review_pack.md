@@ -128,8 +128,8 @@ bound parameters is deferred (see §10).
 ## 8. Gate status
 
 ```text
-GATE STATUS: WAITING FOR USER REVIEW — P10A
-Next gate message expected: APPROVED P10A   (then APPROVED P10B / P10C / P10D)
+GATE STATUS: APPROVED — P10A (user gate message received 2026-08-27)
+Phase state: CLOSED. Next gate expected: APPROVED P10B   (then APPROVED P10C / APPROVED P10D)
 ```
 
 ## 9. Post-review fixes applied during the independent review session

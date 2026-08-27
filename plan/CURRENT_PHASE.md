@@ -1,17 +1,16 @@
 # CURRENT PHASE
 
-Current phase: **P10A implemented, self-reviewed and hardened — awaiting the
-formal user gate.** The P9 family (P9A..P9E) is fully approved and CLOSED as
-of 2026-08-25. P10A work began without a recorded `APPROVED P10` message;
-the deviation is acknowledged below (same handling as the P9A precedent) and
-the sub-phase must NOT proceed to P10B before an explicit `APPROVED P10A`.
+Current phase: **P10A APPROVED & CLOSED (2026-08-27)**; next candidate is
+P10B (processing pipeline & expansion policies), which must not start before
+an explicit `APPROVED P10B` message. The P9 family (P9A..P9E) remains fully
+approved and CLOSED as of 2026-08-25.
 
 Read:
 1. `MASTER_PLAN.md`
 2. `phases/P09_document_ingestion_pipeline_execution_specification.md` (overview)
 3. Next phase spec when its gate is approved.
 
-Gate status: **P9 FAMILY CLOSED · P10A IMPLEMENTED & SELF-REVIEWED — WAITING FOR USER REVIEW — P10A**
+Gate status: **P10A APPROVED 2026-08-27 (CLOSED) · NEXT GATE: APPROVED P10B**
 
 ## Gate ledger (single source of truth)
 
@@ -34,12 +33,17 @@ APPROVED P9E   received from user 2026-08-25 ("ok appproved p9e");
                implemented + reviewed same day; formally APPROVED by user
                2026-08-25 ("APPROVED P9D và APPROVED P9E") — closes the P9
                family.
-NEXT GATE      `APPROVED P10A`. Historical note: P10A was implemented before
-               a formal `APPROVED P10` user message was ever recorded; per the
-               MASTER_PLAN "no phase skipping" invariant this is treated as a
+APPROVED P10A  received from user 2026-08-27 ("approved p10A") against
+               reviews/P10A_review_pack.md v2 — closes P10A incl. its
+               post-review fixes (migration 0008 HNSW index, citation-anchor
+               metadata, METADATA_LOOKUP contract guard, alembic autogenerate
+               filter). Historical note: P10A had been implemented before any
+               formal `APPROVED P10` user message existed; treated as a
                process deviation, acknowledged and reconciled by this ledger
-               entry plus the rewritten review pack (2026-08-27). No P10B work
-               may start until its own explicit gate message arrives.
+               plus the rewritten review pack (2026-08-27).
+NEXT GATE      `APPROVED P10B` — authorizes P10B (processing pipeline &
+               expansion policies, spec P10-06..13). Subsequent gates:
+               APPROVED P10C / APPROVED P10D.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -85,8 +89,8 @@ P10       split approved (see P10 spec header); ownership entry requirement
                 metadata on candidates, METADATA_LOOKUP contract guard,
                 alembic autogenerate filter. Verified green:
                 pytest full unit suite / ruff / pyright. Rewritten Review
-                Pack at reviews/P10A_review_pack.md. GATE OPEN — awaiting
-                explicit `APPROVED P10A`.
+                Pack at reviews/P10A_review_pack.md (v2).
+                **APPROVED & CLOSED 2026-08-27.**
           P10B  processing pipeline & expansion policies (06..13) — blocked
                 until `APPROVED P10B`
           P10C  policies & safety — compare-doc, evidence/citation,
