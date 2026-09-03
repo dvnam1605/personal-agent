@@ -44,6 +44,7 @@ class IdentityReranker:
             chunk.model_copy(
                 update={
                     "rerank_model": self.model_name,
+                    "pre_rerank_rank": position,
                     "rerank_score": float(chunk.score),
                     "rerank_rank": position,
                 }

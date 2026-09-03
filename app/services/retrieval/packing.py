@@ -36,16 +36,23 @@ def unit_for_chunk(
         "TABLE_CHILD" if chunk.metadata.get("node_type") == "TABLE_CHILD" else "CHILD"
     )
     headings = [str(item) for item in chunk.metadata.get("heading_path", [])]
+    doc_ver = chunk.metadata.get("version_number")
     return Evidence(
         kind=resolved_kind,
         content_raw=chunk.content_raw,
         token_estimate=estimate_tokens(chunk.content_raw),
         primary_chunk_id=chunk.chunk_id,
         document_id=chunk.document_id,
+        document_version_id=str(doc_ver) if doc_ver is not None else None,
         parent_id=chunk.parent_id,
         chunk_ids=[chunk.chunk_id],
         heading_path=headings,
         anchors=citation_anchors(chunk.metadata),
+        score=chunk.score,
+        rerank_score=chunk.rerank_score,
+        title=chunk.metadata.get("document_title"),
+        filename=chunk.metadata.get("filename") or chunk.metadata.get("uri"),
+        source_type=chunk.metadata.get("source_type"),
     )
 
 
@@ -80,6 +87,8 @@ def build_bundle(
         items=packed,
         total_tokens=total_tokens,
         documents_used=sorted({unit.document_id for unit in packed}),
-        parent_ids_used=sorted({pid for unit in packed if (pid := unit.parent_id)}),
+        parent_ids_used=sorted(
+            {unit.parent_id for unit in packed if unit.kind in ("PARENT", "NEIGHBOR_GROUP") and unit.parent_id}
+        ),
         retrieval_trace_id=trace_id or uuid.uuid4().hex,
     )

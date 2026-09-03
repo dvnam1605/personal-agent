@@ -1,15 +1,15 @@
 # CURRENT PHASE
 
-Current phase: **P10B implemented & self-reviewed — WAITING FOR USER REVIEW —
-P10B.** P9 family (P9A..P9E) and P10A are approved and CLOSED as of
-2026-08-25 / 2026-08-27 respectively.
+Current phase: **P10C APPROVED & CLOSED — Starting P10D (Benchmark & Ablations).**
+P9 family (P9A..P9E), P10A, P10B, and P10C are approved and CLOSED as of
+2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 respectively.
 
 Read:
 1. `MASTER_PLAN.md`
-2. `phases/P09_document_ingestion_pipeline_execution_specification.md` (overview)
+2. `phases/P10_retrieval_rag_engine_execution_specification.md` (P10D: P10-21..26)
 3. Next phase spec when its gate is approved.
 
-Gate status: **P10A CLOSED · P10B IMPLEMENTED & SELF-REVIEWED — WAITING FOR USER REVIEW — P10B**
+Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D IN PROGRESS**
 
 ## Gate ledger (single source of truth)
 
@@ -40,12 +40,15 @@ APPROVED P10A  received from user 2026-08-27 ("approved p10A") against
                formal `APPROVED P10` user message existed; treated as a
                process deviation, acknowledged and reconciled by this ledger
                plus the rewritten review pack (2026-08-27).
-NEXT GATE      `APPROVED P10B` received from user 2026-08-27 ("ok approved
-               p10b") and authorised implementing P10B same day. P10B was
-               implemented + self-reviewed + verified green
-               (pytest full unit suite / ruff / pyright); it now awaits its
-               formal user review message before closing. Subsequent gates:
-               APPROVED P10C / APPROVED P10D.
+APPROVED P10B  received from user 2026-08-28 ("approved p10B") against
+               reviews/P10B_review_pack.md v2 — closes P10B including all
+               post-review fixes (H1..H4, M1..M5, L1..L4).
+APPROVED P10C  received from user 2026-09-03 ("Approved P10c") against
+               reviews/P10C_review_pack.md — closes P10C including all
+               post-review fixes (H1..H4, M1..M4, M-NEW, L1..L3, L-NEW 1/2).
+NEXT GATE      `APPROVED P10` (or `APPROVED P10D`) — implement P10D
+               (benchmark dataset, ablations, latency tracing, family Review Pack)
+               then await final P10 closure review.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -93,19 +96,14 @@ P10       split approved (see P10 spec header); ownership entry requirement
                 pytest full unit suite / ruff / pyright. Rewritten Review
                 Pack at reviews/P10A_review_pack.md (v2).
                 **APPROVED & CLOSED 2026-08-27.**
-          P10B  processing pipeline & expansion policies — IMPLEMENTED +
-                self-reviewed (2026-08-27) under `ok approved p10b`: candidate
-                diversity/dedup/caps (06), pluggable reranker + identity
-                adapter (07), deterministic NONE/PARENT resolution (08),
-                parent resolver + documented scoring baseline (09/10),
-                neighbor windows within parent (11), TABLE_CHILD isolation
-                rule (12), budget-aware packing -> EvidenceBundle (13).
-                Verified green: pytest full unit suite / ruff / pyright.
-                Review Pack at reviews/P10B_review_pack.md. GATE OPEN —
-                awaiting explicit `APPROVED P10B` closure message.
+          P10B  processing pipeline & expansion policies —
+                **APPROVED & CLOSED 2026-08-28.** Review Pack at
+                reviews/P10B_review_pack.md (v3).
           P10C  policies & safety — compare-doc, evidence/citation,
                 sufficiency/retry, answer synthesis, prompt-injection
-                boundary (14..20; heaviest sub-phase)
+                boundary (P10-14..20; heaviest sub-phase) —
+                **APPROVED & CLOSED 2026-09-03.** Review Pack at
+                reviews/P10C_review_pack.md.
           P10D  benchmark dataset, ablations, latency tracing, family
-                Review Pack (21..26)
+                Review Pack (P10-21..26) — IN PROGRESS
 ```

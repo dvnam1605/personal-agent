@@ -1,8 +1,8 @@
 # RAG Retrieval Strategy (P10)
 
-> Status: P10A **APPROVED & CLOSED** (2026-08-27). Sections previously marked
-> **(P10B/C/D)** are binding decisions; those stamped **(P10B ✅)** were
-> implemented on 2026-08-27 and are awaiting the user review gate.
+> Status: P10A **APPROVED & CLOSED** (2026-08-27), P10B **APPROVED & CLOSED**
+> (2026-08-28). Sections stamped **(P10C ✅)** were implemented on 2026-08-28
+> and are awaiting the user review gate.
 > Source of truth: `plan/phases/P10_retrieval_rag_engine_execution_specification.md`.
 
 ## 1. Searchable unit
@@ -83,27 +83,52 @@ with a warning rather than truncated mid-chunk. Output is the normative
 `EvidenceBundle` shape (items / total_tokens / documents_used /
 parent_ids_used / retrieval_trace_id).
 
-## 8. Compare-document diversity **(P10C)**
+## 8. Compare-document diversity **(P10C ✅)**
 
 COMPARE_DOCUMENTS enforces per-document candidate caps so every required
-source receives candidate opportunity before fusion cuts.
+source receives candidate opportunity before fusion cuts.  Post-packing,
+`enforce_compare_diversity` audits the bundle and reports `CompareResult`
+with `covered_documents`, `missing_documents`, and `balance_ratio`.
 
-## 9. Sufficiency / no-answer **(P10C)**
+## 9. Sufficiency / no-answer **(P10C ✅)**
 
-Three-state verdict: SUFFICIENT / PARTIAL / INSUFFICIENT derived from fused
-score distribution + coverage thresholds; INSUFFICIENT yields an explicit
-no-answer path instead of forced synthesis.
+Three-state verdict: SUFFICIENT / PARTIAL / INSUFFICIENT derived from
+deterministic rules (no LLM judge).  Priority-ordered checks: zero items →
+INSUFFICIENT; below `min_evidence_items` → INSUFFICIENT; compare-mode
+missing doc → PARTIAL; all scores below `min_score_threshold` →
+INSUFFICIENT (V1 baseline default is `0.0` for RRF fusion score scale with
+IdentityReranker; score threshold calibration and ablation is executed in
+P10D with cross-encoder).  INSUFFICIENT yields an explicit no-answer path
+instead of forced synthesis.
 
-## 10. Retry limits **(P10C)**
+## 10. Retry limits **(P10C ✅)**
 
-Bounded retrieval retry: maximum **2** attempts total with reformulated
-`search_query` between attempts; never loops silently.
+Bounded retrieval retry: maximum **2** attempts total (hard cap).  On
+INSUFFICIENT/PARTIAL, `apply_retry_strategy` produces a modified query
+(INCREASE_K, RELAX_FILTER, CHANGE_EXPANSION tactics).  No unbounded loop.
 
-## 11. Citation contract **(P10C)**
+## 11. Citation contract **(P10C ✅)**
 
-Every evidence item carries `chunk_id`, `document_id`, `parent_id`,
-page anchors and source filename from chunk metadata — enough for the UI to
-render a verifiable citation without re-running retrieval.
+Every `Evidence` item carries `evidence_id` (stable uuid4), `chunk_id`,
+`document_id`, `parent_id`, `title`, `filename`, `source_type`,
+`heading_path`, and page anchors — enough for the UI to render a verifiable
+citation without re-running retrieval.  `Citation` model (P10-19) maps
+evidence ids back to document provenance.
+
+## 11.1. Answer synthesis **(P10C ✅)**
+
+`AnswerSynthesizer` protocol with `PromptAnswerSynthesizer` default: builds
+a structured prompt with evidence framed as **untrusted data** (P10-20
+boundary), delegates to a caller-supplied `generate` callback for the LLM
+call.  Rules enforced: internal-only, evidence-vs-inference distinction,
+explicit insufficient-evidence signalling, per-claim citation.
+
+## 11.2. Prompt-injection boundary **(P10C ✅)**
+
+Retrieved content wrapped in `<retrieved_document>` structural markers.
+System prompt declares that document content cannot change system
+instructions, tool permissions, CapabilityGate, PolicyEngine, or request
+hidden delegation.  Security tests cover all 5 attack vectors.
 
 ## 12. Evaluation & ablation **(P10D)**
 
@@ -126,4 +151,6 @@ p95 on CPU for V1 defaults (measured, not assumed — see P10D report).
 - Dynamic SQL values are strictly validated before interpolation (UUIDs via
   `uuid.UUID`, floats rendered from Python numbers); FTS text is escaped as a
   single literal consumed by `websearch_to_tsquery`.
-- Zero LLM calls in this layer ("no LLM when code is enough").
+- Zero LLM calls in the retrieval/packing path.  The only LLM call is in
+  `PromptAnswerSynthesizer` (answer synthesis, P10-18) via a pluggable
+  `generate` callback — never in retrieval, fusion, rerank, or expansion.

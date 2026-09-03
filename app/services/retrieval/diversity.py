@@ -5,19 +5,24 @@ Deterministic and cheap on purpose — no embeddings, no LLM:
 - duplicate ``chunk_id`` entries collapse to their first occurrence;
 - children whose normalised text repeats an earlier candidate are suppressed
   (the first/better-ranked instance wins), which stops adjacent near-identical
-  chunks from dominating the reranker input;
+  chunks from dominating the reranker input. Note: V1 implements exact
+  whitespace-and-case normalised matching; fuzzy / Jaccard / MinHash shingle
+  thresholding is recorded as a tunable for P10D ablation testing;
 - optional per-document candidate caps apply in arrival (fusion) order, giving
   every document fair candidate opportunity; COMPARE_DOCUMENTS gets a derived
-  balance cap. Detecting *missing* sources belongs to the P10C compare policy
-  and is intentionally NOT attempted here.
+  balance cap. Detecting and surfacing *missing* sources to the user belongs to
+  the P10C compare policy, while a diagnostic warning is logged here.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 
 from app.domain.models.retrieval import RetrievedChunk
+
+logger = logging.getLogger(__name__)
 
 _WS_RE = re.compile(r"\s+")
 
@@ -39,15 +44,16 @@ def dedup_candidates(candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
 
 
 def suppress_near_duplicates(candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
-    """Drop later candidates whose normalised body repeats an earlier one."""
+    """Drop empty chunks and later candidates whose normalised body repeats an earlier one."""
     seen_texts: set[str] = set()
     kept: list[RetrievedChunk] = []
     for chunk in candidates:
         key = _normalised_text(chunk)
-        if key and key in seen_texts:
+        if not key:
             continue
-        if key:
-            seen_texts.add(key)
+        if key in seen_texts:
+            continue
+        seen_texts.add(key)
         kept.append(chunk)
     return kept
 
@@ -89,6 +95,13 @@ def apply_diversity(
     filtered = suppress_near_duplicates(dedup_candidates(candidates))
     cap = per_document_cap
     if compare_document_ids:
+        present = {chunk.document_id for chunk in filtered}
+        missing = set(compare_document_ids) - present
+        if missing:
+            logger.warning(
+                "compare_source_missing_in_retrieval",
+                extra={"missing_document_ids": sorted(missing)},
+            )
         derived = balanced_cap_for_compare(filtered, compare_document_ids)
         if derived is not None:
             cap = min(cap, derived) if cap is not None else derived

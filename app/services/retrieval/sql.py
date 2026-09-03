@@ -64,6 +64,9 @@ WHERE c.hierarchy_level = {level}
 
 ANCHOR_SELECT_COLUMNS = """\
        d.title AS document_title,
+       d.source_type AS source_type,
+       d.uri AS uri,
+       d.version_number AS version_number,
        c.node_type AS node_type,
        c.heading_path AS heading_path,
        c.chunk_index AS chunk_index,
@@ -82,6 +85,9 @@ def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
     """
     anchors = {
         "document_title": row.get("document_title"),
+        "source_type": row.get("source_type"),
+        "uri": row.get("uri"),
+        "version_number": row.get("version_number"),
         "node_type": row.get("node_type"),
         "heading_path": coerce_heading_list(row.get("heading_path")),
         "chunk_index": row.get("chunk_index"),
@@ -110,11 +116,18 @@ PARENT_FETCH_TEMPLATE = """
 SELECT c.id AS chunk_id,
        c.document_id AS document_id,
        c.content_raw AS content_raw,
-       c.heading_path AS heading_path
+       c.heading_path AS heading_path,
+       c.page_start AS page_start,
+       c.page_end AS page_end,
+       c.citation_label AS citation_label,
+       d.title AS document_title,
+       d.source_type AS source_type,
+       d.uri AS uri,
+       d.version_number AS version_number
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
 WHERE c.hierarchy_level = 0
-  AND c.id IN ({parent_ids})
+  AND {parent_scope}
   AND d.is_active
   AND {owner_scope}
 """
@@ -130,11 +143,14 @@ SELECT c.id AS chunk_id,
        c.page_end AS page_end,
        c.citation_label AS citation_label,
        d.title AS document_title,
+       d.source_type AS source_type,
+       d.uri AS uri,
+       d.version_number AS version_number,
        c.content_raw AS content_raw
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
 WHERE c.hierarchy_level = 1
-  AND c.parent_id IN ({parent_ids})
+  AND {sibling_scope}
   AND d.is_active
   AND {owner_scope}
 ORDER BY c.parent_id, c.chunk_index

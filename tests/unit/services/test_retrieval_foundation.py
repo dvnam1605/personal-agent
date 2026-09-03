@@ -247,7 +247,7 @@ class TestHybridFusion:
         assert by_id[b].metadata["retrieval_sources"] == ["dense", "sparse"]
         assert by_id[b].dense_rank == 2 and by_id[b].sparse_rank == 1
 
-    async def test_limit_applied_after_fusion(self) -> None:
+    async def test_full_fused_candidates_returned_for_pipeline(self) -> None:
         class Fixed:
             def __init__(self, chunks: list[RetrievedChunk]) -> None:
                 self.chunks = chunks
@@ -259,7 +259,7 @@ class TestHybridFusion:
         sparse = Fixed([])
         service = HybridRetrievalService(dense, sparse, k=60)  # type: ignore[arg-type]
         results = await service.retrieve(make_query(limit=2))
-        assert len(results) == 2
+        assert len(results) == 5
 
 
 class TestParallelExecution:

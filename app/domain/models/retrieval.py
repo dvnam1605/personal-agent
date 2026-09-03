@@ -8,6 +8,7 @@ retrieval_sources are tracked end-to-end per spec P10-05).
 
 from __future__ import annotations
 
+import uuid
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -93,6 +94,7 @@ class RetrievedChunk(BaseModel):
     sparse_rank: int | None = None
     fusion_score: float | None = None
     # P10-07 bookkeeping: model/version tag + pre/post ranks (set by rerankers)
+    pre_rerank_rank: int | None = None
     rerank_score: float | None = None
     rerank_rank: int | None = None
     rerank_model: str | None = None
@@ -103,19 +105,28 @@ EvidenceUnitKind = Literal["CHILD", "NEIGHBOR_GROUP", "PARENT", "TABLE_CHILD"]
 
 
 class Evidence(BaseModel):
-    """One mixed-unit context item for generation (spec P10-13)."""
+    """One mixed-unit context item for generation (spec P10-13 + P10-15 provenance)."""
 
     model_config = ConfigDict(frozen=True)
 
+    evidence_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     kind: EvidenceUnitKind
     content_raw: str
     token_estimate: int
     primary_chunk_id: str
     document_id: str
+    document_version_id: str | None = None
     parent_id: str | None = None
     chunk_ids: list[str] = Field(default_factory=list)
     heading_path: list[str] = Field(default_factory=list)
     anchors: dict[str, Any] = Field(default_factory=dict)
+    # Score provenance for sufficiency evaluation (P10-16)
+    score: float | None = None
+    rerank_score: float | None = None
+    # P10-15 citation provenance fields
+    title: str | None = None
+    filename: str | None = None
+    source_type: str | None = None
 
 
 class EvidenceBundle(BaseModel):

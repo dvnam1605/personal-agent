@@ -96,6 +96,13 @@ class TestDiversity:
         out = suppress_near_duplicates([first, clone, distinct])
         assert [c.chunk_id for c in out] == ["c1", "c3"]
 
+    def test_empty_and_whitespace_chunks_suppressed(self) -> None:
+        empty = chunk("e1", content="")
+        ws = chunk("e2", content="   \n  ")
+        valid = chunk("v1", content="Hop le")
+        out = suppress_near_duplicates([empty, ws, valid])
+        assert [c.chunk_id for c in out] == ["v1"]
+
     def test_per_document_cap_in_arrival_order(self) -> None:
         seq = [
             chunk("a1", doc="A"),
@@ -120,10 +127,38 @@ class TestDiversity:
         out = apply_diversity(seq, per_document_cap=1)
         assert [c.chunk_id for c in out] == ["a1", "z"]
 
+
+class TestSQLTemplates:
+    def test_parent_fetch_sql_syntax_not_nested_in(self) -> None:
+        from app.services.retrieval.sql import (
+            PARENT_FETCH_TEMPLATE,
+            SIBLING_FETCH_TEMPLATE,
+            owner_scope_sql,
+            parent_scope_sql,
+            sibling_scope_sql,
+        )
+
+        pids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        parent_sql = PARENT_FETCH_TEMPLATE.format(
+            parent_scope=parent_scope_sql(pids),
+            owner_scope=owner_scope_sql(None),
+        )
+        assert "c.id IN (c.id IN (" not in parent_sql
+        assert "AND c.id IN ('" in parent_sql
+
+        sibling_sql = SIBLING_FETCH_TEMPLATE.format(
+            sibling_scope=sibling_scope_sql(pids),
+            owner_scope=owner_scope_sql(None),
+        )
+        assert "c.parent_id IN (c.parent_id IN (" not in sibling_sql
+        assert "AND c.parent_id IN ('" in sibling_sql
+
+
 class TestRerank:
     async def test_identity_passthrough_tags_provenance(self) -> None:
         seq = [chunk("c1", 0.7), chunk("c2", 0.4)]
         out = await IdentityReranker().rerank("truy van", seq, top_k=2)
+        assert [c.pre_rerank_rank for c in out] == [1, 2]
         assert [c.rerank_rank for c in out] == [1, 2]
         assert all(c.rerank_model == "identity:v1" for c in out)
         assert out[0].rerank_score == 0.7 and out[1].rerank_score == 0.4
@@ -212,13 +247,32 @@ class TestParentExpansion:
         # par-2: best 0.9 + bonus; par-1: best 0.5 -> par-2 first
         assert [u.parent_id for u in units] == [p2, p1]
 
-    async def test_table_children_never_swapped_for_parent(self) -> None:
-        provider = FakeProvider()
+    async def test_parent_priority_uses_rerank_score_over_fusion_score(self) -> None:
+        p1, p2 = str(uuid.uuid4()), str(uuid.uuid4())
+        rows = [_parent_row(p1, "doc-1", "cha mot", []), _parent_row(p2, "doc-1", "cha hai", [])]
+        provider = FakeProvider(rows)
         service = ExpansionService(provider)
-        table_hit = chunk("t1", parent="par-1", node="TABLE_CHILD")
-        units = await service.build_units([table_hit], ExpansionPolicy.PARENT, make_query())
-        assert provider.sqls == []  # no parent fetch happened at all
-        assert len(units) == 1 and units[0].kind == "TABLE_CHILD"
+        # c1 has high fusion score (0.9) but low rerank_score (0.2)
+        c1 = chunk("c1", 0.9, parent=p1).model_copy(update={"rerank_score": 0.2})
+        # c2 has low fusion score (0.3) but high rerank_score (0.85)
+        c2 = chunk("c2", 0.3, parent=p2).model_copy(update={"rerank_score": 0.85})
+        units = await service.build_units([c1, c2], ExpansionPolicy.PARENT, make_query())
+        # p2 must come first because c2's rerank_score (0.85) > c1's rerank_score (0.2)
+        assert [u.parent_id for u in units] == [p2, p1]
+
+    async def test_table_children_interleaved_by_score_not_appended_last(self) -> None:
+        p1 = str(uuid.uuid4())
+        rows = [_parent_row(p1, "doc-1", "noi dung cha", [])]
+        provider = FakeProvider(rows)
+        service = ExpansionService(provider)
+        # Table child has highest score (0.95), regular child has score 0.5 under parent p1
+        table_hit = chunk("t1", 0.95, parent=p1, node="TABLE_CHILD")
+        reg_hit = chunk("c1", 0.5, parent=p1)
+        units = await service.build_units([table_hit, reg_hit], ExpansionPolicy.PARENT, make_query())
+        assert len(units) == 2
+        # TABLE_CHILD has score 0.95 > parent p1 priority (0.5), so TABLE_CHILD is first!
+        assert units[0].kind == "TABLE_CHILD" and units[0].primary_chunk_id == "t1"
+        assert units[1].kind == "PARENT" and units[1].parent_id == p1
 
     def test_table_detection_helpers(self) -> None:
         assert is_table_child(chunk("x", node="TABLE_CHILD")) is True
@@ -230,6 +284,8 @@ class TestParentExpansion:
         await service.build_units([chunk("c1", parent=str(uuid.uuid4()))], ExpansionPolicy.PARENT, make_query())
         sql = provider.sqls[0]
         assert "d.user_id" in sql and "IN (" in sql and "hierarchy_level = 0" in sql
+        assert "c.id IN (c.id IN (" not in sql
+
 
 class TestNeighborExpansion:
     async def test_window_prev_hit_next_within_parent(self) -> None:
@@ -245,6 +301,9 @@ class TestNeighborExpansion:
         assert unit.kind == "NEIGHBOR_GROUP"
         assert unit.chunk_ids == ["c2", "c3", "c4"]
         assert unit.heading_path == ["Muc 1"]
+        # Primary chunk and anchors belong to c3 (the hit), not c2 or c4
+        assert unit.primary_chunk_id == "c3"
+        assert unit.anchors.get("citation_label") == "[c3]"
 
     async def test_multiple_hits_merge_into_single_group(self) -> None:
         pid = str(uuid.uuid4())
@@ -281,11 +340,12 @@ class TestNeighborExpansion:
         await service.build_units([chunk("c2", parent=str(uuid.uuid4()))], ExpansionPolicy.NEIGHBORS, make_query())
         sql = provider.sqls[0]
         assert "d.user_id" in sql and "hierarchy_level = 1" in sql and "ORDER BY c.parent_id" in sql
+        assert "c.parent_id IN (c.parent_id IN (" not in sql
 
 
-def _unit(text: str, cid: str, *, doc: str = "doc-1", parent: str | None = None) -> Evidence:
+def _unit(text: str, cid: str, *, kind: str = "CHILD", doc: str = "doc-1", parent: str | None = None) -> Evidence:
     return Evidence(
-        kind="CHILD",
+        kind=kind,  # type: ignore[arg-type]
         content_raw=text,
         token_estimate=estimate_tokens(text),
         primary_chunk_id=cid,
@@ -312,23 +372,25 @@ class TestPacking:
 
     def test_bundle_fields_and_trace(self) -> None:
         units = [
-            _unit("abc", "c1", doc="doc-B", parent="par-9"),
-            _unit("def", "c2", doc="doc-A", parent=None),
+            _unit("abc", "c1", kind="PARENT", doc="doc-B", parent="par-9"),
+            _unit("def", "c2", kind="CHILD", doc="doc-A", parent="par-unexpanded"),
         ]
         bundle = build_bundle(units, token_budget=5000)
         import re as _re
 
         assert _re.fullmatch(r"[0-9a-f]{32}", bundle.retrieval_trace_id)
         assert bundle.documents_used == ["doc-A", "doc-B"]
+        # Only PARENT / NEIGHBOR_GROUP parent_ids are recorded, CHILD parent_id is ignored
         assert bundle.parent_ids_used == ["par-9"]
         assert isinstance(bundle, EvidenceBundle)
+
 
 class TestPipelineEndToEnd:
     async def test_none_policy_full_flow_preserves_order_and_tags(self) -> None:
         seq = [
             chunk("c1", 0.9),
             chunk("c2", 0.5),
-            chunk("dup-c1", 0.3),  # duplicate id of c1? different id -> stays
+            chunk("dup-c1", 0.3),
         ]
         provider = FakeProvider()
         pipeline = RetrievalPipeline(FixedHybrid(seq), provider)
@@ -371,6 +433,7 @@ class TestPipelineEndToEnd:
         assert len(provider.sqls) == 1
         sql = provider.sqls[0]
         assert "hierarchy_level = 0" in sql and "d.user_id" in sql
+        assert "c.id IN (c.id IN (" not in sql
         kinds = [(item.kind, item.parent_id) for item in bundle.items]
         # par for c1 resolved; c2's missing parent logs a warning and is skipped
         assert ("PARENT", parent_id) in kinds
@@ -399,3 +462,4 @@ class TestPipelineEndToEnd:
         # provenance bookkeeping lives on chunks pre-packing; anchors stripped:
         # verify indirectly that every unit kept its content ordering from fusion
         assert [item.content_raw for item in bundle.items] == ["noi dung c1", "noi dung c2"]
+

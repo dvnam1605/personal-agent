@@ -77,6 +77,5 @@ class HybridRetrievalService:
             )
 
         results.sort(key=lambda item: item.fusion_score or 0.0, reverse=True)
-        fused_top = results[: query.limit]
-        logger.debug("hybrid_retrieval_done", extra={"count": len(fused_top)})
-        return fused_top
+        logger.debug("hybrid_retrieval_done", extra={"count": len(results)})
+        return results

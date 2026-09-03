@@ -65,57 +65,72 @@ docs/architecture/rag-retrieval-strategy.md  # §5–§7 stamped delivered with 
 - MAX_EXPANSION_PARENTS=32 bounds fetch fan-out; rerank input bounded by
   `rerank_top_k_max=48` (spec range ~20–50).
 
-## 5. Verification (2026-08-27)
+## 5. Verification (2026-08-28 — Post-Review Fixes v2)
 
 ```text
-uv run --frozen -m pytest tests/unit -q                # full suite … exit 0
-uv run --frozen -m pytest tests/unit/services/test_retrieval_pipeline.py   # 24 passed
-uv run --frozen ruff check app tests alembic           # All checks passed!
-uv run --frozen pyright app\services\retrieval \
-        app\domain\models\retrieval.py alembic\env.py \
-        tests\unit\services\test_retrieval_pipeline.py  # 0 errors
+uv run --frozen --no-sync -m pytest tests/unit -q               # full suite 7912 lines, exit 0
+uv run --frozen --no-sync -m pytest tests/unit/services/test_retrieval_pipeline.py   # 32 passed
+uv run --frozen --no-sync ruff check app tests alembic          # All checks passed!
+uv run --frozen --no-sync pyright app/services/retrieval \
+        app/domain/models/retrieval.py alembic/env.py \
+        tests/unit/services/test_retrieval_pipeline.py          # 0 errors, 0 warnings
 ```
 
-Coverage notes: dedup/near-dup/caps/balance-cap, identity provenance,
+Coverage notes: dedup/near-dup/caps/balance-cap, identity provenance (`pre_rerank_rank`, `rerank_rank`, `rerank_score`, `rerank_model`),
 override-vs-hint decision matrix (incl. unaccented VN question), single-parent
-grouping + scoring order, TABLE_CHILD isolation (asserts zero DB calls),
-owner-guard presence on both fetch templates, window ±1 & multi-hit merge &
-cross-parent separation, greedy budget math, oversize-drop-not-truncate,
-bundle fields/trace format, end-to-end NONE flow and COMPARE-mode cap.
+grouping + scoring order based on `rerank_score`, TABLE_CHILD interleaving and priority (not appended last),
+owner-guard presence on both fetch templates, syntax validity (`{parent_scope}`, `{sibling_scope}` without double-IN),
+window ±1 & multi-hit merge & cross-parent separation, neighbor lead selection pinning to hit chunk,
+greedy budget math, oversize-drop-not-truncate, `parent_ids_used` scoped strictly to expanded units,
+bundle fields/trace format, end-to-end NONE flow, and COMPARE-mode missing source diagnostics.
 
 ## 6. Definition of Done (P10B scope)
 
 - [x] duplicate child IDs removed before rerank
-- [x] near-duplicate/adjacent-overlap suppression (documented normalisation)
+- [x] near-duplicate/adjacent-overlap suppression (exact-normalised match; tunable recorded)
 - [x] per-document candidate caps; compare-mode opportunity cap
-- [x] pluggable reranker interface + tracked provenance + identity adapter
+- [x] pluggable reranker interface + tracked provenance (`pre_rerank_rank`, `rerank_rank`, `rerank_score`, `rerank_model`) + identity adapter
 - [x] deterministic expansion decision rules (no LLM) with override path
-- [x] parent grouping without duplicates; documented priority formula
-- [x] neighbor boundaries confined to same parent; overlap-free merging
-- [x] table-child behaviour: headers retained, caption context, no parent swap
+- [x] parent grouping without duplicates; documented priority formula using `rerank_score`
+- [x] neighbor boundaries confined to same parent; overlap-free merging; lead chunk points to hit chunk
+- [x] table-child behaviour: headers retained, caption context, no parent swap, proper ranking interleaving
 - [x] context budget enforced exactly (greedy, warn-drop, never truncate)
-- [x] `EvidenceBundle` matches the spec field-for-field
+- [x] `EvidenceBundle` matches the spec field-for-field with clean `parent_ids_used` semantics
 - [x] unit tests for every rule above + e2e flow; full suite/ruff/pyright green
 
-## 7. Design notes & deferred items
+## 7. Post-Review Findings Resolution (2026-08-28)
 
-- Parent scoring constants (`0.1` bonus, 5-hit cap), hint list, and
-  `MAX_EXPANSION_PARENTS` are recorded here as the tunables P10D ablations
-  must vary consciously rather than rediscover.
-- Oversized single units are dropped whole by design (strategy §7); if
-  benchmarks show starvation on long parents, a member-level splitting pass
-  can be added without changing the Evidence contract.
-- Compare-source *missing detection/reporting* is explicitly P10C territory;
-  only the opportunity cap landed in P10B.
-- Sibling windows fetch all children of affected parents at level 1 — bounded
-  by MAX_EXPANSION_PARENTS; fine at personal corpus scale, revisit if needed.
+| Item | Description | Resolution |
+|---|---|---|
+| **H1** | SQL fetch parents/siblings syntax error (`c.id IN (c.id IN ('...'))`) | Changed `PARENT_FETCH_TEMPLATE` & `SIBLING_FETCH_TEMPLATE` placeholders to `{parent_scope}` and `{sibling_scope}` to match `parent_scope_sql` / `sibling_scope_sql`. Added SQL syntax non-nesting unit assertions. |
+| **H2** | Parent priority used raw fusion score instead of `rerank_score` | `ExpansionService` now reads `chunk.rerank_score` (fallback to `chunk.score`) for parent group priority scoring. Added test asserting rerank score overrides raw fusion score. |
+| **H3** | TABLE_CHILD appended at the end breaking priority & budget | `build_units` now maintains ranking interleaving and priority score ordering across both table children and expanded units. Added test asserting high-scoring table child is packed first. |
+| **H4** | Neighbor lead chunk selection took arbitrary index member | Lead chunk is now selected as the best hit chunk in the parent group; `primary_chunk_id`, `document_id`, `heading_path`, and `anchors` match the genuine search match. Added anchor validation test. |
+| **M1** | Near-duplicate suppression exact matching limitation | Documented V1 exact normalised text matching and noted Jaccard/shingle threshold as tunable for P10D ablations. |
+| **M2** | NEIGHBORS expansion routing documentation | Documented agent strategy ownership and override mechanism for NEIGHBORS. |
+| **M3** | Hybrid retrieval sliced to `query.limit` before diversity/rerank | `HybridRetrievalService.retrieve` now returns full fused candidate set for pipeline diversity and rerank consumption (~20-40 pool). |
+| **M4** | `parent_ids_used` collected parent ids for unexpanded `CHILD` units | `build_bundle` now scopes `parent_ids_used` strictly to units with `kind in ("PARENT", "NEIGHBOR_GROUP")`. |
+| **M5** | Rerank provenance missing `pre_rerank_rank` | Added `pre_rerank_rank: int | None = None` to `RetrievedChunk` and populated in `IdentityReranker.rerank`. |
+| **L1** | `suppress_near_duplicates` kept empty chunks | Empty / whitespace-only chunks are now filtered out. |
+| **L2** | Diagnostic warning for missing compare documents | `apply_diversity` now logs a warning when candidate pool lacks a requested compare document. |
+| **L3** | Logging `expansion_built` missing `retrieval_trace_id` | `trace_id` is passed down to `ExpansionService.build_units` and included in debug logs. |
+| **L4** | Token budget drop monitoring | Budget overflow logs and tests verified. |
+
+## 7.1 Residual Notes & P10C / P10D Handoffs
+
+- **M-RES1 (`RetrievalQuery.limit` contract handoff to P10C)**:
+  `RetrievalQuery.limit` (default 10) was originally sliced at `HybridRetrievalService`. In P10B, `HybridRetrievalService` returns the full candidate set (~20–40) to feed diversity and rerank, while budget packing enforces `context_token_budget`. In P10C (Answer Synthesis / Policies), `query.limit` will be wired into the rerank top-k selection / max evidence items cap or formally documented as an item-count ceiling.
+- **L1 (Cross-kind scoring & parent bonus ablation in P10D)**:
+  `ExpansionService` combines `TABLE_CHILD` score (0..1) with `PARENT` priority score (`best_child_score + 0.1 * min(extras, 5)`). This baseline follows spec P10-10; P10D benchmark ablations will specifically evaluate tuning the `0.1` bonus and 5-hit cap against high-precision table hits.
+- **L2 (Owner-scope DB integration tests in P10D)**:
+  Unit tests assert the mandatory SQL predicates (`d.user_id = :requester OR d.user_id IS NULL`), with `owner_scope_sql(None)` returning `d.user_id IS NULL` (shared docs only). Full live-PG matrix integration testing across both requester-authenticated and unauthenticated contexts will run under P10D evaluation.
 
 ## 8. Gate status
 
 ```text
-GATE STATUS: WAITING FOR USER REVIEW — P10B
-Next gate message expected: APPROVED P10B   (then APPROVED P10C / APPROVED P10D)
+GATE STATUS: APPROVED & CLOSED — P10B (user "approved p10B" 2026-08-28)
+Next gate: APPROVED P10C → APPROVED P10D
 ```
 
 ---
-*Review Pack generated 2026-08-27*
+*Review Pack updated 2026-08-28 (v3 — approved & closed)*
