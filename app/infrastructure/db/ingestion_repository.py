@@ -81,6 +81,8 @@ class SqlAlchemyIngestionRepository:
     ) -> tuple[str, int]:
         typed = self._session(session)
 
+        admin_meta = parents[0].administrative_metadata if parents and parents[0].administrative_metadata else {}
+
         document = Document(
             id=document_id,
             user_id=None,
@@ -102,6 +104,7 @@ class SqlAlchemyIngestionRepository:
                 "parent_chunker_version": parents[0].parent_chunker_version if parents else None,
                 "child_chunker_version": children[0][0].child_chunker_version if children else None,
                 "source_metadata": _json_safe(source.metadata),
+                "administrative_metadata": admin_meta,
             },
         )
         typed.add(document)
@@ -124,7 +127,10 @@ class SqlAlchemyIngestionRepository:
                     content_hash=parent.content_hash,
                     source_block_ids=list(parent.source_block_ids),
                     parent_chunker_version=parent.parent_chunker_version,
-                    metadata_={"ordinal": parent.ordinal},
+                    metadata_={
+                        "ordinal": parent.ordinal,
+                        "administrative_metadata": parent.administrative_metadata,
+                    },
                 )
             )
         for child, vector in children:
@@ -148,6 +154,9 @@ class SqlAlchemyIngestionRepository:
                     embedding=vector,
                     embedding_model=_embedding_model(),
                     embedding_dimensions=len(vector) if vector else _embedding_dimensions(),
+                    metadata_={
+                        "administrative_metadata": child.administrative_metadata,
+                    },
                 )
             )
         await typed.flush()
