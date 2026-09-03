@@ -269,6 +269,7 @@ class SentenceChildChunker:
                     page_start=page_start,
                     page_end=page_end,
                     child_chunker_version=CHILD_CHUNKER_VERSION,
+                    administrative_metadata=dict(parent.administrative_metadata),
                 )
             )
         return drafts

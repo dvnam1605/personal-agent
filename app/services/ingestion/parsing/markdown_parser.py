@@ -19,6 +19,7 @@ from app.domain.models.parsed_document import (
     SourceAnchor,
     TableNode,
 )
+from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 from app.services.ingestion.parsing.base import DocumentParseError
 
 MARKDOWN_PARSER_NAME = "markdown"
@@ -190,12 +191,15 @@ class MarkdownDocumentParser:
 
             i += 1
 
+        admin_meta = AdministrativeMetadataExtractor.extract(text, filename=source.filename)
+
         return ParsedDocument(
             metadata=ParsedDocumentMetadata(
                 source_id=source.source_id,
                 filename=source.filename,
                 parser_name=MARKDOWN_PARSER_NAME,
                 parser_version=MARKDOWN_PARSER_VERSION,
+                administrative_metadata=admin_meta.to_dict(),
             ),
             nodes=tuple(nodes),
         )

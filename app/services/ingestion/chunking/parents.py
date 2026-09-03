@@ -76,8 +76,10 @@ class SectionParentChunker:
     ) -> None:
         self._context = context
         self._settings = settings or ChunkingSettings()
+        self._admin_meta: dict[str, object] = {}
 
     def build_parents(self, document: ParsedDocument) -> list[ParentChunkDraft]:
+        self._admin_meta = dict(getattr(document.metadata, "administrative_metadata", {}))
         drafts: list[ParentChunkDraft] = []
 
         def flush(heading_path: tuple[str, ...], nodes: list[ParsedNode]) -> None:
@@ -180,6 +182,7 @@ class SectionParentChunker:
             page_end=_max_page(anchors),
             parent_chunker_version=PARENT_CHUNKER_VERSION,
             segment_anchors=tuple(anchors),
+            administrative_metadata=dict(self._admin_meta),
         )
 
     def _split_oversized_node(self, text: str) -> list[str]:

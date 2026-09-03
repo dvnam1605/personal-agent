@@ -8,6 +8,7 @@ queryable without reparsing the source. No embedding vectors here.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -43,6 +44,7 @@ class _ChunkDraftBase(BaseModel):
     source_block_ids: tuple[str, ...] = ()
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
+    administrative_metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("content_hash")
     @classmethod

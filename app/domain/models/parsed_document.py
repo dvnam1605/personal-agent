@@ -8,7 +8,7 @@ cross this boundary (spec P9B-1/P9B-2).
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,6 +93,7 @@ class ParsedDocumentMetadata(BaseModel):
     ocr_used: bool = False
     page_count: int | None = Field(default=None, ge=0)
     parse_warnings: tuple[str, ...] = ()
+    administrative_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ParsedDocument(BaseModel):

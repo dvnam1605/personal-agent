@@ -84,6 +84,7 @@ class BenchmarkChunk(BaseModel):
     page_end: int | None = 1
     content_raw: str
     keywords: list[str] = Field(default_factory=list)
+    administrative_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class BenchmarkDocument(BaseModel):
@@ -97,6 +98,7 @@ class BenchmarkDocument(BaseModel):
     source_type: str = "pdf"
     version_number: int = 1
     description: str = ""
+    administrative_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class BenchmarkCorpus(BaseModel):
