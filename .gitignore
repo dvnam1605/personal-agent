@@ -11,3 +11,4 @@ __pycache__/
 .coverage
 deepseek-harness/
 TencentDB-Agent-Memory/
+data/

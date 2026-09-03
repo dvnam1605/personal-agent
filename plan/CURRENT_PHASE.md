@@ -1,15 +1,15 @@
 # CURRENT PHASE
 
-Current phase: **P10C APPROVED & CLOSED — Starting P10D (Benchmark & Ablations).**
+Current phase: **P10D implemented & verified green — WAITING FOR USER REVIEW — APPROVED P10.**
 P9 family (P9A..P9E), P10A, P10B, and P10C are approved and CLOSED as of
 2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 respectively.
 
 Read:
 1. `MASTER_PLAN.md`
 2. `phases/P10_retrieval_rag_engine_execution_specification.md` (P10D: P10-21..26)
-3. Next phase spec when its gate is approved.
+3. Next phase spec: `phases/P11_specialist_agent_runtime_bounded_react.md` when P10 is approved.
 
-Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D IN PROGRESS**
+Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D IMPLEMENTED — WAITING FOR USER REVIEW — P10**
 
 ## Gate ledger (single source of truth)
 
@@ -46,9 +46,9 @@ APPROVED P10B  received from user 2026-08-28 ("approved p10B") against
 APPROVED P10C  received from user 2026-09-03 ("Approved P10c") against
                reviews/P10C_review_pack.md — closes P10C including all
                post-review fixes (H1..H4, M1..M4, M-NEW, L1..L3, L-NEW 1/2).
-NEXT GATE      `APPROVED P10` (or `APPROVED P10D`) — implement P10D
-               (benchmark dataset, ablations, latency tracing, family Review Pack)
-               then await final P10 closure review.
+NEXT GATE      `APPROVED P10` (or `APPROVED P10D`) — closes P10D and the entire
+               P10 family based on reviews/P10D_review_pack.md and
+               reviews/P10_review_pack.md. Unblocks Phase 11.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -105,5 +105,7 @@ P10       split approved (see P10 spec header); ownership entry requirement
                 **APPROVED & CLOSED 2026-09-03.** Review Pack at
                 reviews/P10C_review_pack.md.
           P10D  benchmark dataset, ablations, latency tracing, family
-                Review Pack (P10-21..26) — IN PROGRESS
+                Review Pack (P10-21..26) — IMPLEMENTED & VERIFIED GREEN.
+                Review Packs at reviews/P10D_review_pack.md and
+                reviews/P10_review_pack.md. GATE OPEN — awaiting user review.
 ```

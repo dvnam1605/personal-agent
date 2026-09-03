@@ -11,6 +11,15 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.domain.models.sufficiency import SufficiencyStatus, SufficiencyVerdict
+from app.services.retrieval.benchmark_dataset import (
+    BENCHMARK_CORPUS,
+    BENCHMARK_QUERIES,
+    BenchmarkChunk,
+    BenchmarkCorpus,
+    BenchmarkDocument,
+    BenchmarkQuery,
+    BenchmarkQueryCategory,
+)
 from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
 from app.services.retrieval.dense import DenseRetrievalService
 from app.services.retrieval.diversity import (
@@ -18,6 +27,17 @@ from app.services.retrieval.diversity import (
     apply_per_document_caps,
     dedup_candidates,
     suppress_near_duplicates,
+)
+from app.services.retrieval.evaluation import (
+    AblationReport,
+    AblationRunner,
+    ChunkingAblationConfig,
+    PipelineTimings,
+    QueryEvaluationResult,
+    SearchModeAblationConfig,
+    calculate_mrr,
+    calculate_ndcg_at_k,
+    calculate_recall_at_k,
 )
 from app.services.retrieval.expansion import (
     MAX_EXPANSION_PARENTS,
@@ -92,4 +112,21 @@ __all__ = [
     "enforce_compare_diversity",
     "extract_cited_ids",
     "sanitize_evidence_for_prompt",
+    # P10D evaluation & benchmarks
+    "BENCHMARK_CORPUS",
+    "BENCHMARK_QUERIES",
+    "AblationReport",
+    "AblationRunner",
+    "BenchmarkChunk",
+    "BenchmarkCorpus",
+    "BenchmarkDocument",
+    "BenchmarkQuery",
+    "BenchmarkQueryCategory",
+    "ChunkingAblationConfig",
+    "PipelineTimings",
+    "QueryEvaluationResult",
+    "SearchModeAblationConfig",
+    "calculate_mrr",
+    "calculate_ndcg_at_k",
+    "calculate_recall_at_k",
 ]
