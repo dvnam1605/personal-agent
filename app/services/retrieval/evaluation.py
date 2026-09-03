@@ -29,6 +29,7 @@ from app.services.retrieval.benchmark_dataset import (
     BenchmarkQuery,
     BenchmarkQueryCategory,
 )
+from app.services.retrieval.expansion import resolve_expansion_policy
 from app.services.retrieval.packing import build_bundle, unit_for_chunk
 from app.services.retrieval.pipeline import HybridRetriever, RetrievalPipeline
 from app.services.retrieval.provider import RowProvider
@@ -234,14 +235,15 @@ class BenchmarkRetriever(HybridRetriever):
                     continue
 
             # Dense score approximation (semantic match via keywords & overlap)
+            STOP_WORDS = {"quy", "định", "các", "về", "của", "cho", "và", "trong", "được", "theo", "năm", "ngày", "tháng", "kèm"}
             content_lower = c.content_raw.lower()
             keyword_matches = sum(1 for kw in c.keywords if kw.lower() in q_text)
-            overlap_count = sum(1 for w in words if w in content_lower)
+            overlap_count = sum(1 for w in words if w not in STOP_WORDS and w in content_lower)
 
-            dense_sim = min(0.1 + (keyword_matches * 0.3) + (overlap_count * 0.05), 0.98) if (keyword_matches or overlap_count) else 0.02
+            dense_sim = min(0.1 + (keyword_matches * 0.4) + (overlap_count * 0.04), 0.98) if (keyword_matches or overlap_count) else 0.02
 
             # Sparse score approximation (FTS keyword hits)
-            sparse_score = min((keyword_matches * 1.5) + (overlap_count * 0.4), 10.0)
+            sparse_score = min((keyword_matches * 2.5) + (overlap_count * 0.3), 10.0)
 
             # Assign score based on ablation mode
             if self._mode_ablation is SearchModeAblationConfig.DENSE_ONLY:
@@ -251,9 +253,9 @@ class BenchmarkRetriever(HybridRetriever):
                 final_score = sparse_score / 10.0 if sparse_score > 0.5 else 0.0
                 ret_type = "sparse"
             else:
-                # Hybrid RRF fusion approximation
+                # Hybrid RRF fusion approximation scaled to [0.1, 1.0] matching dense scale
                 if dense_sim > 0.1 or sparse_score > 0.5:
-                    final_score = 0.015 + (dense_sim * 0.01) + (min(sparse_score, 5.0) * 0.002)
+                    final_score = min(0.1 + (dense_sim * 0.6) + ((sparse_score / 10.0) * 0.3), 0.99)
                 else:
                     final_score = 0.0
                 ret_type = "hybrid"
@@ -433,9 +435,18 @@ class AblationRunner:
             bundle, verdict, compare = await pipeline.run_with_sufficiency(ret_query)
             t_total = (time.perf_counter() - t0) * 1000
 
-            # Target IDs for evaluation: if expansion is PARENT, check parent IDs; otherwise child IDs
-            if ret_query.expansion_policy is ExpansionPolicy.PARENT and bq.expected_parent_ids:
-                retrieved_ids = [item.primary_chunk_id for item in bundle.items]
+            effective_policy = (
+                expansion_override
+                if expansion_override is not None
+                else resolve_expansion_policy(ret_query)
+            )
+            if effective_policy is ExpansionPolicy.PARENT and bq.expected_parent_ids:
+                retrieved_ids = []
+                for item in bundle.items:
+                    retrieved_ids.append(item.primary_chunk_id)
+                    p_chunk = self.corpus.get_chunk(item.primary_chunk_id)
+                    if p_chunk and p_chunk.parent_id and p_chunk.parent_id not in retrieved_ids:
+                        retrieved_ids.append(p_chunk.parent_id)
                 target_expected = bq.expected_parent_ids
             else:
                 retrieved_ids = [

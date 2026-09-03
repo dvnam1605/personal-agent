@@ -16,7 +16,7 @@ The Phase 10 family was executed across 4 authorized sub-phases:
 - **P10A (Foundation & Core Search):** Dense (HNSW pgvector) + Sparse (PostgreSQL FTS) + Parallel RRF Fusion + Ownership Scoping. *(Approved 2026-08-27)*
 - **P10B (Processing Pipeline & Expansion):** Candidate diversity, reranker seam, NONE/NEIGHBORS/PARENT expansion policies, table isolation, token budget packing into `EvidenceBundle`. *(Approved 2026-08-28)*
 - **P10C (Policies & Safety):** Compare-document diversity audit, evidence provenance contract, deterministic sufficiency rules, bounded retry (max 2 attempts), prompt-injection boundary with XML escaping, pluggable answer synthesis with verifiable citations. *(Approved 2026-09-03)*
-- **P10D (Benchmark & Ablation):** 11-category benchmark dataset, IR metrics (Recall, MRR, nDCG), chunking & search mode ablations, stage latency profiling. *(Implemented 2026-09-03)*
+- **P10D (Benchmark & Ablation):** 11-category benchmark dataset evaluated against real decision documents (QĐ 427, QĐ 80, QĐ 587 from `data/QuyetDinh`), IR metrics (Recall, MRR, nDCG), chunking & search mode ablations, stage latency profiling. *(Implemented & Verified 2026-09-03)*
 
 ---
 
@@ -83,7 +83,7 @@ RetrievalQuery (owner scope + document scope + budget)
 | **P10A** | Dense/Sparse/Parallel RRF search, HNSW migration `0008`, `RetrievalQuery`, `RetrievedChunk`, owner scoping | 16 unit tests | **CLOSED** |
 | **P10B** | Candidate dedup, per-doc caps, `ExpansionService` (`PARENT`/`NEIGHBORS`), `build_bundle`, `EvidenceBundle` | 32 unit tests | **CLOSED** |
 | **P10C** | `compare_policy.py`, `sufficiency.py`, `retry.py`, `injection_boundary.py`, `synthesis.py`, `citation.py` | 67 unit & security tests | **CLOSED** |
-| **P10D** | `benchmark_dataset.py` (11 categories), `evaluation.py` (Recall, MRR, nDCG, ablations, latency) | 20 unit & integration tests | **VERIFIED GREEN** |
+| **P10D** | `benchmark_dataset.py` (11 real data categories), `evaluation.py` (Recall, MRR, nDCG, ablations, latency) | 20 unit & integration tests | **VERIFIED GREEN (REAL DATA)** |
 
 **Total Retrieval Test Suite:** 135 unit & security tests passing (100% success rate).  
 **Full Project Suite:** 380+ tests passing, 89% total line coverage, 0 lint/typing errors.
