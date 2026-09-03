@@ -53,7 +53,7 @@ from app.services.retrieval.injection_boundary import (
 from app.services.retrieval.packing import build_bundle, citation_anchors, unit_for_chunk
 from app.services.retrieval.pipeline import DEFAULT_RERANK_TOP_K_MAX, RetrievalPipeline
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
-from app.services.retrieval.rerank import IdentityReranker, Reranker
+from app.services.retrieval.rerank import IdentityReranker, Reranker, ViRankerReranker
 from app.services.retrieval.retry import RetryPolicy, RetryStrategy, apply_retry_strategy
 from app.services.retrieval.sparse import SparseRetrievalService
 from app.services.retrieval.sufficiency import SufficiencyChecker
