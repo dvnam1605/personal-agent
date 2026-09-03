@@ -215,7 +215,7 @@ class TestAblationRunner:
         assert "hybrid_rerank" in reports
 
         for _name, rep in reports.items():
-            assert rep.total_queries == 11
+            assert rep.total_queries == len(runner.queries)
             assert rep.mean_recall_at_10 >= 0.5
             assert rep.avg_total_latency_ms >= 0.0
 
