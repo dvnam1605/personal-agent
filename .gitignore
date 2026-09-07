@@ -12,3 +12,5 @@ __pycache__/
 deepseek-harness/
 TencentDB-Agent-Memory/
 data/
+scratch/
+.codegraph/

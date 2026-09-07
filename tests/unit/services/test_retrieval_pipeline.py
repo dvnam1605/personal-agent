@@ -123,7 +123,12 @@ class TestDiversity:
         assert counts["A"] == 3 and counts["B"] == 1
 
     def test_apply_diversity_chain_dedup_then_caps(self) -> None:
-        seq = [chunk("a1", doc="A"), chunk("a1", doc="A"), chunk("a2", doc="A"), chunk("z", doc="B")]
+        seq = [
+            chunk("a1", doc="A"),
+            chunk("a1", doc="A"),
+            chunk("a2", doc="A"),
+            chunk("z", doc="B"),
+        ]
         out = apply_diversity(seq, per_document_cap=1)
         assert [c.chunk_id for c in out] == ["a1", "z"]
 
@@ -167,7 +172,9 @@ class TestRerank:
 
 class TestExpansionDecision:
     def test_explicit_override_wins(self) -> None:
-        q = make_query(search_query="diem so la bao nhieu", expansion_policy=ExpansionPolicy.NEIGHBORS)
+        q = make_query(
+            search_query="diem so la bao nhieu", expansion_policy=ExpansionPolicy.NEIGHBORS
+        )
         assert resolve_expansion_policy(q) is ExpansionPolicy.NEIGHBORS
 
     @pytest.mark.parametrize(
@@ -268,7 +275,9 @@ class TestParentExpansion:
         # Table child has highest score (0.95), regular child has score 0.5 under parent p1
         table_hit = chunk("t1", 0.95, parent=p1, node="TABLE_CHILD")
         reg_hit = chunk("c1", 0.5, parent=p1)
-        units = await service.build_units([table_hit, reg_hit], ExpansionPolicy.PARENT, make_query())
+        units = await service.build_units(
+            [table_hit, reg_hit], ExpansionPolicy.PARENT, make_query()
+        )
         assert len(units) == 2
         # TABLE_CHILD has score 0.95 > parent p1 priority (0.5), so TABLE_CHILD is first!
         assert units[0].kind == "TABLE_CHILD" and units[0].primary_chunk_id == "t1"
@@ -281,7 +290,9 @@ class TestParentExpansion:
     async def test_owner_guard_present_in_fetch_sql(self) -> None:
         provider = FakeProvider([_parent_row("par-1", "doc-1", "noi dung cha", [])])
         service = ExpansionService(provider)
-        await service.build_units([chunk("c1", parent=str(uuid.uuid4()))], ExpansionPolicy.PARENT, make_query())
+        await service.build_units(
+            [chunk("c1", parent=str(uuid.uuid4()))], ExpansionPolicy.PARENT, make_query()
+        )
         sql = provider.sqls[0]
         assert "d.user_id" in sql and "IN (" in sql and "hierarchy_level = 0" in sql
         assert "c.id IN (c.id IN (" not in sql
@@ -320,10 +331,9 @@ class TestNeighborExpansion:
 
     async def test_different_parents_stay_separate_groups(self) -> None:
         pa, pb = str(uuid.uuid4()), str(uuid.uuid4())
-        rows = (
-            [_sibling_row(f"a{i}", pa, i, doc="doc-1") for i in range(1, 4)]
-            + [_sibling_row(f"b{i}", pb, i, doc="doc-2") for i in range(1, 4)]
-        )
+        rows = [_sibling_row(f"a{i}", pa, i, doc="doc-1") for i in range(1, 4)] + [
+            _sibling_row(f"b{i}", pb, i, doc="doc-2") for i in range(1, 4)
+        ]
         provider = FakeProvider(rows)
         service = ExpansionService(provider)
         ranked = [
@@ -337,13 +347,17 @@ class TestNeighborExpansion:
     async def test_owner_guard_present_in_sibling_sql(self) -> None:
         provider = FakeProvider([_sibling_row("c2", str(uuid.uuid4()), 2)])
         service = ExpansionService(provider)
-        await service.build_units([chunk("c2", parent=str(uuid.uuid4()))], ExpansionPolicy.NEIGHBORS, make_query())
+        await service.build_units(
+            [chunk("c2", parent=str(uuid.uuid4()))], ExpansionPolicy.NEIGHBORS, make_query()
+        )
         sql = provider.sqls[0]
         assert "d.user_id" in sql and "hierarchy_level = 1" in sql and "ORDER BY c.parent_id" in sql
         assert "c.parent_id IN (c.parent_id IN (" not in sql
 
 
-def _unit(text: str, cid: str, *, kind: str = "CHILD", doc: str = "doc-1", parent: str | None = None) -> Evidence:
+def _unit(
+    text: str, cid: str, *, kind: str = "CHILD", doc: str = "doc-1", parent: str | None = None
+) -> Evidence:
     return Evidence(
         kind=kind,  # type: ignore[arg-type]
         content_raw=text,
@@ -357,8 +371,8 @@ def _unit(text: str, cid: str, *, kind: str = "CHILD", doc: str = "doc-1", paren
 
 class TestPacking:
     def test_greedy_fill_respects_hard_budget(self) -> None:
-        u1 = _unit("x" * 380, "u1")   # ~99 tokens
-        u2 = _unit("y" * 120, "u2")   # ~33 tokens
+        u1 = _unit("x" * 380, "u1")  # ~99 tokens
+        u2 = _unit("y" * 120, "u2")  # ~33 tokens
         u3 = _unit("z" * 2000, "u3")  # way over remaining space
         budget = u1.token_estimate + u2.token_estimate - 5
         bundle = build_bundle([u1, u2, u3], token_budget=budget, trace_id="fixed")
@@ -424,9 +438,7 @@ class TestPipelineEndToEnd:
             chunk("c1", 0.8, doc="doc-1", parent=parent_id),
             chunk("c2", 0.6, doc="doc-1", parent=str(uuid.uuid4())),  # missing payload row
         ]
-        pipeline = RetrievalPipeline(
-            FixedHybrid(hybrid_seq), provider, per_document_cap=None
-        )
+        pipeline = RetrievalPipeline(FixedHybrid(hybrid_seq), provider, per_document_cap=None)
         query = make_query(search_query="tai sao co quy dinh nay", context_token_budget=2048)
         bundle = await pipeline.run(query)
 
@@ -462,4 +474,3 @@ class TestPipelineEndToEnd:
         # provenance bookkeeping lives on chunks pre-packing; anchors stripped:
         # verify indirectly that every unit kept its content ordering from fusion
         assert [item.content_raw for item in bundle.items] == ["noi dung c1", "noi dung c2"]
-

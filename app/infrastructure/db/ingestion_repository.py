@@ -8,6 +8,7 @@ version untouched.
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select, update
@@ -17,9 +18,49 @@ from app.domain.models.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDra
 from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import StoredFingerprintState
 from app.infrastructure.db.models import Document, DocumentChunk
+from app.services.ingestion.chunking.identity import child_chunk_id, parent_chunk_id
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
+
+
+class PersistCandidateResult(tuple):
+    """Result tuple (document_id, version_number) with deduplication flag."""
+
+    document_id: str
+    version_number: int
+    is_deduplicated: bool
+
+    def __new__(cls, document_id: str, version_number: int, is_deduplicated: bool = False):
+        instance = super().__new__(cls, (document_id, version_number))
+        instance.document_id = document_id
+        instance.version_number = version_number
+        instance.is_deduplicated = is_deduplicated
+        return instance
+
+
+def _is_postgres_session(session: AsyncSession) -> bool:
+    try:
+        bind = (
+            session.get_bind() if hasattr(session, "get_bind") else getattr(session, "bind", None)
+        )
+        if bind is not None and getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+            return True
+    except Exception:
+        pass
+    sync_session = getattr(session, "sync_session", None)
+    if sync_session is not None:
+        try:
+            bind = (
+                sync_session.get_bind()
+                if hasattr(sync_session, "get_bind")
+                else getattr(sync_session, "bind", None)
+            )
+            if bind is not None and getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+                return True
+        except Exception:
+            pass
+    return False
 
 
 class SqlAlchemyUnitOfWork:
@@ -43,27 +84,35 @@ class SqlAlchemyIngestionRepository:
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker
 
+    def _session(self, session: object) -> AsyncSession:
+        if not isinstance(session, AsyncSession):
+            raise TypeError(f"expected AsyncSession, got {type(session).__name__}")
+        return session
+
     async def latest_state(self, logical_document_id: str) -> StoredFingerprintState | None:
         async with self._session_maker() as session:
-            statement = (
-                select(Document)
+            stmt = (
+                select(
+                    Document.logical_document_id,
+                    Document.id,
+                    Document.version_number,
+                    Document.fingerprint,
+                    Document.is_active,
+                )
                 .where(Document.logical_document_id == logical_document_id)
                 .order_by(Document.version_number.desc())
                 .limit(1)
             )
-            row = (await session.execute(statement)).scalar_one_or_none()
-        if row is None:
-            return None
-        # Legacy rows may carry a NULL fingerprint (pre-0006); surfacing them
-        # as state-without-fingerprint makes the orchestrator reingest as a
-        # new version instead of colliding at version 1 (review L1).
-        return StoredFingerprintState(
-            logical_document_id=row.logical_document_id,
-            document_id=row.id,
-            version_number=row.version_number,
-            fingerprint=row.fingerprint,
-            is_active=row.is_active,
-        )
+            row = (await session.execute(stmt)).first()
+            if row is None:
+                return None
+            return StoredFingerprintState(
+                logical_document_id=row.logical_document_id,
+                document_id=row.id,
+                version_number=row.version_number,
+                fingerprint=row.fingerprint,
+                is_active=row.is_active,
+            )
 
     async def persist_candidate(
         self,
@@ -78,16 +127,64 @@ class SqlAlchemyIngestionRepository:
         parser_version: str,
         parents: list[ParentChunkDraft],
         children: Sequence[tuple[ChildChunkDraft, list[float] | None]],
-    ) -> tuple[str, int]:
+    ) -> PersistCandidateResult:
         typed = self._session(session)
 
-        admin_meta = parents[0].administrative_metadata if parents and parents[0].administrative_metadata else {}
+        # Concurrency safety: check latest committed version within transaction with row lock
+        is_postgres = _is_postgres_session(typed)
+        select_latest = (
+            select(Document)
+            .where(Document.logical_document_id == logical_document_id)
+            .order_by(Document.version_number.desc())
+            .limit(1)
+        )
+        if is_postgres:
+            select_latest = select_latest.with_for_update()
+        latest_row = (await typed.execute(select_latest)).scalar_one_or_none()
+        if (
+            latest_row is not None
+            and latest_row.fingerprint == fingerprint
+            and latest_row.is_active
+        ):
+            return PersistCandidateResult(latest_row.id, latest_row.version_number, is_deduplicated=True)
+
+        # If another worker committed a new version concurrently, calculate next version cleanly
+        actual_version = (
+            (latest_row.version_number + 1) if latest_row is not None else version_number
+        )
+        if actual_version != version_number:
+            actual_document_id = f"doc-{hashlib.sha256(f'{logical_document_id}#v{actual_version}'.encode()).hexdigest()[:32]}"
+        else:
+            actual_document_id = document_id
+
+        # Remap chunk IDs if actual_document_id changed to avoid DocumentChunk.id PK collisions
+        parents_by_old_id = {p.id: p for p in parents}
+        parent_id_map: dict[str, str] = {}
+        for parent in parents:
+            if actual_document_id != document_id:
+                real_ids = parent.source_block_ids
+                new_pid = parent_chunk_id(
+                    document_version_id=actual_document_id,
+                    heading_path=parent.heading_path,
+                    block_range=(real_ids[0] if real_ids else None, real_ids[-1] if real_ids else None),
+                    ordinal=parent.ordinal,
+                    version=parent.parent_chunker_version,
+                )
+            else:
+                new_pid = parent.id
+            parent_id_map[parent.id] = new_pid
+
+        admin_meta = (
+            parents[0].administrative_metadata
+            if parents and parents[0].administrative_metadata
+            else {}
+        )
 
         document = Document(
-            id=document_id,
+            id=actual_document_id,
             user_id=None,
             logical_document_id=logical_document_id,
-            version_number=version_number,
+            version_number=actual_version,
             source_type=source.source_type,
             external_id=source.source_id[:255],
             title=source.filename[:255],
@@ -110,9 +207,10 @@ class SqlAlchemyIngestionRepository:
         typed.add(document)
 
         for parent in parents:
+            new_pid = parent_id_map[parent.id]
             typed.add(
                 DocumentChunk(
-                    id=parent.id,
+                    id=new_pid,
                     document_id=document.id,
                     chunk_index=parent.ordinal,
                     hierarchy_level=0,
@@ -134,14 +232,32 @@ class SqlAlchemyIngestionRepository:
                 )
             )
         for child, vector in children:
+            if actual_document_id != document_id:
+                new_pid = parent_id_map.get(child.parent_id, child.parent_id)
+                parent_obj = parents_by_old_id.get(child.parent_id)
+                if parent_obj is not None:
+                    real_ids = parent_obj.source_block_ids
+                else:
+                    real_ids = child.source_block_ids
+                new_cid = child_chunk_id(
+                    parent_id=new_pid,
+                    block_range=(real_ids[0] if real_ids else None, real_ids[-1] if real_ids else None),
+                    ordinal=child.chunk_index,
+                    content_hash=child.content_hash,
+                    version=child.child_chunker_version,
+                )
+            else:
+                new_pid = child.parent_id
+                new_cid = child.id
+
             typed.add(
                 DocumentChunk(
-                    id=child.id,
+                    id=new_cid,
                     document_id=document.id,
                     chunk_index=child.chunk_index,
                     hierarchy_level=1,
                     node_type=child.level.value,
-                    parent_id=child.parent_id,
+                    parent_id=new_pid,
                     heading_path=list(child.heading_path),
                     content_raw=child.raw_text,
                     content_embedding_text=child.embedding_text,
@@ -160,7 +276,7 @@ class SqlAlchemyIngestionRepository:
                 )
             )
         await typed.flush()
-        return document.id, version_number
+        return PersistCandidateResult(document.id, actual_version, is_deduplicated=False)
 
     async def activate_candidate(
         self,

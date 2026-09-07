@@ -1,6 +1,7 @@
 """Health and readiness probe endpoints with real dependency checks."""
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, status
@@ -53,8 +54,39 @@ async def check_redis() -> bool:
 
 
 def check_configuration() -> bool:
-    """Report whether mandatory runtime configuration is present."""
-    return True
+    """Report whether mandatory runtime configuration is present and valid."""
+    try:
+        if not settings.database.url or not settings.database.url.strip():
+            return False
+        if settings.embedding.dimensions <= 0 or not settings.embedding.model:
+            return False
+        if settings.auth_enforced and not (
+            settings.security.api_key and settings.security.api_key.strip()
+        ):
+            return False
+
+        # Validate Google credentials only when explicitly configured
+        secrets_file = settings.google.client_secrets_file
+        if secrets_file and Path(secrets_file).is_file():
+            try:
+                import json
+
+                content = json.loads(Path(secrets_file).read_text(encoding="utf-8"))
+                if not isinstance(content, dict) or not (
+                    "web" in content or "installed" in content
+                ):
+                    return False
+            except Exception:
+                return False
+
+        if settings.redis.url and not (
+            settings.redis.url.startswith("redis://") or settings.redis.url.startswith("rediss://")
+        ):
+            return False
+
+        return True
+    except Exception:
+        return False
 
 
 @router.get(

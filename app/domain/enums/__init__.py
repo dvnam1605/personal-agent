@@ -9,6 +9,8 @@ from app.domain.enums.enums import (
     ExecutionMode,
     RouteType,
     RunStatus,
+    SpecialistStatus,
+    StopReason,
     TaskStatus,
 )
 
@@ -21,5 +23,7 @@ __all__ = [
     "ExecutionMode",
     "RouteType",
     "RunStatus",
+    "SpecialistStatus",
+    "StopReason",
     "TaskStatus",
 ]

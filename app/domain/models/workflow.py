@@ -1,5 +1,6 @@
 """Static and deterministic workflow contracts with graph structure and reachability validation."""
 
+from collections import deque
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -144,11 +145,11 @@ class WorkflowDefinition(BaseModel):
                 )
 
         # Cycle detection using Kahn's algorithm
-        queue = [nid for nid, deg in in_degree.items() if deg == 0]
+        queue: deque[str] = deque(nid for nid, deg in in_degree.items() if deg == 0)
         visited_count = 0
 
         while queue:
-            curr = queue.pop(0)
+            curr = queue.popleft()
             visited_count += 1
             for nxt in adj[curr]:
                 in_degree[nxt] -= 1
@@ -160,10 +161,10 @@ class WorkflowDefinition(BaseModel):
 
         # Reachability validation: all nodes must be reachable from entry_node_ids
         reachable: set[str] = set()
-        traverse_queue = list(self.entry_node_ids)
+        traverse_queue: deque[str] = deque(self.entry_node_ids)
 
         while traverse_queue:
-            curr = traverse_queue.pop(0)
+            curr = traverse_queue.popleft()
             if curr not in reachable:
                 reachable.add(curr)
                 for nxt in adj[curr]:

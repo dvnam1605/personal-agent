@@ -87,6 +87,10 @@ class FingerprintInputs(BaseModel):
     child_chunker_version: str = "unknown"
     embedding_model: str = "unknown"
     embedding_dimensions: int = 1024
+    ocr_source_checksum: str | None = None
+    ocr_engine: str | None = None
+    ocr_engine_version: str | None = None
+    ocr_device: str | None = None
 
 
 class DocumentFingerprint(BaseModel):

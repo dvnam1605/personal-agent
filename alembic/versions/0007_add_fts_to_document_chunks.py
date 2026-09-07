@@ -28,9 +28,16 @@ def upgrade() -> None:
         return  # FTS is PostgreSQL-only; sqlite unit-migration runs skip it.
 
     op.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
+    # NOTE (P12 verification): CREATE TEXT SEARCH CONFIGURATION does not
+    # support IF NOT EXISTS on any PostgreSQL version, and the configuration
+    # lives in the shared ``public`` schema while integration fixtures migrate
+    # per-test schemas. Create it only when missing; never drop (dependent
+    # generated columns may belong to other schemas).
     op.execute(
-        "CREATE TEXT SEARCH CONFIGURATION IF NOT EXISTS public.vietnamese_simple "
-        "( COPY = simple )"
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = 'vietnamese_simple') THEN "
+        "CREATE TEXT SEARCH CONFIGURATION public.vietnamese_simple ( COPY = simple ); "
+        "END IF; END $$"
     )
     op.execute(
         f"ALTER TEXT SEARCH CONFIGURATION public.vietnamese_simple "

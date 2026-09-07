@@ -1261,6 +1261,10 @@ The rule:
 | `interrupt()` | P18 | human-in-the-loop pause |
 | `AsyncPostgresSaver` | P18 | durable resume across restart |
 | `astream` / `astream_events` | post-V1 | response streaming |
+| `LocalFileSpillStore` (Spill) | P04 (P4-08) | large payload spillover to disk/cache |
+| `RepeatGuard` + Report tool | P11 (P11-09/10) | loop-prevention & structured specialist report |
+| Context Compaction / Pruner | P17 (P17-08..10) | conversation compaction and memory pruning |
+| `tool_ask_user` | P18 (P18-02A) | interactive HITL clarification before mutation |
 
 ## 18A.2. MUST remain first-party
 
@@ -1328,6 +1332,12 @@ asyncpg via SQLAlchemy. Both drivers coexist deliberately: asyncpg for ORM/domai
 access, psycopg3 for the checkpointer only. `psycopg[binary]` is required so that
 libpq ships with the wheel. The checkpointer DSN must be derived from
 `DATABASE__URL` by stripping the `+asyncpg` marker; that derivation is a P11 task.
+
+## 18A.7. Embedding dimensions and migration contract
+
+- **Dimension Canonical Choice**: All vector columns (`document_chunks.embedding`, `memories.embedding`) use **Vector(1024)** powered by local model `AITeamVN/Vietnamese_Embedding` (ADR-0012).
+- **Superseded Baseline**: The initial exploratory mention of `Vector(1536)` (OpenAI `text-embedding-3-large`) was superseded in P09A/P09D/P10 to guarantee data sovereignty, zero API egress costs, and offline reproducibility.
+- **Migration & Backfill Path**: Alembic migrations `0005` and `0008` standardized the PostgreSQL column type via `ALTER TABLE document_chunks ALTER COLUMN embedding TYPE vector(1024) USING NULL::vector;`. Existing records with null embeddings must be re-embedded via `python scripts/ingest_corpus.py` (which parses and computes 1024-dim dense vectors along with companion OCR sidecars).
 
 ---
 
@@ -1671,7 +1681,7 @@ P8  Drive File Tools
  |
 P9  Document Ingestion Pipeline (split: P9A-P9E, separate gates)
  |
-P10 Retrieval / RAG Engine
+P10 Retrieval / RAG Engine (split: P10A-P10D, separate gates)
  |
 P11 Specialist Agent Runtime + Bounded ReAct
  |
@@ -1717,7 +1727,11 @@ Read `MASTER_PLAN.md` first, then only the currently approved phase file.
   - P9C: `phases/P09c_chunking_engine_specification.md` — CHUNKING ENGINE (gate: `APPROVED P9C`)
   - P9D: `phases/P09d_embedding_orchestration_specification.md` — EMBEDDING + ORCHESTRATION (gate: `APPROVED P9D`)
   - P9E: `phases/P09e_offline_ocr_batch_script_specification.md` — OFFLINE OCR BATCH SCRIPT (gate: `APPROVED P9E`; independent of B/C/D order)
-- P10: `phases/P10_retrieval_rag_engine_execution_specification.md` — RETRIEVAL / RAG ENGINE — EXECUTION SPECIFICATION
+- P10: `phases/P10_retrieval_rag_engine_execution_specification.md` — RETRIEVAL / RAG ENGINE — SPLIT OVERVIEW
+  - P10A: `phases/P10_retrieval_rag_engine_execution_specification.md` (P10-01..05) — FOUNDATION & PG VECTOR/FTS (gate: `APPROVED P10A`)
+  - P10B: `phases/P10_retrieval_rag_engine_execution_specification.md` (P10-06..13) — PROCESSING PIPELINE (gate: `APPROVED P10B`)
+  - P10C: `phases/P10_retrieval_rag_engine_execution_specification.md` (P10-14..20) — QUALITY POLICIES & RETRY (gate: `APPROVED P10C`)
+  - P10D: `phases/P10_retrieval_rag_engine_execution_specification.md` (P10-21..24) — VIRANKER BENCHMARK & FACTORY (gate: `APPROVED P10D` / `APPROVED P10`)
 - P11: `phases/P11_specialist_agent_runtime_bounded_react.md` — SPECIALIST AGENT RUNTIME + BOUNDED REACT
 - P12: `phases/P12_communicationagent_calendaragent.md` — COMMUNICATIONAGENT + CALENDARAGENT
 - P13: `phases/P13_knowledgeresearchagent.md` — KNOWLEDGERESEARCHAGENT
@@ -2436,6 +2450,49 @@ Semantic document retrieval
 
 ### Proof
 Drive search/move/rename/download can work without pgvector/RAG.
+
+---
+
+## P9 Execution Card (P9A-P9E Document Ingestion Pipeline)
+
+### Entry
+`APPROVED P8`.
+
+### Process
+1. P9A: Define ingestion contracts, type detection, and logical document versioning models.
+2. P9B: Implement parsing layer (MarkdownDocumentParser, DoclingParser, administrative metadata extraction).
+3. P9C: Implement hierarchical chunking engine (SectionParentChunker, SentenceChildChunker, TokenBudgets).
+4. P9D: Implement local Vietnamese embedding (`AITeamVN/Vietnamese_Embedding`, 1024 dims), pgvector HNSW indexing, and orchestrator state machine.
+5. P9E: Implement offline OCR batch script (`scripts/ocr_batch.py`) with sidecar provenance and sha256 checksum tracking.
+
+### Expected output
+Complete ingestion pipeline capable of parsing PDF/DOCX/MD, generating hierarchical parent-child chunks, computing 1024-dim dense embeddings, and storing in PostgreSQL.
+
+### Proof
+- Document ingestion unit and integration tests pass;
+- Scanned documents trigger NEEDS_OCR with audit log;
+- OCR sidecars maintain provenance link with orchestrator fingerprinting.
+
+---
+
+## P10 Execution Card (P10A-P10D Retrieval / RAG Engine)
+
+### Entry
+`APPROVED P9`.
+
+### Process
+1. P10A: Foundation & PostgreSQL Vector/FTS retrieval (dense cosine + sparse tsvector websearch).
+2. P10B: Processing pipeline: parallel RRF fusion (k=60), diversity filtering, cross-encoder rerank, expansion (PARENT/NEIGHBORS), and greedy budget packing.
+3. P10C: Quality control policies: sufficiency checker, bounded query rewriting/retry, document comparison diversity, and answer synthesis.
+4. P10D: ViRanker cross-encoder benchmark, ablations against baseline, and production factory wiring.
+
+### Expected output
+Production-grade hybrid RAG engine with Vietnamese document understanding, citation anchor tracking, multi-source external synthesis support, and latency budget adherence.
+
+### Proof
+- Comprehensive retrieval benchmark demonstrates hybrid RRF + ViRanker superior to individual baselines;
+- Synthesis produces structured answers with verified [evidence_id] citations;
+- Multi-source synthesis gracefully handles internal and external knowledge.
 
 ---
 

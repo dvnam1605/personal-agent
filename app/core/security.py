@@ -3,9 +3,12 @@
 import secrets
 from pathlib import Path
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import PROJECT_ROOT
+
+logger = structlog.get_logger(__name__)
 
 
 def generate_secure_token(nbytes: int = 32) -> str:
@@ -23,13 +26,28 @@ def generate_fernet_key() -> str:
 
 
 class FernetTokenCipher:
-    """Encrypt and decrypt OAuth tokens without ever logging their plaintext."""
+    """Symmetric application-layer cipher for OAuth and service credentials."""
 
     def __init__(self, key: str | bytes) -> None:
         try:
             self._fernet = Fernet(key.encode("ascii") if isinstance(key, str) else key)
         except (TypeError, ValueError) as exc:
             raise TokenEncryptionError("Invalid token encryption key.") from exc
+
+    @classmethod
+    def from_settings(cls, settings: object = None) -> "FernetTokenCipher":
+        """Load cipher from configured settings or global app settings."""
+        if settings is None:
+            from app.core.config import get_settings
+
+            settings = get_settings().google
+        key = getattr(settings, "token_encryption_key", None)
+        if key:
+            return cls(key)
+        key_path = (
+            getattr(settings, "token_encryption_key_file", None) or ".secrets/google_token.key"
+        )
+        return cls.from_key_file(key_path)
 
     @classmethod
     def from_key_file(cls, path: str | Path) -> "FernetTokenCipher":
@@ -49,12 +67,20 @@ class FernetTokenCipher:
                     with key_path.open("xb") as handle:
                         handle.write(generated_key)
                     key = generated_key
+                    logger.warning(
+                        "token_encryption_key_auto_generated",
+                        path=str(key_path),
+                    )
                 except FileExistsError:
                     key = key_path.read_bytes().strip()
             try:
                 key_path.chmod(0o600)
-            except OSError:
-                pass
+            except OSError as chmod_err:
+                logger.warning(
+                    "token_encryption_key_chmod_failed",
+                    path=str(key_path),
+                    error=str(chmod_err),
+                )
             if not key:
                 raise TokenEncryptionError("Token encryption key file is empty.")
             return cls(key)

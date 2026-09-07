@@ -164,7 +164,11 @@ async def main() -> None:
     # Load mapping of document_id -> (title, administrative_metadata)
     doc_meta_map: dict[str, dict] = {}
     async with session_factory() as session:
-        rows = (await session.execute(text("SELECT id, title, metadata FROM documents WHERE is_active = true"))).fetchall()
+        rows = (
+            await session.execute(
+                text("SELECT id, title, metadata FROM documents WHERE is_active = true")
+            )
+        ).fetchall()
         for r in rows:
             doc_id = str(r[0])
             title = r[1]
@@ -187,7 +191,9 @@ async def main() -> None:
 
     dense_service = DenseRetrievalService(embedding_service=embedding_service)
     sparse_service = SparseRetrievalService()
-    hybrid_service = HybridRetrievalService(dense_service=dense_service, sparse_service=sparse_service)
+    hybrid_service = HybridRetrievalService(
+        dense_service=dense_service, sparse_service=sparse_service
+    )
 
     hit_at_1 = 0
     hit_at_5 = 0
@@ -255,7 +261,9 @@ async def main() -> None:
             status_str = "MISS"
 
         target_display = expected_doc or expected_signer or "N/A"
-        print(f"[{cid}] {qtext[:42]:42s} | Target: {target_display:15s} | {status_str:7s} | {top1_info:40s} | {lat:5.1f}ms")
+        print(
+            f"[{cid}] {qtext[:42]:42s} | Target: {target_display:15s} | {status_str:7s} | {top1_info:40s} | {lat:5.1f}ms"
+        )
 
     mrr = sum(reciprocal_ranks) / len(reciprocal_ranks)
     p_at_1 = hit_at_1 / len(BENCHMARK_CASES) * 100

@@ -5,15 +5,26 @@ candidates plus a ``top_k`` budget and MUST return descending-relevance items
 carrying ``rerank_model`` / ``rerank_score`` / ``rerank_rank`` provenance so
 traces can always explain post-rerank ordering.
 
-V1 ships only :class:`IdentityReranker` (no-op passthrough, ADR-0012's real
-ViRanker cross-encoder adapter lands behind this protocol later).
+Production wiring is hybrid RRF (``HybridRetrievalService``, RRF k=60)
+followed by :class:`ViRankerReranker` (``namdp-ptit/ViRanker`` cross-encoder,
+ADR-0012); :class:`IdentityReranker` remains as the deterministic no-op
+baseline for unit tests and ablation controls. Use
+``app.services.retrieval.factory.build_retrieval_pipeline`` to build the
+settings-driven stack.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import logging
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from app.core.config import settings as app_settings
 from app.domain.models.retrieval import RetrievedChunk
+
+if TYPE_CHECKING:
+    from app.core.config import RerankerSettings
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -32,6 +43,7 @@ class IdentityReranker:
     """No-op reranker preserving fusion order; tags provenance bookkeeping."""
 
     model_name = "identity:v1"
+    display_name = "identity:v1"
 
     async def rerank(
         self,
@@ -57,22 +69,66 @@ class ViRankerReranker:
     """Neural cross-encoder reranker using namdp-ptit/ViRanker (spec ADR-0012).
 
     Computes query-passage cross-attention scores directly over candidates,
-    providing fine-grained Vietnamese relevance reranking.
-    """
+    providing fine-grained Vietnamese relevance reranking. Sigmoid-normalized
+    scores land in ``[0, 1]`` so they line up with
+    ``RerankerSettings.threshold`` (default 0.3) and the sufficiency gate.
 
-    model_name = "namdp-ptit/ViRanker"
+    The model loads lazily on first :meth:`rerank` so importing this module
+    (and building pipelines/factories) never touches torch or disk.
+    """
 
     def __init__(
         self,
         model_path_or_name: str = "namdp-ptit/ViRanker",
         batch_size: int = 16,
         max_length: int = 512,
+        device: str | None = None,
+        *,
+        threshold: float = 0.0,
+        model_name: str | None = None,
     ) -> None:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if max_length <= 0:
+            raise ValueError("max_length must be positive")
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be within [0.0, 1.0]")
         self._model_path_or_name = model_path_or_name
+        self._model_name = model_name or "namdp-ptit/ViRanker"
+        self._display_name = model_path_or_name
         self._batch_size = batch_size
         self._max_length = max_length
-        self._tokenizer = None
-        self._model = None
+        self._device = device
+        self._threshold = threshold
+        self._tokenizer: Any = None
+        self._model: Any = None
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @classmethod
+    def from_settings(
+        cls,
+        reranker_settings: RerankerSettings | None = None,
+        **overrides: Any,
+    ) -> ViRankerReranker:
+        """Build from ``RerankerSettings`` (model/local_path/threshold)."""
+        settings_to_use = reranker_settings or app_settings.reranker
+        model_name = settings_to_use.model or "namdp-ptit/ViRanker"
+        local_dir = settings_to_use.local_path
+        path_or_name = str(local_dir) if local_dir else model_name
+        kwargs: dict[str, Any] = {
+            "model_path_or_name": path_or_name,
+            "model_name": model_name,
+            "threshold": settings_to_use.threshold,
+            **overrides,
+        }
+        return cls(**kwargs)
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
@@ -80,13 +136,24 @@ class ViRankerReranker:
             from huggingface_hub import snapshot_download
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+            if self._device is None:
+                self._device = "cuda" if torch.cuda.is_available() else "cpu"
+
             try:
                 path = snapshot_download(self._model_path_or_name, local_files_only=True)
-            except Exception:
+            except Exception as exc:
+                # Offline-first: local snapshot missing or unreadable. Falling
+                # back to a network download changes provenance and hangs on
+                # air-gapped hosts — log loudly so it never happens silently.
+                logger.warning(
+                    "reranker_local_snapshot_miss_falling_back_to_download",
+                    extra={"model": self._model_path_or_name, "error": str(exc)},
+                )
                 path = snapshot_download(self._model_path_or_name, local_files_only=False)
 
             self._tokenizer = AutoTokenizer.from_pretrained(path)
             self._model = AutoModelForSequenceClassification.from_pretrained(path)
+            self._model.to(self._device)
             self._model.eval()
 
     async def rerank(
@@ -117,9 +184,11 @@ class ViRankerReranker:
                     max_length=self._max_length,
                     return_tensors="pt",
                 )
+                if self._device != "cpu":
+                    inputs = {k: v.to(self._device) for k, v in inputs.items()}
                 logits = self._model(**inputs).logits.view(-1).float()
                 # Apply sigmoid to convert cross-encoder logits into normalized [0, 1] scores
-                batch_scores = torch.sigmoid(logits).tolist()
+                batch_scores = torch.sigmoid(logits).cpu().tolist()
                 if isinstance(batch_scores, float):
                     batch_scores = [batch_scores]
                 scores.extend(batch_scores)
@@ -127,17 +196,21 @@ class ViRankerReranker:
         # Pair each candidate with its neural score and original rank
         scored_candidates = [
             (score, orig_rank, chunk)
-            for orig_rank, (chunk, score) in enumerate(zip(candidates, scores, strict=True), start=1)
+            for orig_rank, (chunk, score) in enumerate(
+                zip(candidates, scores, strict=True), start=1
+            )
         ]
 
         # Sort descending by neural rerank score
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        if self._threshold > 0.0:
+            scored_candidates = [item for item in scored_candidates if item[0] >= self._threshold]
         selected = scored_candidates[:top_k]
 
         return [
             chunk.model_copy(
                 update={
-                    "rerank_model": self.model_name,
+                    "rerank_model": self._model_name,
                     "pre_rerank_rank": orig_rank,
                     "rerank_score": float(score),
                     "rerank_rank": position,
@@ -145,4 +218,3 @@ class ViRankerReranker:
             )
             for position, (score, orig_rank, chunk) in enumerate(selected, start=1)
         ]
-

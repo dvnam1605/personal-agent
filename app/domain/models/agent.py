@@ -1,51 +1,17 @@
-"""Agent contracts for multi-agent coordination and task delegation."""
+"""Agent contracts for multi-agent coordination and task delegation.
+
+P11 note: activation/report contracts live in ``specialist.py``
+(``SpecialistTask`` / ``SpecialistOutcome`` / ``SpecialistReport``). This
+module keeps the static agent declaration, delegation scope, and the
+``DelegationResult`` returned by the delegation entry point.
+"""
 
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.enums import Domain, ExecutionMode, TaskStatus
-from app.domain.models.action import ProposedAction
-from app.domain.models.budget import ExecutionBudget
 from app.domain.models.evidence import EvidenceItem
-
-
-class NeedMoreContext(BaseModel):
-    """Signal when an agent requires additional clarification or missing information."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    question: str = Field(
-        ...,
-        description="Clarifying question to prompt the user or supervisor.",
-    )
-    missing_fields: list[str] = Field(
-        default_factory=list,
-        description="List of specific missing entities or parameters.",
-    )
-    suggested_source: str | None = Field(
-        default=None,
-        description="Suggested subsystem or agent to consult for the missing data.",
-    )
-
-
-class CapabilityRequest(BaseModel):
-    """Delegation or escalation request when an agent lacks a required tool/capability."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    requested_capability: str = Field(
-        ...,
-        description="Name of the capability or tool needed.",
-    )
-    target_agent: str = Field(
-        ...,
-        description="Suggested specialist agent capable of performing the operation.",
-    )
-    reason: str = Field(
-        ...,
-        description="Rationale why this capability is required to achieve the goal.",
-    )
 
 
 class AgentDefinition(BaseModel):
@@ -89,7 +55,11 @@ class AgentDefinition(BaseModel):
     )
     inherits_parent_tools: bool = Field(
         default=False,
-        description="Whether delegated child executions inherit parent tool scopes.",
+        description=(
+            "Reserved delegation-policy flag (P12+): when True, a delegated "
+            "child's tool scope may be widened with the parent's allowed tool "
+            "categories. NOT enforced by DelegationService yet."
+        ),
     )
 
     @field_validator("max_child_depth", mode="after")
@@ -192,79 +162,29 @@ class TaskResult(BaseModel):
     )
 
 
-class AgentRequest(BaseModel):
-    """Payload dispatched to activate a specialist agent or supervisor."""
+class DelegationResult(BaseModel):
+    """Normalized result of one delegated specialist execution (P11-07).
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    run_id: str = Field(
-        ...,
-        description="Unique run ID.",
-    )
-    agent_name: str = Field(
-        ...,
-        description="Identifier of the receiving agent.",
-    )
-    goal: str = Field(
-        ...,
-        description="Target goal or instruction for this activation.",
-    )
-    context_data: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Input context, parameters, and prior state necessary for execution.",
-    )
-    available_tools: list[str] = Field(
-        default_factory=list,
-        description="Explicit list of tool names this agent is gated to invoke.",
-    )
-    budget: ExecutionBudget = Field(
-        default_factory=ExecutionBudget,
-        description="Resource allocation and limits for this activation.",
-    )
-
-
-class AgentResult(BaseModel):
-    """Normalized response returned by an agent upon completion of its turn."""
+    Standalone model (no longer extends the removed ``AgentResult``): the P11
+    runtime returns :class:`SpecialistOutcome`, and the delegation entry point
+    folds it into this compact shape for the orchestrator.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     agent_name: str = Field(
         ...,
-        description="Identifier of the responding agent.",
+        min_length=1,
+        description="Identifier of the delegated agent that produced the result.",
     )
     success: bool = Field(
         ...,
-        description="Whether the agent achieved its goal or completed successfully.",
+        description="Whether the delegated goal completed successfully.",
     )
     output: str | None = Field(
         default=None,
-        description="Synthesized text or final answer produced by the agent.",
+        description="Summary produced by the delegated specialist.",
     )
-    task_results: list[TaskResult] = Field(
-        default_factory=list,
-        description="Individual results of sub-tasks performed during this turn.",
-    )
-    new_evidence: list[EvidenceItem] = Field(
-        default_factory=list,
-        description="New evidence records gathered during execution.",
-    )
-    need_more_context: NeedMoreContext | None = Field(
-        default=None,
-        description="Clarification request if execution cannot proceed.",
-    )
-    proposed_actions: list[ProposedAction] = Field(
-        default_factory=list,
-        description="Typed actions proposed that require policy review or human approval.",
-    )
-    capability_requests: list[CapabilityRequest] = Field(
-        default_factory=list,
-        description="Requests for capabilities outside this agent's boundary.",
-    )
-
-
-class DelegationResult(AgentResult):
-    """Extended result for delegated execution turns, tracking approval and chain depth."""
-
     needs_approval: bool = Field(
         default=False,
         description="Whether delegated execution paused awaiting user/policy approval.",

@@ -207,7 +207,11 @@ async def main() -> None:
     # Load metadata
     doc_meta_map = {}
     async with session_factory() as session:
-        rows = (await session.execute(text("SELECT id, title, metadata FROM documents WHERE is_active = true"))).fetchall()
+        rows = (
+            await session.execute(
+                text("SELECT id, title, metadata FROM documents WHERE is_active = true")
+            )
+        ).fetchall()
         for r in rows:
             doc_id = str(r[0])
             title = r[1]
@@ -230,7 +234,9 @@ async def main() -> None:
     # 2. Retrievers
     dense_service = DenseRetrievalService(embedding_service=embedding_service)
     sparse_service = SparseRetrievalService()
-    hybrid_service = HybridRetrievalService(dense_service=dense_service, sparse_service=sparse_service)
+    hybrid_service = HybridRetrievalService(
+        dense_service=dense_service, sparse_service=sparse_service
+    )
 
     # 3. REAL ViRanker Cross-Encoder
     print("Loading namdp-ptit/ViRanker neural cross-encoder...")
@@ -239,7 +245,10 @@ async def main() -> None:
     print("ViRanker ready!")
 
     methods = ["Dense Only", "Sparse Only", "Hybrid RRF", "Hybrid + ViRanker"]
-    stats = {m: {"hit1": 0, "hit5": 0, "rr_sum": 0.0, "ndcg_sum": 0.0, "total_time": 0.0} for m in methods}
+    stats = {
+        m: {"hit1": 0, "hit5": 0, "rr_sum": 0.0, "ndcg_sum": 0.0, "total_time": 0.0}
+        for m in methods
+    }
 
     print("\n" + "=" * 115)
     print("LIVE DATABASE ABLATION BENCHMARK WITH REAL NEURAL RERANKER (ViRanker)")
@@ -256,7 +265,6 @@ async def main() -> None:
             mode=RetrievalMode.CORPUS_SEARCH,
             top_k_dense=20,
             top_k_sparse=20,
-            top_k_final=20,
             requester_id="00000000-0000-0000-0000-000000000001",
         )
 
@@ -278,7 +286,9 @@ async def main() -> None:
         sparse_cands = await sparse_service.retrieve(q)
         sparse_lat = (time.perf_counter() - t0) * 1000
         stats["Sparse Only"]["total_time"] += sparse_lat
-        r_sparse, rr_sparse, ndcg_sparse = evaluate_query_results(sparse_cands, case, doc_meta_map, k=5)
+        r_sparse, rr_sparse, ndcg_sparse = evaluate_query_results(
+            sparse_cands, case, doc_meta_map, k=5
+        )
         if r_sparse == 1:
             stats["Sparse Only"]["hit1"] += 1
         if 1 <= r_sparse <= 5:
@@ -291,7 +301,9 @@ async def main() -> None:
         hybrid_cands = await hybrid_service.retrieve(q)
         hybrid_lat = (time.perf_counter() - t0) * 1000
         stats["Hybrid RRF"]["total_time"] += hybrid_lat
-        r_hybrid, rr_hybrid, ndcg_hybrid = evaluate_query_results(hybrid_cands, case, doc_meta_map, k=5)
+        r_hybrid, rr_hybrid, ndcg_hybrid = evaluate_query_results(
+            hybrid_cands, case, doc_meta_map, k=5
+        )
         if r_hybrid == 1:
             stats["Hybrid RRF"]["hit1"] += 1
         if 1 <= r_hybrid <= 5:
@@ -318,13 +330,19 @@ async def main() -> None:
             c0 = virank_cands[0]
             d0 = doc_meta_map.get(c0.document_id, {})
             top1_str = d0.get("document_number") or d0.get("title")[:25]
-        print(f"[{cid:28s}] Rank: {r_vr:2d} | Top-1: {top1_str:20s} | ViRanker Latency: {virank_lat:5.1f}ms")
+        print(
+            f"[{cid:28s}] Rank: {r_vr:2d} | Top-1: {top1_str:20s} | ViRanker Latency: {virank_lat:5.1f}ms"
+        )
 
     n = len(OFFICIAL_P10D_QUERIES)
     print("\n" + "=" * 115)
-    print("BẢNG TỔNG HỢP SO SÁNH CÁC PHƯƠNG PHÁP RETRIEVAL TRÊN DATABASE POSTGRESQL THỰC TẾ (18 CÂU HỎI P10D)")
+    print(
+        "BẢNG TỔNG HỢP SO SÁNH CÁC PHƯƠNG PHÁP RETRIEVAL TRÊN DATABASE POSTGRESQL THỰC TẾ (18 CÂU HỎI P10D)"
+    )
     print("=" * 115)
-    print(f"{'Phương pháp Retrieval':25s} | {'Recall@1 (Hit@1)':18s} | {'Recall@5 (Hit@5)':18s} | {'MRR':8s} | {'nDCG@5':8s} | {'Độ trễ TB':10s}")
+    print(
+        f"{'Phương pháp Retrieval':25s} | {'Recall@1 (Hit@1)':18s} | {'Recall@5 (Hit@5)':18s} | {'MRR':8s} | {'nDCG@5':8s} | {'Độ trễ TB':10s}"
+    )
     print("-" * 115)
 
     for m in methods:
@@ -334,7 +352,9 @@ async def main() -> None:
         mrr = st["rr_sum"] / n
         ndcg = st["ndcg_sum"] / n
         avg_lat = st["total_time"] / n
-        print(f"{m:25s} | {st['hit1']:2d}/{n} ({h1_pct:5.1f}%)     | {st['hit5']:2d}/{n} ({h5_pct:5.1f}%)     | {mrr:.4f}   | {ndcg:.4f}   | {avg_lat:6.1f}ms")
+        print(
+            f"{m:25s} | {st['hit1']:2d}/{n} ({h1_pct:5.1f}%)     | {st['hit5']:2d}/{n} ({h5_pct:5.1f}%)     | {mrr:.4f}   | {ndcg:.4f}   | {avg_lat:6.1f}ms"
+        )
 
     print("=" * 115 + "\n")
 

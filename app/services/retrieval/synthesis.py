@@ -111,7 +111,42 @@ class PromptAnswerSynthesizer:
         self,
         generate: GenerateCallback | None = None,
     ) -> None:
-        self._generate = generate or _stub_generate
+        if generate is not None:
+            self._generate = generate
+        else:
+            self._generate = self._build_default_generate() or _stub_generate
+
+    @staticmethod
+    def _build_default_generate() -> GenerateCallback | None:
+        try:
+            from app.core.config import settings
+
+            api_key = settings.llm.openai_api_key
+            if not api_key:
+                return None
+            import httpx
+
+            async def _openai_generate(system: str, user: str) -> str:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={
+                            "model": settings.llm.primary_model,
+                            "messages": [
+                                {"role": "system", "content": system},
+                                {"role": "user", "content": user},
+                            ],
+                            "temperature": settings.llm.temperature,
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return str(data["choices"][0]["message"]["content"])
+
+            return _openai_generate
+        except Exception:
+            return None
 
     async def synthesize(
         self,
@@ -123,24 +158,23 @@ class PromptAnswerSynthesizer:
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
     ) -> SynthesisResult:
         from app.services.retrieval.prompts import (
+            SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
             SYNTHESIS_SYSTEM_PROMPT,
             build_synthesis_user_message,
         )
 
-        if not internal_only:
-            logger.warning("external_knowledge_synthesis_not_supported_v1")
-            raise NotImplementedError(
-                "V1 synthesis only supports internal_only=True; external knowledge is not configured."
-            )
-
         if not bundle.items:
             return SynthesisResult(
-                answer="Tôi không tìm thấy tài liệu nội bộ nào phù hợp để trả lời câu hỏi này.",
+                answer=(
+                    "Tôi không tìm thấy tài liệu nội bộ nào phù hợp để trả lời câu hỏi này."
+                    if internal_only
+                    else "Không có tài liệu hoặc thông tin phù hợp để trả lời câu hỏi này."
+                ),
                 status=SufficiencyStatus.INSUFFICIENT,
                 citations=[],
             )
 
-        system_msg = SYNTHESIS_SYSTEM_PROMPT
+        system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
         user_msg = build_synthesis_user_message(
             question, bundle, missing_documents=missing_documents
         )

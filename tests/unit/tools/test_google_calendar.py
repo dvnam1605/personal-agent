@@ -200,9 +200,30 @@ async def test_calendar_tool_reports_retries_across_attendee_read_modify_write()
             tool_name="calendar.add_attendee",
             arguments={"event_id": "event-1", "email": "new@example.com", "send_updates": "none"},
         ),
-        ToolContext(run_id="run-1", user_id="user-1"),
+        ToolContext(run_id="run-1", user_id="user-1", approval_token="test-approved"),
     )
 
     assert result.success is True
     assert result.metadata.retry_count == 1
     assert [call[0] for call in transport.calls] == ["GET", "GET", "PATCH"]
+
+
+@pytest.mark.asyncio
+async def test_mutation_tool_fails_without_approval_token() -> None:
+    transport = FakeGoogleTransport([])
+    tools = _tools(transport)
+    context = ToolContext(run_id="run-1", user_id="user-1")
+
+    result = await tools.execute(
+        ToolInput(
+            tool_name="calendar.create_event",
+            arguments={
+                "start": "2026-08-20T09:00:00+07:00",
+                "end": "2026-08-20T10:00:00+07:00",
+                "time_zone": "Asia/Ho_Chi_Minh",
+            },
+        ),
+        context,
+    )
+    assert result.success is False
+    assert "requires human approval verification" in (result.error or "")

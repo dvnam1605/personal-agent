@@ -33,6 +33,7 @@ DEFAULT_CLAIM_TIMEOUT_SECONDS = 900
 class IngestionJobStore(Protocol):
     async def create(self, job_id: str, source_id: str, payload: dict[str, object]) -> None: ...
     async def record(self, observability: IngestionObservability) -> None: ...
+    async def heartbeat(self, job_id: str) -> None: ...
 
 
 class SqlAlchemyIngestionJobStore:
@@ -84,12 +85,38 @@ class SqlAlchemyIngestionJobStore:
             )
             await session.commit()
             if getattr(result, "rowcount", 0) == 0:
-                # create() is best-effort; when it failed the UPDATE matches
-                # nothing. Surface that instead of silently dropping the record.
                 logger.warning(
                     "ingestion_job_record_row_missing",
                     extra={"job_id": observability.job_id},
                 )
+                fallback = IngestionJobRecord(
+                    id=observability.job_id,
+                    source_id=observability.source_id,
+                    status=observability.status.value,
+                    attempt_count=1,
+                    failure_reason=observability.failure_reason,
+                    timings=values.get("timings"),
+                    warnings=values.get("warnings"),
+                    parent_count=observability.parent_count,
+                    child_count=observability.child_count,
+                    table_child_count=observability.table_child_count,
+                )
+                session.add(fallback)
+                await session.commit()
+
+    async def heartbeat(self, job_id: str) -> None:
+        """Touch claimed_at timestamp so long-running jobs are not recovered as stale."""
+        now = datetime.now(UTC)
+        async with self._session_maker() as session:
+            await session.execute(
+                update(IngestionJobRecord)
+                .where(
+                    IngestionJobRecord.id == job_id,
+                    IngestionJobRecord.status == "RUNNING",
+                )
+                .values(claimed_at=now)
+            )
+            await session.commit()
 
     async def claim_pending(
         self,
@@ -104,10 +131,12 @@ class SqlAlchemyIngestionJobStore:
         never double-claim (review M5); other dialects fall back to the plain
         select and remain single-worker-only.
 
-        Review LOW-3: stale recovery is time-based only. A CPU-bound embed
-        of a very large document can outlive ``claim_timeout_seconds`` and be
-        re-claimed by a second worker; V1 runs a single worker, so scale-out
-        must raise this bound or add claim heartbeats first.
+        Stale recovery is time-based, mitigated by claim heartbeats: the
+        orchestrator fires ``heartbeat`` on every stage transition and on
+        every embedding batch (wired via ``run_batch``), so only a worker
+        that stops heartbeating for longer than ``claim_timeout_seconds``
+        is re-claimed. V1 still runs a single worker; scale-out must keep
+        the heartbeat interval well below this bound.
         """
         now = datetime.now(UTC)
         stale_before = now - timedelta(seconds=claim_timeout_seconds)
@@ -122,7 +151,8 @@ class SqlAlchemyIngestionJobStore:
                 )
                 .values(status="QUEUED", claimed_by=None, claimed_at=None)
             )
-            is_postgres = session.bind is not None and session.bind.dialect.name == "postgresql"
+            bind = session.get_bind() if hasattr(session, "get_bind") else session.bind
+            is_postgres = bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
             base_select = (
                 select(IngestionJobRecord)
                 .where(IngestionJobRecord.status == "QUEUED")
@@ -150,6 +180,9 @@ class _NullJobStore:
     async def record(self, observability: IngestionObservability) -> None:
         del observability
 
+    async def heartbeat(self, job_id: str) -> None:
+        del job_id
+
 
 async def run_batch(
     orchestrator,  # noqa: ANN001 - IngestionOrchestrator (avoids import cycle)
@@ -173,7 +206,15 @@ async def run_batch(
         except Exception:  # noqa: BLE001 - durability is best-effort, ingestion proceeds
             logger.exception("ingestion_job_create_failed", extra={"job_id": job_id})
 
-        observability = await orchestrator.ingest_source(source, content, job_id=job_id)
+        orig_heartbeat = getattr(orchestrator, "_heartbeat", None)
+        if orig_heartbeat is None and hasattr(job_store, "heartbeat"):
+            orchestrator._heartbeat = job_store.heartbeat
+        try:
+            observability = await orchestrator.ingest_source(source, content, job_id=job_id)
+        finally:
+            if orig_heartbeat is None and hasattr(orchestrator, "_heartbeat"):
+                orchestrator._heartbeat = None
+
         results.append(observability)
         try:
             await job_store.record(observability)
@@ -189,3 +230,7 @@ async def run_batch(
             },
         )
     return results
+
+
+# Backward compatibility alias
+IngestionJobService = SqlAlchemyIngestionJobStore

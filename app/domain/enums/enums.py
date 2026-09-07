@@ -81,6 +81,27 @@ class ExecutionMode(StrEnum):
     BOUNDED_REACT = "bounded_react"
 
 
+class StopReason(StrEnum):
+    """Why a bounded specialist execution halted (spec P11-03)."""
+
+    SUCCESS = "success"
+    NO_PROGRESS = "no_progress"
+    MAX_STEPS = "max_steps"
+    MAX_TOOL_CALLS = "max_tool_calls"
+    BUDGET = "budget"
+    TIMEOUT = "timeout"
+    POLICY = "policy"
+
+
+class SpecialistStatus(StrEnum):
+    """Outcome status reported through the structured report channel (P11-10)."""
+
+    SUCCESS = "success"
+    BLOCKED = "blocked"
+    NEEDS_MORE_CONTEXT = "needs_more_context"
+    NEEDS_APPROVAL = "needs_approval"
+
+
 class EvidenceType(StrEnum):
     """Classification of grounded evidence objects."""
 

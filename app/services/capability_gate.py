@@ -34,13 +34,13 @@ class CapabilityGate:
 
         exposed: list[ToolDefinition] = []
         for tool in self._tool_registry.list():
+            if read_only and tool.is_mutation:
+                continue
             if not self._category_allowed(tool, category_patterns):
                 continue
             if not self._declared_capability_allowed(tool, agent):
                 continue
             if requested_patterns and not self._matches_any(tool, requested_patterns):
-                continue
-            if read_only and tool.is_mutation:
                 continue
             exposed.append(tool)
 

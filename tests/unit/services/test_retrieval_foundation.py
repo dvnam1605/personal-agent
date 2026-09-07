@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any, Literal
 
 import pytest
 
@@ -42,14 +43,14 @@ class DeterministicBackend:
         return [[0.25, -0.25, 0.5, 1.0] for _ in texts]
 
 
-def make_query(**overrides: object) -> RetrievalQuery:
+def make_query(**overrides: Any) -> RetrievalQuery:
     return RetrievalQuery(original_query="van ban tieng Viet", **overrides)
 
 
 def chunk(
     chunk_id: str,
     score: float,
-    kind: str,
+    kind: Literal["dense", "sparse", "hybrid"],
     *,
     dense_rank: int | None = None,
     sparse_rank: int | None = None,
@@ -118,7 +119,9 @@ class TestDenseRetrieval:
                 },
             ]
         )
-        service = DenseRetrievalService(LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider)
+        service = DenseRetrievalService(
+            LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider
+        )
         results = await service.retrieve(make_query(requester_id=str(uuid.uuid4())))
 
         sql = provider.sqls[0]
@@ -134,7 +137,9 @@ class TestDenseRetrieval:
 
     async def test_invalid_requester_rejected_before_sql(self) -> None:
         provider = FakeProvider()
-        service = DenseRetrievalService(LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider)
+        service = DenseRetrievalService(
+            LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider
+        )
         with pytest.raises(ValueError):
             await service.retrieve(make_query(requester_id="not-a-uuid"))
         assert provider.sqls == []
@@ -142,13 +147,19 @@ class TestDenseRetrieval:
     async def test_document_mode_scopes_by_ids(self) -> None:
         doc_id = str(uuid.uuid4())
         provider = FakeProvider()
-        service = DenseRetrievalService(LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider)
-        await service.retrieve(make_query(mode=RetrievalMode.DOCUMENT_SEARCH, document_ids=[doc_id]))
+        service = DenseRetrievalService(
+            LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider
+        )
+        await service.retrieve(
+            make_query(mode=RetrievalMode.DOCUMENT_SEARCH, document_ids=[doc_id])
+        )
         assert doc_id in provider.sqls[0]
 
     async def test_sql_selects_citation_anchors(self) -> None:
         provider = FakeProvider()
-        service = DenseRetrievalService(LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider)
+        service = DenseRetrievalService(
+            LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider
+        )
         await service.retrieve(make_query())
         sql = provider.sqls[0]
         assert "d.title AS document_title" in sql
@@ -171,7 +182,9 @@ class TestDenseRetrieval:
             "score": 0.2,
         }
         provider = FakeProvider([row])
-        service = DenseRetrievalService(LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider)
+        service = DenseRetrievalService(
+            LocalEmbeddingService(DeterministicBackend(), contract=CONTRACT), provider
+        )
         (result,) = await service.retrieve(make_query())
         assert result.metadata["document_title"] == "Luat Dat dai"
         assert result.metadata["chunk_index"] == 3
@@ -186,14 +199,26 @@ class TestSparseRetrieval:
         await service.retrieve(make_query(search_query="hop dong O'Brien & phu luc"))
 
         sql = provider.sqls[0]
-        assert "websearch_to_tsquery('public.vietnamese_simple', 'hop dong O''Brien & phu luc')" in sql
+        assert (
+            "websearch_to_tsquery('public.vietnamese_simple', 'hop dong O''Brien & phu luc')" in sql
+        )
         assert "@@ c.search_vector" in sql or "c.search_vector @@" in sql
         assert "ts_rank_cd" in sql
         assert "ORDER BY score DESC" in sql
         assert "LIMIT 20" in sql
 
     async def test_ranks_follow_return_order(self) -> None:
-        provider = FakeProvider([{"chunk_id": uuid.uuid4(), "parent_id": None, "document_id": uuid.uuid4(), "content_raw": "x", "score": 0.9}])
+        provider = FakeProvider(
+            [
+                {
+                    "chunk_id": uuid.uuid4(),
+                    "parent_id": None,
+                    "document_id": uuid.uuid4(),
+                    "content_raw": "x",
+                    "score": 0.9,
+                }
+            ]
+        )
         service = SparseRetrievalService(provider)
         results = await service.retrieve(make_query())
         assert results[0].sparse_rank == 1
@@ -231,7 +256,9 @@ class TestHybridFusion:
                 return self.chunks
 
         dense = Fixed([chunk(a, 0.1, "dense", dense_rank=1), chunk(b, 0.2, "dense", dense_rank=2)])
-        sparse = Fixed([chunk(b, 5.0, "sparse", sparse_rank=1), chunk(c, 4.0, "sparse", sparse_rank=1)])
+        sparse = Fixed(
+            [chunk(b, 5.0, "sparse", sparse_rank=1), chunk(c, 4.0, "sparse", sparse_rank=1)]
+        )
         service = HybridRetrievalService(dense, sparse, k=60)  # type: ignore[arg-type]
 
         results = await service.retrieve(make_query(limit=10))
@@ -239,7 +266,11 @@ class TestHybridFusion:
         expected_b = 1 / 62 + 1 / 61
         expected_a_or_c = 1 / 61
         scores = {r.chunk_id: r.fusion_score for r in results}
-        assert scores == {a: pytest.approx(expected_a_or_c), b: pytest.approx(expected_b), c: pytest.approx(expected_a_or_c)}
+        assert scores == {
+            a: pytest.approx(expected_a_or_c),
+            b: pytest.approx(expected_b),
+            c: pytest.approx(expected_a_or_c),
+        }
         assert [r.chunk_id for r in results][0] == b  # only overlap wins
 
         by_id = {r.chunk_id: r for r in results}
@@ -279,7 +310,10 @@ class TestParallelExecution:
                 return []
 
         dense_provider, sparse_provider = FakeProvider(), FakeProvider()
-        service = HybridRetrievalService(Slow("dense", dense_provider), Slow("sparse", sparse_provider))
+        service = HybridRetrievalService(
+            Slow("dense", dense_provider),  # type: ignore[arg-type]
+            Slow("sparse", sparse_provider),  # type: ignore[arg-type]
+        )
         await service.retrieve(make_query())
 
         assert events.index("sparse:start") < events.index("dense:end"), events

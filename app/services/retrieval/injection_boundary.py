@@ -56,16 +56,8 @@ def sanitize_evidence_for_prompt(evidence: Evidence, *, index: int = 0) -> str:
     attrs = " ".join(header_parts)
 
     # Escape tags to prevent structural boundary escape and fake opening tags
-    sanitized_content = (
-        evidence.content_raw.replace(
-            "</retrieved_document>", "<\\/retrieved_document>"
-        ).replace(
-            "<retrieved_document", "<\\retrieved_document"
-        )
-    )
+    sanitized_content = evidence.content_raw.replace(
+        "</retrieved_document>", "<\\/retrieved_document>"
+    ).replace("<retrieved_document", "<\\retrieved_document")
 
-    return (
-        f"<retrieved_document {attrs}>\n"
-        f"{sanitized_content}\n"
-        f"</retrieved_document>"
-    )
+    return f"<retrieved_document {attrs}>\n{sanitized_content}\n</retrieved_document>"

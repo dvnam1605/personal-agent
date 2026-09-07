@@ -106,6 +106,41 @@ class AssistantState(BaseModel):
         ge=0,
         description="Total LLM calls invoked in this run.",
     )
+    total_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Cumulative tokens consumed across all model invocations.",
+    )
+    prompt_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Cumulative prompt tokens consumed across model invocations.",
+    )
+    completion_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Cumulative completion tokens consumed across model invocations.",
+    )
+    elapsed_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Cumulative execution time in seconds.",
+    )
+    supervisor_iterations: int = Field(
+        default=0,
+        ge=0,
+        description="Cumulative supervisor iterations completed.",
+    )
+    estimated_cost: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Cumulative estimated USD cost of model invocations.",
+    )
+    max_delegation_depth_reached: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum depth of agent delegation reached in this run.",
+    )
     status: RunStatus = Field(
         default=RunStatus.PENDING,
         description="Current lifecycle status of the run.",

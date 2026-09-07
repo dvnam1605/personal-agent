@@ -14,15 +14,19 @@ from typing import Any, Protocol
 from urllib.parse import urlencode
 
 import httpx
+import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import GoogleOAuthSettings
+from app.core.config import settings as app_settings
 from app.core.security import FernetTokenCipher, TokenEncryptionError
 from app.domain.errors import AuthenticationError, ConfigurationError, ExternalServiceError
 from app.domain.errors import ValidationError as DomainValidationError
 from app.infrastructure.db.models import GoogleIntegration, User
+
+logger = structlog.get_logger(__name__)
 
 Clock = Callable[[], datetime]
 
@@ -458,7 +462,9 @@ class GoogleOAuthClient:
                     "Google OAuth request failed.", service_name="google"
                 ) from exc
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(
+                timeout=app_settings.timeouts.google_api_seconds
+            ) as client:
                 return await client.post(url, **kwargs)
         except (httpx.HTTPError, OSError) as exc:
             raise ExternalServiceError(
@@ -474,7 +480,9 @@ class GoogleOAuthClient:
                     "Google OAuth request failed.", service_name="google"
                 ) from exc
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(
+                timeout=app_settings.timeouts.google_api_seconds
+            ) as client:
                 return await client.get(url, **kwargs)
         except (httpx.HTTPError, OSError) as exc:
             raise ExternalServiceError(
@@ -534,7 +542,7 @@ class GoogleApiClient:
             if request_method is None:
                 raise ExternalServiceError("Unsupported Google API method.", service_name="google")
             return await request_method(url, headers=headers, **kwargs)
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=app_settings.timeouts.google_api_seconds) as client:
             return await client.request(method, url, headers=headers, **kwargs)
 
 
@@ -644,9 +652,13 @@ class GoogleOAuthService:
 
         cipher = self._get_cipher()
         if integration is None:
+            if not refresh_token:
+                raise AuthenticationError(
+                    "Google did not return a refresh token. Revoke the app access and authorize again."
+                )
             integration = GoogleIntegration(
                 user_id=user_id,
-                refresh_token_encrypted=cipher.encrypt(refresh_token or ""),
+                refresh_token_encrypted=cipher.encrypt(refresh_token),
             )
             session.add(integration)
         elif refresh_token:
@@ -730,12 +742,32 @@ class GoogleOAuthService:
         return GoogleClientFactory.create(access_token, transport=transport)
 
     async def disconnect(self, session: AsyncSession, user_id: str) -> bool:
-        """Revoke the refresh token and remove the local encrypted connection."""
+        """Revoke both refresh and access tokens and remove the local encrypted connection.
+
+        Fail-open on external revocation failures (e.g. transient Google 5xx or timeouts)
+        to prevent users from being permanently locked into a connected state.
+        """
         integration = await self._get_integration(session, user_id)
         if integration is None:
             return False
-        refresh_token = self._decrypt(integration.refresh_token_encrypted)
-        await self.client.revoke_token(refresh_token)
+        if integration.refresh_token_encrypted:
+            refresh_token = self._decrypt(integration.refresh_token_encrypted)
+            try:
+                await self.client.revoke_token(refresh_token)
+            except Exception as exc:
+                logger.warning(
+                    "google_refresh_token_revoke_failed_fail_open",
+                    extra={"error": str(exc), "user_id": user_id},
+                )
+        if integration.access_token_encrypted:
+            access_token = self._decrypt(integration.access_token_encrypted)
+            try:
+                await self.client.revoke_token(access_token)
+            except Exception as exc:
+                logger.warning(
+                    "google_access_token_revoke_failed_fail_open",
+                    extra={"error": str(exc), "user_id": user_id},
+                )
         await session.delete(integration)
         await session.flush()
         return True

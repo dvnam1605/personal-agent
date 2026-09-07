@@ -27,6 +27,10 @@ def compute_fingerprint(inputs: FingerprintInputs) -> DocumentFingerprint:
         "child_chunker_version": inputs.child_chunker_version,
         "embedding_model": inputs.embedding_model,
         "embedding_dimensions": inputs.embedding_dimensions,
+        "ocr_source_checksum": inputs.ocr_source_checksum,
+        "ocr_engine": inputs.ocr_engine,
+        "ocr_engine_version": inputs.ocr_engine_version,
+        "ocr_device": inputs.ocr_device,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

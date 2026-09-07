@@ -10,7 +10,6 @@ Run:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import hashlib
 import logging
 import sys
@@ -27,7 +26,6 @@ from huggingface_hub import snapshot_download  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
-from app.domain.models.documents import SourceDocument  # noqa: E402
 from app.domain.models.ingestion import IngestionStatus  # noqa: E402
 from app.infrastructure.db.ingestion_repository import (  # noqa: E402
     SqlAlchemyIngestionRepository,
@@ -39,7 +37,9 @@ from app.services.ingestion.embedding import (  # noqa: E402
     LocalEmbeddingService,
     TransformersPoolingBackend,
 )
+from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
+from app.services.ingestion.source import build_local_source_document  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,10 +85,12 @@ async def main() -> None:
     session_factory = get_session_factory()
     repository = SqlAlchemyIngestionRepository(session_factory)
     transaction = SqlAlchemyUnitOfWork(session_factory)
+    job_service = SqlAlchemyIngestionJobStore(session_factory)
     orchestrator = IngestionOrchestrator(
         repository=repository,
         transaction=transaction,
         embedding=embedding_service,
+        heartbeat_callback=job_service.heartbeat,
     )
 
     # 4. Ingest each file
@@ -108,15 +110,10 @@ async def main() -> None:
 
         # Deterministic unique source_id from path
         source_id = "src-" + hashlib.sha256(str(rel_path).encode("utf-8")).hexdigest()[:16]
-        mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
-        source = SourceDocument(
-            source_id=source_id,
+        source = build_local_source_document(
+            file_path,
             source_type="preparsed_markdown",
-            filename=file_path.name,
-            mime_type="text/markdown",
-            size_bytes=len(file_bytes),
-            checksum=hashlib.sha256(file_bytes).hexdigest(),
-            modified_at=mtime,
+            source_id=source_id,
         )
 
         try:
@@ -162,11 +159,15 @@ async def main() -> None:
     print(f"Failed                : {fail_count}")
     print(f"Total Parent chunks   : {total_parents}")
     print(f"Total Child chunks    : {total_children}")
-    print(f"Total time elapsed    : {total_duration:.2f}s (avg {total_duration/len(md_files):.2f}s/doc)")
+    print(
+        f"Total time elapsed    : {total_duration:.2f}s (avg {total_duration / len(md_files):.2f}s/doc)"
+    )
 
     # 5. Query PostgreSQL to verify database contents
     async with session_factory() as session:
-        res_docs = await session.execute(text("SELECT count(*) FROM documents WHERE is_active = true"))
+        res_docs = await session.execute(
+            text("SELECT count(*) FROM documents WHERE is_active = true")
+        )
         res_chunks = await session.execute(text("SELECT count(*) FROM document_chunks"))
         res_vectors = await session.execute(
             text("SELECT count(*) FROM document_chunks WHERE embedding IS NOT NULL")

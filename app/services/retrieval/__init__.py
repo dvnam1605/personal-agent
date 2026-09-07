@@ -45,6 +45,12 @@ from app.services.retrieval.expansion import (
     is_table_child,
     resolve_expansion_policy,
 )
+from app.services.retrieval.factory import (
+    build_embedding_service,
+    build_reranker,
+    build_retrieval_pipeline,
+    resolve_embedding_snapshot_path,
+)
 from app.services.retrieval.hybrid import DEFAULT_RRF_K, HybridRetrievalService
 from app.services.retrieval.injection_boundary import (
     BOUNDARY_INSTRUCTIONS,
@@ -86,9 +92,11 @@ __all__ = [
     "RowProvider",
     "SparseRetrievalService",
     "SqlAlchemyRowProvider",
+    "ViRankerReranker",
     "apply_diversity",
     "apply_per_document_caps",
     "build_bundle",
+    "build_embedding_service",
     "citation_anchors",
     "dedup_candidates",
     "is_table_child",
@@ -109,8 +117,11 @@ __all__ = [
     "SynthesisResult",
     "apply_retry_strategy",
     "build_citations_from_bundle",
+    "build_reranker",
+    "build_retrieval_pipeline",
     "enforce_compare_diversity",
     "extract_cited_ids",
+    "resolve_embedding_snapshot_path",
     "sanitize_evidence_for_prompt",
     # P10D evaluation & benchmarks
     "BENCHMARK_CORPUS",

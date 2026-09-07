@@ -39,6 +39,18 @@ def _sanitize_json_mapping(value: Any) -> dict[str, Any]:
     return sanitized if isinstance(sanitized, dict) else {}
 
 
+def _sanitize_document_metadata(value: Any) -> dict[str, Any]:
+    """Keep document/chunk metadata bounded without truncating administrative structures."""
+    sanitized = sanitize_payload(
+        value if isinstance(value, dict) else {},
+        max_string_len=8192,
+        max_depth=10,
+        max_items=150,
+        max_payload_bytes=32_768,
+    )
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
 def _sanitize_bounded_text(value: str | None, max_len: int) -> str | None:
     """Sanitize a bounded SQL string without exceeding its column width."""
     return None if value is None else sanitize_string(value, max_len)[:max_len]
@@ -339,7 +351,7 @@ class Document(Base, TimestampMixin):
 
     @validates("metadata_")
     def sanitize_metadata(self, _key: str, value: dict[str, Any]) -> dict[str, Any]:
-        return _sanitize_json_mapping(value)
+        return _sanitize_document_metadata(value)
 
 
 class DocumentChunk(Base):
@@ -389,7 +401,7 @@ class DocumentChunk(Base):
 
     @validates("metadata_")
     def sanitize_metadata(self, _key: str, value: dict[str, Any]) -> dict[str, Any]:
-        return _sanitize_json_mapping(value)
+        return _sanitize_document_metadata(value)
 
 
 class IngestionJobRecord(Base):

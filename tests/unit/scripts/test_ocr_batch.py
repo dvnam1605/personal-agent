@@ -256,3 +256,24 @@ def test_main_wiring_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[st
             ]
         )
     assert exc_info.value.code == 2
+
+
+def test_dry_run_never_overwrites_real_sidecar(tmp_path: Path) -> None:
+    input_dir = tmp_path / "in"
+    (pdf,) = seed_input(input_dir, ("real.pdf",))
+    args_real = make_args(tmp_path, [])
+    engine = FakeEngine()
+    # First do a real run
+    out_real = ocr_batch.process_pdf(pdf, args_real, engine)
+    assert out_real.status == "processed"
+    _, sidecar_path = ocr_batch.output_paths_for(pdf, input_dir, tmp_path / "out")
+    initial_content = sidecar_path.read_text(encoding="utf-8")
+    assert '"dry_run": false' in initial_content
+
+    # Now run dry-run with force
+    args_dry = make_args(tmp_path, ["--dry-run", "--force"])
+    out_dry = ocr_batch.process_pdf(pdf, args_dry, engine)
+    assert out_dry.status == "planned"
+    after_content = sidecar_path.read_text(encoding="utf-8")
+    assert after_content == initial_content
+    assert '"dry_run": false' in after_content

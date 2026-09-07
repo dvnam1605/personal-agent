@@ -1,6 +1,7 @@
 """Execution plan contracts with dependency resolution, owning task validation, and DAG validation."""
 
 import uuid
+from collections import deque
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -139,11 +140,11 @@ class ExecutionPlan(BaseModel):
             for dep in task.dependencies:
                 adj[dep.depends_on_task_id].append(task.id)
 
-        queue = [tid for tid, deg in in_degree.items() if deg == 0]
+        queue: deque[str] = deque(tid for tid, deg in in_degree.items() if deg == 0)
         visited_count = 0
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             visited_count += 1
             for neighbor in adj[current]:
                 in_degree[neighbor] -= 1

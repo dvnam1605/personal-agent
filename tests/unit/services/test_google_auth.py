@@ -179,7 +179,7 @@ async def test_callback_persists_encrypted_tokens_refreshes_and_disconnects(
 
     assert await service.disconnect(async_session, "user-1") is True
     await async_session.commit()
-    assert transport.revoked_tokens == ["refresh-token-1"]
+    assert set(transport.revoked_tokens) == {"refresh-token-1", "access-token-2"}
     assert (
         await async_session.execute(
             select(GoogleIntegration).where(GoogleIntegration.user_id == "user-1")

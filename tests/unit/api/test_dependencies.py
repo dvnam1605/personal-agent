@@ -94,18 +94,20 @@ async def test_development_without_key_keeps_default_user():
         async with AsyncClient(transport=transport, base_url="http://t") as client:
             default = await client.get("/whoami")
             explicit = await client.get("/whoami", headers={"X-User-ID": "bob "})
+        assert default.status_code == 200
         assert default.json()["user_id"] == deps.DEFAULT_USER_ID
-        assert explicit.json()["user_id"] == "bob"
+        # Without an authenticated API key, unverified custom identity spoofing is rejected
+        assert explicit.status_code == 401
     finally:
         deps.settings = original
 
 
 def test_user_id_length_bound_enforced(monkeypatch):
-    monkeypatch.setattr(deps, "settings", _settings(Environment.DEVELOPMENT, None))
+    monkeypatch.setattr(deps, "settings", _settings(Environment.DEVELOPMENT, "test-key"))
 
-    async def call_with(user_id: str) -> Exception | None:
+    async def call_with(user_id: str, api_key: str | None = "test-key") -> Exception | None:
         try:
-            await deps.get_current_user_id(x_user_id=user_id, x_api_key=None)
+            await deps.get_current_user_id(x_user_id=user_id, x_api_key=api_key)
         except Exception as exc:  # noqa: BLE001 - test probe
             return exc
         return None
@@ -114,6 +116,7 @@ def test_user_id_length_bound_enforced(monkeypatch):
     assert asyncio_run(call_with(long_id)) is not None
     assert asyncio_run(call_with("")) is not None
     assert asyncio_run(call_with("ok-user")) is None
+    assert asyncio_run(call_with("ok-user", api_key=None)) is not None
 
 
 def asyncio_run(coro):  # noqa: ANN001

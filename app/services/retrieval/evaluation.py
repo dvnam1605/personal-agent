@@ -33,11 +33,12 @@ from app.services.retrieval.expansion import resolve_expansion_policy
 from app.services.retrieval.packing import build_bundle, unit_for_chunk
 from app.services.retrieval.pipeline import HybridRetriever, RetrievalPipeline
 from app.services.retrieval.provider import RowProvider
-from app.services.retrieval.rerank import IdentityReranker
+from app.services.retrieval.rerank import IdentityReranker, Reranker
 
 # ---------------------------------------------------------------------------
 # 1. Information Retrieval (IR) Metrics
 # ---------------------------------------------------------------------------
+
 
 def calculate_recall_at_k(
     retrieved_ids: Sequence[str],
@@ -104,14 +105,11 @@ def calculate_ndcg_at_k(
     for idx, item_id in enumerate(top_k):
         rel = scores_map.get(item_id, 0.0)
         if rel > 0.0:
-            dcg += (2.0 ** rel - 1.0) / math.log2(idx + 2)  # idx+2 because rank=idx+1, log2(rank+1)
+            dcg += (2.0**rel - 1.0) / math.log2(idx + 2)  # idx+2 because rank=idx+1, log2(rank+1)
 
     # Compute Ideal DCG@k (IDCG@k)
     ideal_scores = sorted([scores_map.get(eid, 1.0) for eid in expected_ids], reverse=True)[:k]
-    idcg = sum(
-        (2.0 ** rel - 1.0) / math.log2(idx + 2)
-        for idx, rel in enumerate(ideal_scores)
-    )
+    idcg = sum((2.0**rel - 1.0) / math.log2(idx + 2) for idx, rel in enumerate(ideal_scores))
 
     if idcg <= 0.0:
         return 0.0
@@ -122,6 +120,7 @@ def calculate_ndcg_at_k(
 # ---------------------------------------------------------------------------
 # 2. Stage Latency Instrumentation
 # ---------------------------------------------------------------------------
+
 
 class PipelineTimings(BaseModel):
     """Execution latency breakdown across pipeline stages (spec P10-24)."""
@@ -145,6 +144,7 @@ class PipelineTimings(BaseModel):
 # ---------------------------------------------------------------------------
 # 3. Ablation Configuration & Results
 # ---------------------------------------------------------------------------
+
 
 class ChunkingAblationConfig(StrEnum):
     """Mandatory chunking/expansion ablations (spec P10-22)."""
@@ -201,6 +201,7 @@ class AblationReport(BaseModel):
 # 4. Mock / In-Memory Benchmark Retriever
 # ---------------------------------------------------------------------------
 
+
 class BenchmarkRetriever(HybridRetriever):
     """Deterministic in-memory hybrid retriever operating on BenchmarkCorpus.
 
@@ -235,12 +236,31 @@ class BenchmarkRetriever(HybridRetriever):
                     continue
 
             # Dense score approximation (semantic match via keywords & overlap)
-            STOP_WORDS = {"quy", "định", "các", "về", "của", "cho", "và", "trong", "được", "theo", "năm", "ngày", "tháng", "kèm"}
+            STOP_WORDS = {
+                "quy",
+                "định",
+                "các",
+                "về",
+                "của",
+                "cho",
+                "và",
+                "trong",
+                "được",
+                "theo",
+                "năm",
+                "ngày",
+                "tháng",
+                "kèm",
+            }
             content_lower = c.content_raw.lower()
             keyword_matches = sum(1 for kw in c.keywords if kw.lower() in q_text)
             overlap_count = sum(1 for w in words if w not in STOP_WORDS and w in content_lower)
 
-            dense_sim = min(0.1 + (keyword_matches * 0.4) + (overlap_count * 0.04), 0.98) if (keyword_matches or overlap_count) else 0.02
+            dense_sim = (
+                min(0.1 + (keyword_matches * 0.4) + (overlap_count * 0.04), 0.98)
+                if (keyword_matches or overlap_count)
+                else 0.02
+            )
 
             # Sparse score approximation (FTS keyword hits)
             sparse_score = min((keyword_matches * 2.5) + (overlap_count * 0.3), 10.0)
@@ -272,7 +292,9 @@ class BenchmarkRetriever(HybridRetriever):
                     document_id=c.document_id,
                     content_raw=c.content_raw,
                     score=round(final_score, 4),
-                    rerank_score=round(min(final_score * 1.2, 0.99), 4) if self._mode_ablation is SearchModeAblationConfig.HYBRID_RERANK else None,
+                    rerank_score=round(min(final_score * 1.2, 0.99), 4)
+                    if self._mode_ablation is SearchModeAblationConfig.HYBRID_RERANK
+                    else None,
                     retrieval_type=ret_type,
                     metadata={
                         "document_title": doc_title,
@@ -304,47 +326,52 @@ class BenchmarkRowProvider(RowProvider):
             rows: list[dict[str, Any]] = []
             for p in self._corpus.get_parents():
                 doc = self._corpus.get_document(p.document_id)
-                rows.append({
-                    "chunk_id": p.chunk_id,
-                    "document_id": p.document_id,
-                    "content_raw": p.content_raw,
-                    "heading_path": p.heading_path,
-                    "page_start": p.page_start,
-                    "page_end": p.page_end,
-                    "citation_label": f"p. {p.page_start}-{p.page_end}",
-                    "document_title": doc.title if doc else "",
-                    "source_type": doc.source_type if doc else "",
-                    "uri": doc.uri if doc else "",
-                    "version_number": doc.version_number if doc else 1,
-                })
+                rows.append(
+                    {
+                        "chunk_id": p.chunk_id,
+                        "document_id": p.document_id,
+                        "content_raw": p.content_raw,
+                        "heading_path": p.heading_path,
+                        "page_start": p.page_start,
+                        "page_end": p.page_end,
+                        "citation_label": f"p. {p.page_start}-{p.page_end}",
+                        "document_title": doc.title if doc else "",
+                        "source_type": doc.source_type if doc else "",
+                        "uri": doc.uri if doc else "",
+                        "version_number": doc.version_number if doc else 1,
+                    }
+                )
             return rows
         else:
             # Sibling fetch
             rows = []
             for c in self._corpus.get_children():
                 doc = self._corpus.get_document(c.document_id)
-                rows.append({
-                    "chunk_id": c.chunk_id,
-                    "parent_id": c.parent_id,
-                    "document_id": c.document_id,
-                    "node_type": c.node_type,
-                    "heading_path": c.heading_path,
-                    "chunk_index": c.chunk_index,
-                    "page_start": c.page_start,
-                    "page_end": c.page_end,
-                    "citation_label": f"p. {c.page_start}",
-                    "content_raw": c.content_raw,
-                    "document_title": doc.title if doc else "",
-                    "source_type": doc.source_type if doc else "",
-                    "uri": doc.uri if doc else "",
-                    "version_number": doc.version_number if doc else 1,
-                })
+                rows.append(
+                    {
+                        "chunk_id": c.chunk_id,
+                        "parent_id": c.parent_id,
+                        "document_id": c.document_id,
+                        "node_type": c.node_type,
+                        "heading_path": c.heading_path,
+                        "chunk_index": c.chunk_index,
+                        "page_start": c.page_start,
+                        "page_end": c.page_end,
+                        "citation_label": f"p. {c.page_start}",
+                        "content_raw": c.content_raw,
+                        "document_title": doc.title if doc else "",
+                        "source_type": doc.source_type if doc else "",
+                        "uri": doc.uri if doc else "",
+                        "version_number": doc.version_number if doc else 1,
+                    }
+                )
             return rows
 
 
 # ---------------------------------------------------------------------------
 # 5. Ablation Runner Engine
 # ---------------------------------------------------------------------------
+
 
 class AblationRunner:
     """Orchestrates benchmark runs and ablation experiments (spec P10-22..24)."""
@@ -395,7 +422,9 @@ class AblationRunner:
                 query_id=bq.query_id,
                 category=bq.category,
                 recall_at_5=calculate_recall_at_k(retrieved_chunk_ids, bq.expected_child_ids, k=5),
-                recall_at_10=calculate_recall_at_k(retrieved_chunk_ids, bq.expected_child_ids, k=10),
+                recall_at_10=calculate_recall_at_k(
+                    retrieved_chunk_ids, bq.expected_child_ids, k=10
+                ),
                 mrr=calculate_mrr(retrieved_chunk_ids, bq.expected_child_ids),
                 ndcg_at_10=calculate_ndcg_at_k(retrieved_chunk_ids, bq.expected_child_ids, k=10),
                 context_tokens=bundle.total_tokens,
@@ -412,13 +441,26 @@ class AblationRunner:
         *,
         expansion_override: ExpansionPolicy | None = None,
         search_mode: SearchModeAblationConfig = SearchModeAblationConfig.HYBRID_RERANK,
+        reranker: Reranker | None = None,
     ) -> AblationReport:
-        """Run the full RetrievalPipeline under a specified ablation setting."""
+        """Run the full RetrievalPipeline under a specified ablation setting.
+
+        ``reranker`` is the injection seam for live neural measurement: pass a
+        ``ViRankerReranker`` to measure true hybrid + cross-encoder quality.
+        When omitted, ``HYBRID_RRF`` uses ``IdentityReranker`` as the no-rerank
+        control and ``HYBRID_RERANK`` falls back to the pipeline default
+        (deterministic Identity baseline — unit-safe, torch-free, preserves
+        the published P10D numbers).
+        """
         retriever = BenchmarkRetriever(self.corpus, search_mode)
+        if search_mode is SearchModeAblationConfig.HYBRID_RERANK:
+            effective_reranker = reranker or IdentityReranker()
+        else:
+            effective_reranker = IdentityReranker()
         pipeline = RetrievalPipeline(
             hybrid_service=retriever,
             provider=self.provider,
-            reranker=IdentityReranker() if search_mode != SearchModeAblationConfig.HYBRID_RERANK else None,
+            reranker=effective_reranker,
         )
 
         query_results: list[QueryEvaluationResult] = []
@@ -449,9 +491,7 @@ class AblationRunner:
                         retrieved_ids.append(p_chunk.parent_id)
                 target_expected = bq.expected_parent_ids
             else:
-                retrieved_ids = [
-                    cid for item in bundle.items for cid in item.chunk_ids
-                ]
+                retrieved_ids = [cid for item in bundle.items for cid in item.chunk_ids]
                 target_expected = bq.expected_child_ids
 
             timings = PipelineTimings(
@@ -460,7 +500,9 @@ class AblationRunner:
                 parallel_search_ms=round(t_total * 0.38, 2),
                 fusion_ms=round(t_total * 0.05, 2),
                 diversity_ms=round(t_total * 0.05, 2),
-                rerank_ms=round(t_total * 0.12, 2) if search_mode == SearchModeAblationConfig.HYBRID_RERANK else 0.0,
+                rerank_ms=round(t_total * 0.12, 2)
+                if search_mode == SearchModeAblationConfig.HYBRID_RERANK
+                else 0.0,
                 expansion_ms=round(t_total * 0.20, 2),
                 packing_ms=round(t_total * 0.10, 2),
                 total_ms=round(t_total, 2),

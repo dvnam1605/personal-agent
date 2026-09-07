@@ -3,7 +3,7 @@ name = "personal-ai-assistant"
 version = "0.1.0"
 description = "Personal Multi-Agent AI Assistant"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -24,7 +24,30 @@ dependencies = [
     "langsmith>=0.11.0",
     "psycopg[binary]>=3.3.4",
     "docling>=2.59,<3",
+    # Runtime ML stack: imported lazily by the ingestion embedding backend
+    # (embedding.py) and the ViRanker reranker (rerank.py) via
+    # huggingface_hub snapshots. Declared explicitly so a fresh install
+    # without transitive luck still runs retrieval — previously these only
+    # arrived transitively via docling.
+    "torch>=2.2",
+    "transformers>=4.40",
+    "huggingface-hub>=0.23",
+    # Explicit floors: transitive pins resolved to pillow 10.4.0 / pyyaml
+    # 6.0.2, which have no CPython 3.13+/3.14 wheels and fail to build from
+    # source. Keep these floors until docling's chain lifts them.
+    "pillow>=11.0",
+    "pyyaml>=6.0.3",
 ]
+
+[tool.uv]
+# surya-ocr (optional `ocr-surya` extra) caps pillow<11 and paddleocr
+# (optional `ocr-paddle` extra) pins pyyaml==6.0.2 exactly. Left unchecked,
+# uv's universal resolution forces those old versions into EVERY split and
+# breaks CPython 3.13+/3.14 (no wheels, source build fails). Override both
+# caps globally; the OCR extras are isolated from the assistant runtime per
+# P9E-2 — they run on a separate strong-GPU machine and are never imported
+# by app/.
+override-dependencies = ["pillow>=11.0", "pyyaml>=6.0.3"]
 
 [project.optional-dependencies]
 dev = [

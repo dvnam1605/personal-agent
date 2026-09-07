@@ -239,7 +239,26 @@ class DoclingDocumentParser:
                     )
                 )
             elif isinstance(node_item, PictureItem):
-                if "pictures are not represented in the V1 tree" not in warnings:
+                pic_text = (getattr(node_item, "text", "") or "").strip()
+                pic_caption = ""
+                captions = getattr(node_item, "captions", None)
+                if captions:
+                    pic_caption = " ".join(
+                        getattr(c, "text", str(c)) for c in captions if getattr(c, "text", None)
+                    ).strip()
+                parts = [p for p in (pic_caption, pic_text) if p]
+                content = " - ".join(parts)
+                if content:
+                    nodes.append(
+                        ParagraphNode(
+                            node_id=f"n{len(nodes):04d}",
+                            order=block_index,
+                            text=f"[Hình ảnh: {content}]",
+                            heading_path=heading_path(),
+                            anchor=anchor,
+                        )
+                    )
+                elif "pictures are not represented in the V1 tree" not in warnings:
                     warnings.append("pictures are not represented in the V1 tree")
             else:
                 label = type(node_item).__name__
@@ -255,6 +274,11 @@ class DoclingDocumentParser:
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
+        full_text = " ".join(n.text for n in nodes)
+        from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
+
+        admin_meta = AdministrativeMetadataExtractor.extract(full_text, filename=source.filename)
+
         return ParsedDocument(
             metadata=ParsedDocumentMetadata(
                 source_id=source.source_id,
@@ -262,6 +286,7 @@ class DoclingDocumentParser:
                 parser_name=DOCLING_PARSER_NAME,
                 parser_version=docling_version(),
                 page_count=page_count,
+                administrative_metadata=admin_meta.to_dict(),
                 parse_warnings=tuple(warnings),
             ),
             nodes=tuple(nodes),

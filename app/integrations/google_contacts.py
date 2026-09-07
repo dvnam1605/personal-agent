@@ -17,6 +17,10 @@ from app.integrations.google_common import (
 CONTACTS_READONLY_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
 CONTACTS_READ_MASK = "names,emailAddresses,phoneNumbers,organizations,metadata"
 CONTACTS_MAX_PAGE_SIZE = 30
+# Live-verified (P12): the People API is not served from the universal
+# ``https://www.googleapis.com`` host (those paths 404). All calls below use
+# absolute People API URLs; ``GoogleResourceAdapter._url`` passes them through.
+PEOPLE_API_BASE_URL = "https://people.googleapis.com"
 
 
 def _contact_from_payload(payload: object) -> Contact:
@@ -144,7 +148,7 @@ class ContactsAdapter(GoogleResourceAdapter):
             params["pageToken"] = page_token.strip()
         payload = await self._request_json(
             "GET",
-            "/v1/people:searchContacts",
+            f"{PEOPLE_API_BASE_URL}/v1/people:searchContacts",
             operation="Google Contact search",
             params=params,
         )
@@ -172,7 +176,7 @@ class ContactsAdapter(GoogleResourceAdapter):
         identifier = _validate_resource_name(resource_name)
         payload = await self._request_json(
             "GET",
-            f"/v1/{quote(identifier, safe='/')}",
+            f"{PEOPLE_API_BASE_URL}/v1/{quote(identifier, safe='/')}",
             operation="Google Contact lookup",
             params={"personFields": CONTACTS_READ_MASK},
         )
@@ -190,4 +194,4 @@ class ContactsAdapter(GoogleResourceAdapter):
         return result
 
 
-__all__ = ["CONTACTS_READONLY_SCOPE", "ContactsAdapter"]
+__all__ = ["CONTACTS_READONLY_SCOPE", "ContactsAdapter", "PEOPLE_API_BASE_URL"]

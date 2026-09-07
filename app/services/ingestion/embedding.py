@@ -10,8 +10,10 @@ never silently mix.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -67,13 +69,25 @@ class LocalEmbeddingService:
     def contract(self) -> EmbeddingContract:
         return self._contract
 
-    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    async def embed_documents(
+        self,
+        texts: list[str],
+        *,
+        batch_callback: Callable[[], Awaitable[None]] | None = None,
+    ) -> list[list[float]]:
         if not texts:
             return []
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self._batch_size):
             batch = texts[start : start + self._batch_size]
             vectors.extend(await self._embed_batch(batch))
+            if batch_callback is not None:
+                try:
+                    res = batch_callback()
+                    if inspect.isawaitable(res):
+                        await res
+                except Exception:
+                    pass
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
@@ -135,18 +149,26 @@ class TransformersPoolingBackend:
     snapshot is ever replaced, re-read its pooling config before ingesting.
     """
 
-    def __init__(self, local_path: str, *, max_length: int = 512) -> None:
+    def __init__(
+        self, local_path: str, *, max_length: int = 512, device: str | None = None
+    ) -> None:
         self._local_path = local_path
         self._max_length = max_length
+        self._device = device
         self._tokenizer: Any = None
         self._model: Any = None
 
     def _ensure_loaded(self) -> tuple[Any, Any]:
         if self._model is None:
+            import torch
             from transformers import AutoModel, AutoTokenizer
+
+            if self._device is None:
+                self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
             self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
             self._model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
+            self._model.to(self._device)
             self._model.eval()
         assert self._tokenizer is not None and self._model is not None
         return self._tokenizer, self._model
@@ -162,9 +184,11 @@ class TransformersPoolingBackend:
             max_length=self._max_length,
             return_tensors="pt",
         )
+        if self._device != "cpu":
+            encoded = {k: v.to(self._device) for k, v in encoded.items()}
         with torch.no_grad():
             output = model(**encoded)
         # CLS-token pooling per the snapshot's 1_Pooling config (review H1).
         cls_embeddings = output.last_hidden_state[:, 0, :]
         normalized = torch.nn.functional.normalize(cls_embeddings, p=2, dim=1)
-        return normalized.tolist()
+        return normalized.cpu().tolist()

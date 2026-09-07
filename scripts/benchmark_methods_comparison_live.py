@@ -249,7 +249,11 @@ async def main() -> None:
     # Load metadata
     doc_meta_map = {}
     async with session_factory() as session:
-        rows = (await session.execute(text("SELECT id, title, metadata FROM documents WHERE is_active = true"))).fetchall()
+        rows = (
+            await session.execute(
+                text("SELECT id, title, metadata FROM documents WHERE is_active = true")
+            )
+        ).fetchall()
         for r in rows:
             doc_id = str(r[0])
             title = r[1]
@@ -271,14 +275,21 @@ async def main() -> None:
 
     dense_service = DenseRetrievalService(embedding_service=embedding_service)
     sparse_service = SparseRetrievalService()
-    hybrid_service = HybridRetrievalService(dense_service=dense_service, sparse_service=sparse_service)
+    hybrid_service = HybridRetrievalService(
+        dense_service=dense_service, sparse_service=sparse_service
+    )
 
     methods = ["Dense Only", "Sparse Only", "Hybrid RRF", "Hybrid + Reranker"]
-    stats = {m: {"hit1": 0, "hit5": 0, "rr_sum": 0.0, "ndcg_sum": 0.0, "total_time": 0.0} for m in methods}
+    stats = {
+        m: {"hit1": 0, "hit5": 0, "rr_sum": 0.0, "ndcg_sum": 0.0, "total_time": 0.0}
+        for m in methods
+    }
 
     print("\n" + "=" * 115)
     print("SO SÁNH CÁC PHƯƠNG PHÁP RETRIEVAL TRÊN KHO DỮ LIỆU THẬT POSTGRESQL + PGVECTOR")
-    print(f"Tổng số văn bản DB: {len(doc_meta_map)} | Số câu truy vấn đánh giá: {len(BENCHMARK_CASES)}")
+    print(
+        f"Tổng số văn bản DB: {len(doc_meta_map)} | Số câu truy vấn đánh giá: {len(BENCHMARK_CASES)}"
+    )
     print("=" * 115)
 
     for case in BENCHMARK_CASES:
@@ -345,13 +356,17 @@ async def main() -> None:
         if 1 <= r_rerank <= 5:
             stats["Hybrid + Reranker"]["hit5"] += 1
         stats["Hybrid + Reranker"]["rr_sum"] += rr_rerank
-        stats["Hybrid + Reranker"]["ndcg_sum"] += (1.0 / math.log2(r_rerank + 1)) if r_rerank > 0 else 0.0
+        stats["Hybrid + Reranker"]["ndcg_sum"] += (
+            (1.0 / math.log2(r_rerank + 1)) if r_rerank > 0 else 0.0
+        )
 
     n = len(BENCHMARK_CASES)
     print("\n" + "=" * 115)
     print("BẢNG TỔNG KẾT ABLATION STUDY: SO SÁNH 4 PHƯƠNG PHÁP RETRIEVAL TRÊN DATABASE THỰC TẾ")
     print("=" * 115)
-    print(f"{'Phương pháp Retrieval':25s} | {'Recall@1 (Hit@1)':18s} | {'Recall@5 (Hit@5)':18s} | {'MRR':8s} | {'nDCG@5':8s} | {'Độ trễ TB':10s}")
+    print(
+        f"{'Phương pháp Retrieval':25s} | {'Recall@1 (Hit@1)':18s} | {'Recall@5 (Hit@5)':18s} | {'MRR':8s} | {'nDCG@5':8s} | {'Độ trễ TB':10s}"
+    )
     print("-" * 115)
 
     for m in methods:
@@ -361,7 +376,9 @@ async def main() -> None:
         mrr = st["rr_sum"] / n
         ndcg = st["ndcg_sum"] / n
         avg_lat = st["total_time"] / n
-        print(f"{m:25s} | {st['hit1']:2d}/{n} ({h1_pct:5.1f}%)     | {st['hit5']:2d}/{n} ({h5_pct:5.1f}%)     | {mrr:.4f}   | {ndcg:.4f}   | {avg_lat:6.1f}ms")
+        print(
+            f"{m:25s} | {st['hit1']:2d}/{n} ({h1_pct:5.1f}%)     | {st['hit5']:2d}/{n} ({h5_pct:5.1f}%)     | {mrr:.4f}   | {ndcg:.4f}   | {avg_lat:6.1f}ms"
+        )
 
     print("=" * 115 + "\n")
 

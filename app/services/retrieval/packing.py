@@ -88,7 +88,11 @@ def build_bundle(
         total_tokens=total_tokens,
         documents_used=sorted({unit.document_id for unit in packed}),
         parent_ids_used=sorted(
-            {unit.parent_id for unit in packed if unit.kind in ("PARENT", "NEIGHBOR_GROUP") and unit.parent_id}
+            {
+                unit.parent_id
+                for unit in packed
+                if unit.kind in ("PARENT", "NEIGHBOR_GROUP") and unit.parent_id
+            }
         ),
         retrieval_trace_id=trace_id or uuid.uuid4().hex,
     )

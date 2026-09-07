@@ -13,6 +13,8 @@ import time
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
+import structlog
+
 from app.core.config import settings as app_settings
 from app.domain.models.chunks import ChunkLevel
 from app.domain.models.documents import FingerprintInputs, SourceDocument
@@ -34,6 +36,8 @@ from app.services.ingestion.fingerprint import compute_fingerprint
 from app.services.ingestion.parsing.base import parse_source
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
+
+logger = structlog.get_logger(__name__)
 
 StatusCallback = Callable[[IngestionStatus], Awaitable[None]]
 
@@ -70,10 +74,12 @@ class IngestionOrchestrator:
         repository: IngestionRepository,
         transaction: UnitOfWork,
         embedding: LocalEmbeddingService,
+        heartbeat_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
+        self._heartbeat = heartbeat_callback
 
     async def ingest_source(
         self,
@@ -92,6 +98,16 @@ class IngestionOrchestrator:
             started_stage = time.perf_counter()
             if on_status is not None:
                 await on_status(status)
+            if self._heartbeat is not None:
+                try:
+                    await self._heartbeat(obs.job_id)
+                except Exception as exc:
+                    # Heartbeat is best-effort, but a dead heartbeat silently
+                    # disables stale-claim protection — never swallow it quietly.
+                    logger.debug(
+                        "ingestion_heartbeat_failed",
+                        extra={"job_id": obs.job_id, "error": str(exc)},
+                    )
 
         def stage_elapsed() -> float:
             return round(time.perf_counter() - started_stage, 6)
@@ -101,9 +117,12 @@ class IngestionOrchestrator:
             fingerprint = compute_fingerprint(self._fingerprint_inputs(source)).fingerprint
             logical_id = logical_document_id_for(source.source_id)
 
-            # Review LOW-4: this read sits outside the persist transaction,
-            # so two concurrent ingests of one source can both elect N+1;
-            # the documents PK makes the loser fail loud (no corruption).
+            # This read sits outside the persist transaction, so two concurrent
+            # ingests can both elect the same N+1. The in-transaction check in
+            # persist_candidate re-reads the latest row (FOR UPDATE on PG),
+            # bumps to N+2 with remapped chunk IDs on collision, or returns
+            # the existing version with is_deduplicated=True — no corruption,
+            # no silent overwrite.
             state = await self._repository.latest_state(logical_id)
             if state is not None and state.fingerprint == fingerprint:
                 # L3: an unchanged fingerprint is a healthy skip, not a failure.
@@ -121,6 +140,17 @@ class IngestionOrchestrator:
                 obs.warnings.extend(parsed.quality.parse_warnings)
 
             if parsed.status is ParseStatus.NEEDS_OCR:
+                obs.failure_reason = (
+                    parsed.failure_reason or "Document requires OCR before ingestion"
+                )
+                logger.warning(
+                    "ingestion_needs_ocr",
+                    extra={
+                        "source_id": source.source_id,
+                        "filename": source.filename,
+                        "failure_reason": obs.failure_reason,
+                    },
+                )
                 await mark(IngestionStatus.NEEDS_OCR)
                 return obs.freeze()
             if parsed.status is not ParseStatus.PARSED or parsed.document is None:
@@ -144,14 +174,22 @@ class IngestionOrchestrator:
             obs.durations["children"] = stage_elapsed()
 
             await mark(IngestionStatus.EMBEDDING)
-            vectors = await self._embedding.embed_documents(
-                [child.embedding_text for child, _ in children]
-            )
+            try:
+                vectors = await self._embedding.embed_documents(
+                    [child.embedding_text for child, _ in children],
+                    batch_callback=(lambda: self._heartbeat(obs.job_id))
+                    if self._heartbeat is not None
+                    else None,
+                )
+            except TypeError:
+                vectors = await self._embedding.embed_documents(
+                    [child.embedding_text for child, _ in children]
+                )
             obs.durations["embedding"] = stage_elapsed()
 
             await mark(IngestionStatus.PERSISTING)
             async with self._transaction.transaction() as session:
-                persisted_id, persisted_version = await self._repository.persist_candidate(
+                result = await self._repository.persist_candidate(
                     session,
                     source=source,
                     logical_document_id=logical_id,
@@ -166,8 +204,21 @@ class IngestionOrchestrator:
                         for (child, _), vector in zip(children, vectors, strict=True)
                     ],
                 )
+                persisted_id, persisted_version = result[0], result[1]
+                is_dedup = getattr(
+                    result,
+                    "is_deduplicated",
+                    persisted_id != document_id and persisted_version < version_number,
+                )
+                if is_dedup:
+                    # Deduplicated: active version with same fingerprint already committed
+                    obs.status = IngestionStatus.SKIPPED
+                    obs.document_id = persisted_id
+                    obs.document_version = persisted_version
+                    return obs.freeze()
+
                 await self._repository.activate_candidate(
-                    session, logical_document_id=logical_id, document_id=document_id
+                    session, logical_document_id=logical_id, document_id=persisted_id
                 )
             obs.durations["persist"] = stage_elapsed()
 
@@ -210,6 +261,13 @@ class IngestionOrchestrator:
 
     def _fingerprint_inputs(self, source: SourceDocument) -> FingerprintInputs:
         embedding = app_settings.embedding
+        ocr_meta = source.metadata.get("ocr_sidecar") if isinstance(source.metadata, dict) else None
+        ocr_source_checksum = (
+            ocr_meta.get("source_checksum") if isinstance(ocr_meta, dict) else None
+        )
+        ocr_engine = ocr_meta.get("engine") if isinstance(ocr_meta, dict) else None
+        ocr_engine_version = ocr_meta.get("engine_version") if isinstance(ocr_meta, dict) else None
+        ocr_device = ocr_meta.get("device") if isinstance(ocr_meta, dict) else None
         return FingerprintInputs(
             source_id=source.source_id,
             checksum=source.checksum,
@@ -220,6 +278,10 @@ class IngestionOrchestrator:
             child_chunker_version=CHILD_CHUNKER_VERSION,
             embedding_model=embedding.model,
             embedding_dimensions=embedding.dimensions,
+            ocr_source_checksum=ocr_source_checksum,
+            ocr_engine=ocr_engine,
+            ocr_engine_version=ocr_engine_version,
+            ocr_device=ocr_device,
         )
 
     def _chunk_context(self, source: SourceDocument, document_id: str) -> ChunkContext:

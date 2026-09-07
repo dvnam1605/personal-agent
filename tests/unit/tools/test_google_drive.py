@@ -168,7 +168,12 @@ async def test_google_drive_tools_read_only_rejection() -> None:
 async def test_google_drive_tools_execution_dispatch() -> None:
     service = _mock_service()
     tools = GoogleDriveTools(service)
-    context = ToolContext(run_id="run-1", user_id="u1", read_only_view=False)
+    context = ToolContext(
+        run_id="run-1",
+        user_id="u1",
+        read_only_view=False,
+        approval_token="test-approved",
+    )
 
     # 1. search_files
     res = await tools.execute(
@@ -295,3 +300,20 @@ async def test_google_drive_tools_missing_arguments_and_generic_exception() -> N
     )
     assert res_exc.success is False
     assert "Unexpected provider socket failure" in (res_exc.error or "")
+
+
+@pytest.mark.asyncio
+async def test_google_drive_mutation_fails_without_approval_token() -> None:
+    service = _mock_service()
+    tools = GoogleDriveTools(service)
+    context = ToolContext(run_id="run-1", user_id="u1", read_only_view=False)
+
+    res = await tools.execute(
+        ToolInput(
+            tool_name="drive.upload_file",
+            arguments={"name": "new.txt", "content": "hello world"},
+        ),
+        context,
+    )
+    assert res.success is False
+    assert "requires human approval verification" in (res.error or "")

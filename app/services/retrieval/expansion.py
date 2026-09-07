@@ -121,7 +121,16 @@ class ExpansionService:
             for idx, chunk in enumerate(ranked)
             if is_table_child(chunk)
         ]
-        core = [(idx, chunk) for idx, chunk in enumerate(ranked) if not is_table_child(chunk)]
+        orphan_scored: list[tuple[float, int, Evidence]] = [
+            (_chunk_score(chunk), idx, unit_for_chunk(chunk, kind="CHILD"))
+            for idx, chunk in enumerate(ranked)
+            if not is_table_child(chunk) and chunk.parent_id is None
+        ]
+        core = [
+            (idx, chunk)
+            for idx, chunk in enumerate(ranked)
+            if not is_table_child(chunk) and chunk.parent_id is not None
+        ]
 
         if policy is ExpansionPolicy.PARENT:
             expanded_scored = await self._parent_units(core, query)
@@ -129,7 +138,7 @@ class ExpansionService:
             expanded_scored = await self._neighbor_units(core, query)
 
         # Merge and sort all units by (priority_score DESC, original_rank_index ASC)
-        all_scored = [*table_scored, *expanded_scored]
+        all_scored = [*table_scored, *orphan_scored, *expanded_scored]
         all_scored.sort(key=lambda item: (-item[0], item[1]))
         units = [item[2] for item in all_scored]
 
@@ -198,7 +207,11 @@ class ExpansionService:
             content_raw = str(row["content_raw"])
             priority_score = _priority(entry["best"], len(entry["hits"]))
             parent_anchors = chunk_anchor_metadata(row) or dict(best_hit.metadata)
-            doc_ver = row.get("version_number") if row.get("version_number") is not None else best_hit.metadata.get("version_number")
+            doc_ver = (
+                row.get("version_number")
+                if row.get("version_number") is not None
+                else best_hit.metadata.get("version_number")
+            )
             evidence = Evidence(
                 kind="PARENT",
                 content_raw=content_raw,
@@ -265,10 +278,7 @@ class ExpansionService:
             lead_row = id_to_row[best_hit.chunk_id]
 
             hit_indices = sorted(
-                {
-                    int(id_to_row[hit.chunk_id]["chunk_index"])
-                    for hit in valid_hits
-                }
+                {int(id_to_row[hit.chunk_id]["chunk_index"]) for hit in valid_hits}
             )
             window = {
                 index
@@ -284,7 +294,11 @@ class ExpansionService:
             )
             merged_text = "\n\n".join(str(member["content_raw"]) for member in members)
             lead_anchors = chunk_anchor_metadata(lead_row) or dict(best_hit.metadata)
-            doc_ver = lead_row.get("version_number") if lead_row.get("version_number") is not None else best_hit.metadata.get("version_number")
+            doc_ver = (
+                lead_row.get("version_number")
+                if lead_row.get("version_number") is not None
+                else best_hit.metadata.get("version_number")
+            )
             evidence = Evidence(
                 kind="NEIGHBOR_GROUP",
                 content_raw=merged_text,

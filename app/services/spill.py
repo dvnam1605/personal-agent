@@ -1,5 +1,7 @@
 """Spill storage and preview retention policy subsystem for oversized tool outputs."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
@@ -7,12 +9,16 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
 from app.domain.errors import NotFoundError, ValidationError
 from app.domain.models.spill import SpilledOutput, SpillPolicyConfig, SpillRef
 from app.domain.models.tool import ToolResult
+
+if TYPE_CHECKING:
+    from app.core.security import FernetTokenCipher
 
 logger = structlog.get_logger(__name__)
 
@@ -151,15 +157,38 @@ class InMemorySpillStore(SpillStore):
 class LocalFileSpillStore(SpillStore):
     """Local filesystem spill store isolating artifacts by hashed session directory."""
 
-    def __init__(self, base_dir: str | Path) -> None:
+    def __init__(
+        self,
+        base_dir: str | Path,
+        cipher: FernetTokenCipher | None = None,
+        *,
+        require_encryption: bool = False,
+    ) -> None:
         self.base_dir = Path(base_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._meta_cache: dict[str, SpillRef] = {}
+        if cipher is not None:
+            self._cipher = cipher
+        else:
+            try:
+                from app.core.security import FernetTokenCipher
+
+                self._cipher = FernetTokenCipher.from_settings()
+            except Exception as exc:
+                if require_encryption:
+                    logger.error("spill_encryption_required_failed", extra={"error": str(exc)})
+                    raise
+                logger.warning("spill_cipher_init_failed", extra={"error": str(exc)})
+                self._cipher = None
 
     def _session_dir(self, session_id: str) -> Path:
-        session_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:16]
+        session_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()
         dir_path = self.base_dir / f"session-{session_hash}"
         dir_path.mkdir(parents=True, exist_ok=True)
+        try:
+            dir_path.chmod(0o700)
+        except OSError as exc:
+            logger.debug("spill_dir_chmod_failed", extra={"path": str(dir_path), "error": str(exc)})
         return dir_path
 
     def _resolve_locator_path(self, locator: str) -> Path:
@@ -172,6 +201,12 @@ class LocalFileSpillStore(SpillStore):
             session_id, artifact_id = parts
             session_dir = self._session_dir(session_id)
             target_path = (session_dir / f"{artifact_id}.txt").resolve()
+            if not target_path.exists():
+                # Backwards-compatible check for legacy 16-character session directories
+                legacy_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:16]
+                legacy_path = (self.base_dir / f"session-{legacy_hash}" / f"{artifact_id}.txt").resolve()
+                if legacy_path.exists():
+                    target_path = legacy_path
         else:
             target_path = Path(locator).resolve()
 
@@ -225,9 +260,18 @@ class LocalFileSpillStore(SpillStore):
             created_at=datetime.now(UTC),
         )
 
-        # Write text and metadata
-        file_path.write_text(content, encoding="utf-8")
+        # Write text (encrypted if cipher configured) and metadata
+        payload = self._cipher.encrypt(content) if self._cipher is not None else content
+        file_path.write_text(payload, encoding="utf-8")
+        try:
+            file_path.chmod(0o600)
+        except OSError as exc:
+            logger.debug("spill_file_chmod_failed", extra={"path": str(file_path), "error": str(exc)})
         meta_path.write_text(ref.model_dump_json(indent=2), encoding="utf-8")
+        try:
+            meta_path.chmod(0o600)
+        except OSError as exc:
+            logger.debug("spill_file_chmod_failed", extra={"path": str(meta_path), "error": str(exc)})
         self._meta_cache[locator] = ref
 
         return ref
@@ -240,7 +284,18 @@ class LocalFileSpillStore(SpillStore):
                 details={"locator": locator, "path": str(file_path)},
             )
 
-        content = file_path.read_text(encoding="utf-8")
+        raw = file_path.read_text(encoding="utf-8")
+        if self._cipher is not None:
+            try:
+                content = self._cipher.decrypt(raw)
+            except Exception as exc:
+                logger.warning(
+                    "spill_decrypt_failed_fallback_raw",
+                    extra={"locator": locator, "path": str(file_path), "error": str(exc)},
+                )
+                content = raw
+        else:
+            content = raw
         if offset < 0:
             offset = 0
         if limit is None:
@@ -389,11 +444,13 @@ class SpillPolicy:
             formatted = notice
 
         # Strict safety check: if multi-byte variations caused slight overshoot, trim preview
-        while len(formatted.encode("utf-8")) > max_bytes and (head_text or tail_text):
-            if len(tail_text) > 0:
-                tail_text = tail_text[:-1]
-            elif len(head_text) > 0:
-                head_text = head_text[:-1]
+        overshoot = len(formatted.encode("utf-8")) - max_bytes
+        if overshoot > 0:
+            excess = overshoot + 8
+            if tail_text:
+                tail_text = tail_text[: -min(len(tail_text), excess)]
+            elif head_text:
+                head_text = head_text[: -min(len(head_text), excess)]
             kept_bytes = len(head_text.encode("utf-8")) + len(tail_text.encode("utf-8"))
             omitted_bytes = max(0, raw_bytes - kept_bytes)
             notice = f"(Omitted {omitted_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"

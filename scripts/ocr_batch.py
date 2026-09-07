@@ -2,8 +2,9 @@
 
 Runs OUTSIDE the assistant runtime on a strong-GPU machine, one-shot, never in
 the request path. Output feeds ingestion through
-``source_type="preparsed_markdown"``; the sidecar ``source_checksum`` (SHA-256
-of the original PDF) is what the orchestrator fingerprints.
+``source_type="preparsed_markdown"``; the sidecar metadata (SHA-256 PDF checksum,
+OCR engine and version) is loaded alongside the Markdown and incorporated into the
+orchestrator's fingerprint inputs, ensuring provenance integrity and proper cache invalidation.
 
 Dependency isolation (P9E-2, option a): paddle/surya live in optional groups
 (``pip install -e ".[ocr-paddle]"`` / ``".[ocr-surya]"``) installed only on the
@@ -201,6 +202,15 @@ def output_paths_for(pdf: Path, input_dir: Path, output_dir: Path) -> tuple[Path
     return md_path, sidecar_path
 
 
+def md_path_for_sidecar(sidecar_path: Path) -> Path:
+    """Robustly derive markdown path from sidecar path."""
+    if sidecar_path.name.endswith(SIDECAR_SUFFIX):
+        stem = sidecar_path.name[: -len(SIDECAR_SUFFIX)]
+    else:
+        stem = sidecar_path.stem
+    return sidecar_path.with_name(f"{stem}.md")
+
+
 def read_sidecar(path: Path) -> OcrSidecar | None:
     try:
         return OcrSidecar.model_validate(json.loads(path.read_text(encoding="utf-8")))
@@ -219,7 +229,7 @@ def should_skip(pdf: Path, sidecar_path: Path, checksum: str, *, force: bool) ->
         return False, "only a planned (dry-run) sidecar exists"
     if sidecar.source_checksum != checksum:
         return False, "input changed since last run"
-    if not sidecar_path.with_name(sidecar_path.name[: -len(SIDECAR_SUFFIX)] + ".md").is_file():
+    if not md_path_for_sidecar(sidecar_path).is_file():
         return False, "sidecar present but Markdown missing"
     return True, "already processed with identical input checksum"
 
@@ -256,10 +266,16 @@ def process_pdf(pdf: Path, args: argparse.Namespace, engine: OcrEngine) -> FileO
     checksum = checksum_file(pdf)
     md_path, sidecar_path = output_paths_for(pdf, args.input_dir, args.output_dir)
 
-    if not args.dry_run:
-        skip, reason = should_skip(pdf, sidecar_path, checksum, force=args.force)
-        if skip:
-            return FileOutcome(pdf, "skipped", reason)
+    skip, reason = should_skip(pdf, sidecar_path, checksum, force=args.force)
+    if skip:
+        return FileOutcome(pdf, "skipped", reason)
+
+    existing_sidecar = read_sidecar(sidecar_path)
+    if args.dry_run and existing_sidecar is not None and not existing_sidecar.dry_run:
+        # Never overwrite an existing real sidecar during dry run
+        return FileOutcome(
+            pdf, "planned", "dry-run: planned rerun (existing real sidecar preserved)"
+        )
 
     md_path.parent.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
@@ -303,15 +319,28 @@ def run_batch(args: argparse.Namespace, engine: OcrEngine) -> list[FileOutcome]:
     return outcomes
 
 
-def write_report(outcomes: list[FileOutcome], output_dir: Path) -> Path:
+def write_report(
+    outcomes: list[FileOutcome], output_dir: Path, input_dir: Path | None = None
+) -> Path:
+    def _rel_pdf(p: Path) -> str:
+        if input_dir is not None:
+            try:
+                return p.relative_to(input_dir).as_posix()
+            except ValueError:
+                pass
+        return p.name
+
     report = {
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "counts": {
             key: sum(1 for o in outcomes if o.status == key)
             for key in ("processed", "skipped", "planned", "failed")
         },
-        "files": [{"pdf": o.pdf.name, "status": o.status, "detail": o.detail} for o in outcomes],
+        "files": [
+            {"pdf": _rel_pdf(o.pdf), "status": o.status, "detail": o.detail} for o in outcomes
+        ],
     }
+    output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "ocr_batch_report.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report_path
@@ -328,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     outcomes = run_batch(args, engine)
     if outcomes:
-        report_path = write_report(outcomes, args.output_dir)
+        report_path = write_report(outcomes, args.output_dir, input_dir=args.input_dir)
         print(f"report: {report_path}")
     failures = sum(1 for o in outcomes if o.status == "failed")
     print(f"done: {len(outcomes)} file(s), {failures} failed")

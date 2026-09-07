@@ -29,6 +29,19 @@ SYNTHESIS_SYSTEM_PROMPT = (
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )
 
+SYNTHESIS_EXTERNAL_SYSTEM_PROMPT = (
+    "You are a precise, evidence-based research assistant. "
+    "Answer the user's question using the retrieved internal evidence provided below, "
+    "supplemented by general external knowledge where appropriate. "
+    "Follow these rules strictly:\n\n"
+    "1. Clearly separate claims based on internal evidence from external knowledge.\n"
+    "2. Cite internal evidence by its [evidence_id].\n"
+    "3. Never contradict verified internal evidence with external assumptions.\n"
+    "4. If internal evidence is missing or insufficient for certain parts, "
+    "state that explicitly and label any supplemental external info clearly.\n\n"
+    f"{BOUNDARY_INSTRUCTIONS}\n"
+)
+
 # ---------------------------------------------------------------------------
 # User-message template
 # ---------------------------------------------------------------------------

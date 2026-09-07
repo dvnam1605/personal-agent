@@ -24,6 +24,7 @@ from app.services.retrieval.evaluation import (
 # 1. Benchmark Dataset & Corpus Integrity (P10-21)
 # ===========================================================================
 
+
 class TestBenchmarkDatasetIntegrity:
     """Verifies all 11 required categories and ground-truth consistency."""
 
@@ -70,6 +71,7 @@ class TestBenchmarkDatasetIntegrity:
 # ===========================================================================
 # 2. IR Metrics Correctness (Recall@k, MRR, nDCG@k)
 # ===========================================================================
+
 
 class TestIRMetrics:
     """Mathematical verification of evaluation metrics."""
@@ -140,6 +142,7 @@ class TestIRMetrics:
 # ===========================================================================
 # 3. Ablation Runner Execution (P10-22, P10-23, P10-24)
 # ===========================================================================
+
 
 class TestAblationRunner:
     """Executes ablation experiments and validates metrics generation."""

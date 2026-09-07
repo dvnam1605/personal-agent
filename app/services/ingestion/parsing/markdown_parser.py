@@ -52,6 +52,7 @@ class MarkdownDocumentParser:
         nodes: list[HeadingNode | ListNode | ParagraphNode | TableNode] = []
         heading_stack: list[tuple[int, str]] = []
         block_index = 0
+        parse_warnings: list[str] = []
 
         lines = text.splitlines()
         i = 0
@@ -191,6 +192,19 @@ class MarkdownDocumentParser:
 
             i += 1
 
+        if in_fence and fence_buffer:
+            nodes.append(
+                ParagraphNode(
+                    node_id=f"n{len(nodes):04d}",
+                    order=block_index,
+                    text="\n".join(fence_buffer),
+                    heading_path=tuple(title for _, title in heading_stack),
+                    anchor=_anchor(block_index),
+                )
+            )
+            block_index += 1
+            parse_warnings.append("unclosed code fence flushed as paragraph at EOF")
+
         admin_meta = AdministrativeMetadataExtractor.extract(text, filename=source.filename)
 
         return ParsedDocument(
@@ -200,6 +214,7 @@ class MarkdownDocumentParser:
                 parser_name=MARKDOWN_PARSER_NAME,
                 parser_version=MARKDOWN_PARSER_VERSION,
                 administrative_metadata=admin_meta.to_dict(),
+                parse_warnings=parse_warnings,
             ),
             nodes=tuple(nodes),
         )

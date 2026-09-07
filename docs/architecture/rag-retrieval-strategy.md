@@ -51,13 +51,17 @@ fusion_score(chunk) = Σ_over_sources 1 / (k + rank_source),  k = 60
   `retrieval_sources`.
 - No ad-hoc cross-score normalization (spec P10-05).
 
-## 5. Reranking **(P10B ✅)**
+## 5. Reranking **(P10B ✅, wired to ViRanker)**
 
 Pluggable `Reranker` protocol over fused candidates (`async def rerank(query,
 candidates, top_k)`); provenance tracked on every chunk via
-`rerank_model` / `rerank_score` / `rerank_rank`. V1 ships an identity
-(no-op) adapter so the pipeline is complete before any cross-encoder lands.
-Model options pinned by ADR 0012.
+`rerank_model` / `rerank_score` / `rerank_rank`. Production default is the
+`namdp-ptit/ViRanker` cross-encoder (ADR 0012) built via
+`app.services.retrieval.factory.build_retrieval_pipeline`:
+`RERANKER__LOCAL_PATH` (or cached hub snapshot) + `RERANKER__THRESHOLD`
+(default 0.3, sigmoid scale) filter low scores before `top_k` cut.
+`IdentityReranker` stays as the deterministic no-op baseline for unit tests
+and ablation controls.
 
 ## 6. Context expansion policy **(P10B ✅)**
 
@@ -96,10 +100,10 @@ Three-state verdict: SUFFICIENT / PARTIAL / INSUFFICIENT derived from
 deterministic rules (no LLM judge).  Priority-ordered checks: zero items →
 INSUFFICIENT; below `min_evidence_items` → INSUFFICIENT; compare-mode
 missing doc → PARTIAL; all scores below `min_score_threshold` →
-INSUFFICIENT (V1 baseline default is `0.0` for RRF fusion score scale with
-IdentityReranker; score threshold calibration and ablation is executed in
-P10D with cross-encoder).  INSUFFICIENT yields an explicit no-answer path
-instead of forced synthesis.
+INSUFFICIENT (calibrated default `RERANKER__THRESHOLD=0.3` on sigmoid-scale
+ViRanker scores via the factory; the zero-threshold RRF baseline
+`0.0` is kept only for the `IdentityReranker` test/ablation path).
+INSUFFICIENT yields an explicit no-answer path instead of forced synthesis.
 
 ## 10. Retry limits **(P10C ✅)**
 

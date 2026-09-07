@@ -1,15 +1,16 @@
 # CURRENT PHASE
 
-Current phase: **P10D implemented & verified green — WAITING FOR USER REVIEW — APPROVED P10.**
-P9 family (P9A..P9E), P10A, P10B, and P10C are approved and CLOSED as of
-2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 respectively.
+Current phase: **P12 CLOSED · P13 IN PROGRESS (KnowledgeResearchAgent).**
+P9 family (P9A..P9E), P10A, P10B, P10C, and P10D are approved and CLOSED as of
+2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 / 2026-09-03 respectively.
+P11 was APPROVED 2026-09-07 and P12 was APPROVED 2026-09-07 (see ledger).
 
 Read:
 1. `MASTER_PLAN.md`
-2. `phases/P10_retrieval_rag_engine_execution_specification.md` (P10D: P10-21..26)
-3. Next phase spec: `phases/P11_specialist_agent_runtime_bounded_react.md` when P10 is approved.
+2. `phases/P13_knowledgeresearchagent.md`
+3. Next phase spec: `phases/P14_skill_system_first_dynamic_skills.md` when P13 is approved.
 
-Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D IMPLEMENTED — WAITING FOR USER REVIEW — P10**
+Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 IN PROGRESS**
 
 ## Gate ledger (single source of truth)
 
@@ -46,9 +47,19 @@ APPROVED P10B  received from user 2026-08-28 ("approved p10B") against
 APPROVED P10C  received from user 2026-09-03 ("Approved P10c") against
                reviews/P10C_review_pack.md — closes P10C including all
                post-review fixes (H1..H4, M1..M4, M-NEW, L1..L3, L-NEW 1/2).
-NEXT GATE      `APPROVED P10` (or `APPROVED P10D`) — closes P10D and the entire
-               P10 family based on reviews/P10D_review_pack.md and
-               reviews/P10_review_pack.md. Unblocks Phase 11.
+APPROVED P10   received from user 2026-09-03 ("ok approved p10") against
+               reviews/P10D_review_pack.md and reviews/P10_review_pack.md —
+               closes P10D and the entire P10 family (hybrid RRF + ViRanker
+               factory wiring included). Unblocks Phase 11.
+APPROVED P11   received from user 2026-09-07 ("appoived p11") against
+                reviews/P11_review_pack.md — closes Phase 11 (Specialist Agent
+                Runtime + Bounded ReAct). Unblocks Phase 12.
+APPROVED P12   received from user 2026-09-07 ("approved p12") against
+                reviews/P12_review_pack.md — closes Phase 12 (CommunicationAgent
+                + CalendarAgent, incl. live-Google verification §4.2 and the
+                People API host fix). Unblocks Phase 13.
+NEXT GATE      `APPROVED P13` — closes Phase 13 based on reviews/P13_review_pack.md.
+                Unblocks Phase 14.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -105,7 +116,65 @@ P10       split approved (see P10 spec header); ownership entry requirement
                 **APPROVED & CLOSED 2026-09-03.** Review Pack at
                 reviews/P10C_review_pack.md.
           P10D  benchmark dataset, ablations, latency tracing, family
-                Review Pack (P10-21..26) — IMPLEMENTED & VERIFIED GREEN.
+                Review Pack (P10-21..26) — **APPROVED & CLOSED 2026-09-03.**
                 Review Packs at reviews/P10D_review_pack.md and
-                reviews/P10_review_pack.md. GATE OPEN — awaiting user review.
+                reviews/P10_review_pack.md. **P10 FAMILY CLOSED.**
+           P11   Specialist Agent Runtime + Bounded ReAct —
+                 **APPROVED & CLOSED 2026-09-07.** Review Pack at
+                 reviews/P11_review_pack.md.
+           P12   CommunicationAgent + CalendarAgent —
+                 **APPROVED & CLOSED 2026-09-07.** Review Pack:
+                 reviews/P12_review_pack.md (incl. live-Google verification
+                 and People API host fix in §4.1/§4.2).
+           P13   KnowledgeResearchAgent — IN PROGRESS.
+                 Spec: phases/P13_knowledgeresearchagent.md.
 ```
+
+---
+
+## Pre-P12 Architectural & Governance Remediation (H1–H7 Complete)
+
+Prior to issuing formal `APPROVED P11` and proceeding to Phase 12, all 7 identified HIGH-severity defects (H1–H7) have been remediated, verified, and reconciled:
+
+- **H1 (OCR Sidecar Checksum & Provenance)**:
+  - Fixed `scripts/ocr_batch.py`: dry-run now respects `should_skip` and never overwrites existing real sidecars; reports preserve relative paths; robust path resolution via `md_path_for_sidecar`.
+  - Added `ocr_source_checksum` and `ocr_engine` to `FingerprintInputs` and canonical fingerprint hash.
+  - Ingestion automatically detects and attaches companion `.ocr.json` sidecar.
+  - Verified with 12 unit tests in `test_ocr_batch.py` and `test_ocr_provenance.py`.
+
+- **H2 (RAG E2E Multi-Source Synthesis & Factory Wiring)**:
+  - Removed `NotImplementedError` for `internal_only=False` in `synthesis.py`.
+  - Added `SYNTHESIS_EXTERNAL_SYSTEM_PROMPT` separating `[Tài liệu nội bộ]` from `[Nguồn mở rộng]`.
+  - Added `generate` callback parameter to `build_retrieval_pipeline` in `factory.py`.
+  - Verified end-to-end with local embedding and ViRanker cross-encoder.
+
+- **H3 (Mutation Tools Gated Fail-Closed Prior to P18)**:
+  - Added `approval_token` to `ToolContext`.
+  - Enforced fail-closed checks on all mutation tools in `GoogleCalendarTools`, `GoogleCommunicationTools`, and `GoogleDriveTools`: mutation execution without `approval_token` or `approval_id` raises `PermissionDeniedError`.
+  - Verified with unit tests across calendar, communication, and drive tools.
+
+- **H4 (Auth, Readiness, Spill & Secrets Hardening)**:
+  - Closed dev/test auth fail-open: reject unauthenticated `X-User-ID` spoofing.
+  - Added real dependency checks (DB, embedding dims, encryption keys) in health readiness probe.
+  - Fixed Google OAuth reconnect: preserve existing refresh token when new token is None; revoke both access & refresh tokens on disconnect.
+  - Hardened spill directory: full 64-char sha256 session hash, `0o700`/`0o600` permissions, direct slice trimming.
+  - Added security warning logs on Fernet key file generation and chmod failures.
+
+- **H5 (Concurrency Race & Job Tracking Durability)**:
+  - Added row-level lock `with_for_update()` in `persist_candidate`: concurrent workers re-check fingerprint and exit cleanly without PK collisions.
+  - Added `heartbeat()` to `IngestionJobStore` and updated orchestrator to avoid false stale recovery.
+  - Only record ingestion jobs if creation succeeded.
+
+- **H6 (Ingestion Data Loss Prevention)**:
+  - Flushed unclosed code fences at EOF in `MarkdownDocumentParser`.
+  - Extracted `PictureItem` captions and administrative metadata in `DoclingParser`.
+  - Preserved orphan chunks (`parent_id is None`) during PARENT and NEIGHBORS expansion in `ExpansionService`.
+  - Raised metadata sanitization limits to 32KB / 500 items in `_sanitize_document_metadata`.
+  - Recorded structured failure reasons and warnings for `NEEDS_OCR` documents.
+
+- **H7 (Governance Reconciliation & Downstream Spec Hardening)**:
+  - Reconciled historical deviations (P9A, P10A, P9C) in `CURRENT_PHASE.md`.
+  - Updated `MASTER_PLAN.md` §18A (DeepSeek harness patterns: `spill`, `repeat-guard`, `compaction`, `ask-user`), §18A.7 (Vector 1024 dimension migration), §23 (P10A-D split), and §37 (added missing execution cards for P9 and P10).
+  - Completely rewrote and expanded downstream specifications: `P12`, `P13`, `P15`, `P19` with formal entry criteria, tool bindings, test matrices, and quantitative pass thresholds.
+  - Resolved "KEEP AS SKILL" ambiguity in P19 by establishing the definitive compilation of `WF-05: MeetingPrepGraph`.
+

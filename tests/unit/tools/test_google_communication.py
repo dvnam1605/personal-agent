@@ -86,8 +86,13 @@ def _tools() -> tuple[GoogleCommunicationTools, StubCommunicationService]:
     return GoogleCommunicationTools(service), service  # type: ignore[arg-type]
 
 
-def _context(read_only_view: bool = False) -> ToolContext:
-    return ToolContext(run_id="run-1", user_id="user-1", read_only_view=read_only_view)
+def _context(read_only_view: bool = False, approval_token: str | None = None) -> ToolContext:
+    return ToolContext(
+        run_id="run-1",
+        user_id="user-1",
+        read_only_view=read_only_view,
+        approval_token=approval_token,
+    )
 
 
 def test_communication_definitions_are_complete_and_classified() -> None:
@@ -182,7 +187,8 @@ async def test_execute_dispatches_every_declared_tool() -> None:
 
     for tool_name, arguments, expected_call in cases:
         result = await tools.execute(
-            ToolInput(tool_name=tool_name, arguments=dict(arguments)), _context()
+            ToolInput(tool_name=tool_name, arguments=dict(arguments)),
+            _context(approval_token="test-approved"),
         )
         assert result.success is True, f"{tool_name} failed: {result.error}"
         assert result.output == f"ok:{expected_call}"
@@ -190,6 +196,17 @@ async def test_execute_dispatches_every_declared_tool() -> None:
 
     dispatched = {name for name, _ in service.calls}
     assert len(dispatched) == len(cases)
+
+
+@pytest.mark.asyncio
+async def test_communication_mutation_fails_without_approval_token() -> None:
+    tools, _ = _tools()
+    result = await tools.execute(
+        ToolInput(tool_name="gmail.send_draft", arguments={"draft_id": "d1"}),
+        _context(),
+    )
+    assert result.success is False
+    assert "requires human approval verification" in (result.error or "")
 
 
 @pytest.mark.asyncio

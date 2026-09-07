@@ -58,6 +58,7 @@ class RetrievalPipeline:
         provider: RowProvider | None = None,
         *,
         reranker: Reranker | None = None,
+        use_viranker: bool = False,
         per_document_cap: int | None = None,
         rerank_top_k_max: int = DEFAULT_RERANK_TOP_K_MAX,
         sufficiency_checker: SufficiencyChecker | None = None,
@@ -65,7 +66,21 @@ class RetrievalPipeline:
         synthesizer: AnswerSynthesizer | None = None,
     ) -> None:
         self._hybrid = hybrid_service
-        self._reranker: Reranker = reranker or IdentityReranker()
+        if reranker is not None:
+            self._reranker = reranker
+        elif use_viranker:
+            try:
+                from app.services.retrieval.factory import build_reranker
+
+                self._reranker = build_reranker(use_viranker=True)
+            except Exception as exc:
+                logger.warning(
+                    "viranker_build_failed_fallback_identity",
+                    extra={"error": str(exc)},
+                )
+                self._reranker = IdentityReranker()
+        else:
+            self._reranker = IdentityReranker()
         self._expansion = ExpansionService(provider or SqlAlchemyRowProvider())
         self._per_document_cap = per_document_cap
         self._rerank_top_k_max = max(int(rerank_top_k_max), 1)
@@ -102,9 +117,7 @@ class RetrievalPipeline:
             if retry_query is None:
                 break
             attempt += 1
-            bundle = await self._retrieve_and_pack(
-                retry_query, f"{root_trace_id}-att{attempt}"
-            )
+            bundle = await self._retrieve_and_pack(retry_query, f"{root_trace_id}-att{attempt}")
             verdict = self._sufficiency.check(bundle, retry_query)
             current_query = retry_query
 
@@ -136,7 +149,18 @@ class RetrievalPipeline:
         """
         bundle, verdict, compare_result = await self.run_with_sufficiency(query)
 
-        if verdict.status is SufficiencyStatus.INSUFFICIENT:
+        if not bundle.items:
+            return SynthesisResult(
+                answer=(
+                    "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này."
+                    if internal_only
+                    else "Không có tài liệu phù hợp để trả lời câu hỏi này."
+                ),
+                status=SufficiencyStatus.INSUFFICIENT,
+                citations=[],
+            )
+
+        if verdict.status is SufficiencyStatus.INSUFFICIENT and internal_only:
             return SynthesisResult(
                 answer="Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này.",
                 status=SufficiencyStatus.INSUFFICIENT,
@@ -159,9 +183,7 @@ class RetrievalPipeline:
     # Internal: single retrieval round
     # ------------------------------------------------------------------
 
-    async def _retrieve_and_pack(
-        self, query: RetrievalQuery, trace_id: str
-    ) -> EvidenceBundle:
+    async def _retrieve_and_pack(self, query: RetrievalQuery, trace_id: str) -> EvidenceBundle:
         """One retrieval round: fusion → diversity → rerank → expansion → packing."""
         fused = await self._hybrid.retrieve(query)
         diverse = apply_diversity(

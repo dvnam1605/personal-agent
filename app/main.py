@@ -118,7 +118,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         logger = get_logger("app.error")
-        logger.warn(
+        logger.warning(
             "domain.error",
             error_code=exc.code,
             message=exc.message,

@@ -1,10 +1,13 @@
 """Bounded privacy sanitization for persisted and externally supplied JSON data."""
 
+import logging
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SECRET_KEY_PATTERN = re.compile(
     r"(?i)(token|secret|password|api[_-]?key|authorization|cookie|session|bearer|private[_-]?key)"
@@ -126,6 +129,10 @@ def _sanitize_value(
         sanitized: dict[str, Any] = {}
         for index, (raw_key, value) in enumerate(data.items()):
             if index >= max_items:
+                logger.warning(
+                    "sanitization_dict_items_truncated",
+                    extra={"max_items": max_items, "total_items": len(data)},
+                )
                 break
             key = str(raw_key)
             if depth == 0 and allowed_keys is not None and key not in allowed_keys:
@@ -133,6 +140,7 @@ def _sanitize_value(
             if key.lower() in CHAIN_OF_THOUGHT_KEYS:
                 continue
             if not budget.consume(key):
+                logger.warning("sanitization_budget_exhausted")
                 break
             if SECRET_KEY_PATTERN.search(key) and key.lower() not in SAFE_NON_SECRET_KEYS:
                 sanitized[key] = "[REDACTED_SECRET]"
@@ -149,13 +157,21 @@ def _sanitize_value(
             )
             sanitized[key] = value_result
             if budget.remaining <= 0:
+                logger.warning("sanitization_budget_exhausted")
                 break
         return sanitized
 
     if isinstance(data, (list, tuple, set, frozenset)):
+        raw_list = list(data)
+        if len(raw_list) > max_items:
+            logger.warning(
+                "sanitization_list_items_truncated",
+                extra={"max_items": max_items, "total_items": len(raw_list)},
+            )
         sanitized_list: list[Any] = []
-        for item in list(data)[:max_items]:
+        for item in raw_list[:max_items]:
             if budget.remaining <= 0:
+                logger.warning("sanitization_budget_exhausted")
                 break
             sanitized_list.append(
                 _sanitize_value(

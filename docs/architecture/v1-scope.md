@@ -46,7 +46,7 @@ Build a production-grade Personal AI Assistant designed for personal productivit
 ## 3. Supported Integrations
 - **Google Workspace APIs**: Gmail API (v1), Google People API (Contacts v1), Google Calendar API (v3), Google Drive API (v3).
 - **Database & Storage**: PostgreSQL 16+ with `pgvector` for durable state, audit, and graph checkpoints; Redis 7+ for caching, rate limits, and short-term conversation history.
-- **LLM / Embeddings**: Primary reasoning LLMs (e.g. Claude 3.5 Sonnet / GPT-4o), fast classifiers (e.g. GPT-4o-mini / Haiku), embedding models (e.g. text-embedding-3-large), and cross-encoder rerankers (e.g. Cohere / BGE-reranker).
+- **LLM / Embeddings**: Primary reasoning LLMs (e.g. Claude 3.5 Sonnet / GPT-4o), fast classifiers (e.g. GPT-4o-mini / Haiku), embedding models (e.g. AITeamVN/Vietnamese_Embedding - 1024 dims), and cross-encoder rerankers (e.g. namdp-ptit/ViRanker).
 - **Search Provider**: Tavily / Serper / DuckDuckGo for web search.
 
 ## 4. Agent Inventory (Exactly 4 Roles in V1)

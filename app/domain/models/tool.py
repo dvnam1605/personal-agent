@@ -167,6 +167,10 @@ class ToolContext(BaseModel):
         default=False,
         description="Whether the current execution is strictly restricted to read-only tools.",
     )
+    approval_token: str | None = Field(
+        default=None,
+        description="Validated approval token or approval_id authorizing high-risk mutation.",
+    )
 
 
 class ToolExecutionMetadata(BaseModel):

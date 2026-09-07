@@ -64,8 +64,7 @@ Must resolve conversation entity reference.
 Expected:
 
 ```text
-MeetingPrep Graph if hardened
-or Skill if not yet stable
+MeetingPrepGraph (WF-05 compiled StateGraph is primary)
 ```
 
 ### WF-06

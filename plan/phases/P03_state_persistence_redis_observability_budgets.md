@@ -116,9 +116,9 @@ Make every execution run end-to-end traceable, measurable, privacy-sanitized, an
 
 7. **Minimal Infrastructure Schemas for Future-Owned Tables (Aligned with P9, P14, P17, P18)**
    - `entities` (P17 Owner): `id`, `user_id` FK, `entity_type`, `canonical_name`, `aliases`, `attributes`, `confidence`, `created_at`, `updated_at`
-   - `memories` (P17 Owner): `id`, `user_id` FK, `memory_type`, `content`, `embedding` (Vector 1536), `embedding_model`, `embedding_dimensions`, `importance`, `last_accessed_at`, `created_at`, `updated_at`
+   - `memories` (P17 Owner): `id`, `user_id` FK, `memory_type`, `content`, `embedding` (Vector 1024), `embedding_model`, `embedding_dimensions`, `importance`, `last_accessed_at`, `created_at`, `updated_at`
    - `documents` (P08/P09 Owner): `id`, `user_id` FK, `logical_document_id`, positive `version_number`, `source_type`, `external_id`, `title`, `uri`, `mime_type`, `source_content_hash`, bounded `metadata`, constrained `status`, `is_active`, `created_at`, `updated_at`; a partial unique index permits one active version per logical document.
-   - `document_chunks` (P09/P10 Owner): `id`, `document_id` FK, `chunk_index`, `hierarchy_level`, `node_type`, non-null `heading_path` and `source_block_ids`, `content_raw`, `content_embedding_text`, `embedding` (Vector 1536), `embedding_model`, `embedding_dimensions`, `provenance_uri`, `citation_label`, bounded `metadata`, `created_at`
+   - `document_chunks` (P09/P10 Owner): `id`, `document_id` FK, `chunk_index`, `hierarchy_level`, `node_type`, non-null `heading_path` and `source_block_ids`, `content_raw`, `content_embedding_text`, `embedding` (Vector 1024), `embedding_model`, `embedding_dimensions`, `provenance_uri`, `citation_label`, bounded `metadata`, `created_at`
    - `approval_requests` (P18 Owner): `id`, `run_id` FK, `action_type`, `description`, `target`, bounded `important_arguments` and `parameters`, `tool_name`, `risk_level`, constrained lifecycle `status`, decision/status consistency, `expires_at`, `proposal_hash`, `approved`, `approver_id`, `reason`, `created_at`, `decided_at`; pending proposals are unique per run.
    - `skills` (P14 Owner): `id`, `name` UNIQUE, `version`, `category`, `description`, `definition_json`, `is_active`, `created_at`, `updated_at`
    - `workflow_runs` (P15/P16/P19 Owner): `id`, `run_id` FK, `workflow_name`, `workflow_version`, `status`, `executed_node_ids`, `outputs`, `error_details`, `created_at`, `completed_at`
@@ -126,7 +126,7 @@ Make every execution run end-to-end traceable, measurable, privacy-sanitized, an
 ---
 
 ### 2.2. pgvector & Multi-Model Embedding Specifications (P3-03)
-- **Model Metadata**: Every embedding column (`memories.embedding`, `document_chunks.embedding`) is accompanied by `embedding_model` (e.g. `"text-embedding-3-large"`) and `embedding_dimensions` (`1536`) to prevent incompatible vector mixing across model migrations.
+- **Model Metadata**: Every embedding column (`memories.embedding`, `document_chunks.embedding`) is accompanied by `embedding_model` (e.g. `"AITeamVN/Vietnamese_Embedding"`) and `embedding_dimensions` (`1024`) to prevent incompatible vector mixing across model migrations.
 - **Distance Metric**: Cosine distance (`<=>`).
 - **PostgreSQL Extension**: `CREATE EXTENSION IF NOT EXISTS vector;` executed in migration `0001_initial_schema.py`.
 

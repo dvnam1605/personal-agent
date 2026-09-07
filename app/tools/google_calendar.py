@@ -365,8 +365,18 @@ class GoogleCalendarTools:
                     "Calendar tool is not registered.",
                     started=started,
                 )
-            if context.read_only_view and definition.is_mutation:
-                raise PermissionDeniedError("Read-only tool views cannot execute mutations.")
+            if definition.is_mutation:
+                if context.read_only_view:
+                    raise PermissionDeniedError("Read-only tool views cannot execute mutations.")
+                approval_token = (
+                    context.approval_token
+                    or tool_input.arguments.get("approval_token")
+                    or tool_input.arguments.get("approval_id")
+                )
+                if not approval_token:
+                    raise PermissionDeniedError(
+                        f"Mutation tool '{tool_input.tool_name}' requires human approval verification (missing approval_token or approval_id)."
+                    )
             output = await self._dispatch(tool_input.tool_name, tool_input.arguments)
             return ToolResult(
                 tool_name=tool_input.tool_name,

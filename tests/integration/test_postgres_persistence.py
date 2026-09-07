@@ -66,11 +66,36 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
 async def test_postgres_migration_contract(pg_session: AsyncSession) -> None:
     """Run the real Alembic path and validate P3 contracts plus P5 Google storage."""
     assert await pg_session.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")) == 1
-    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
+    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
     assert (
         await pg_session.scalar(text("SELECT to_regclass('google_integrations')"))
         == "google_integrations"
     )
+    # P10A retrieval contracts: FTS config (0007) and HNSW embedding index (0008).
+    assert (
+        await pg_session.scalar(
+            text("SELECT count(*) FROM pg_ts_config WHERE cfgname = 'vietnamese_simple'")
+        )
+    ) == 1
+    assert (
+        await pg_session.scalar(
+            text(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_name = 'document_chunks' AND column_name = 'search_vector' "
+                "AND table_schema = (SELECT current_schema())"
+            )
+        )
+    ) == 1
+    assert (
+        await pg_session.scalar(
+            text(
+                "SELECT count(*) FROM pg_indexes "
+                "WHERE tablename = 'document_chunks' "
+                "AND schemaname = (SELECT current_schema()) "
+                "AND indexname = 'ix_document_chunks_embedding_hnsw'"
+            )
+        )
+    ) == 1
 
     columns = set(
         (
