@@ -98,6 +98,7 @@ from app.domain.models.skill import (
     SkillCompletionCriteria,
     SkillConstraints,
     SkillDefinition,
+    SkillMetadata,
     SkillStep,
 )
 from app.domain.models.specialist import (
@@ -219,6 +220,7 @@ __all__ = [
     "SkillCompletionCriteria",
     "SkillConstraints",
     "SkillDefinition",
+    "SkillMetadata",
     "SkillStep",
     "SpecialistOutcome",
     "SpecialistReport",

@@ -1,16 +1,17 @@
 # CURRENT PHASE
 
-Current phase: **P12 CLOSED · P13 IN PROGRESS (KnowledgeResearchAgent).**
+Current phase: **P14 CLOSED · P15 IN PROGRESS (Fast Triage & Static Workflow Registry).**
 P9 family (P9A..P9E), P10A, P10B, P10C, and P10D are approved and CLOSED as of
 2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 / 2026-09-03 respectively.
-P11 was APPROVED 2026-09-07 and P12 was APPROVED 2026-09-07 (see ledger).
+P11 was APPROVED 2026-09-07, P12 was APPROVED 2026-09-07, P13 was
+APPROVED 2026-09-07, and P14 was APPROVED 2026-09-07 (see ledger).
 
 Read:
 1. `MASTER_PLAN.md`
-2. `phases/P13_knowledgeresearchagent.md`
-3. Next phase spec: `phases/P14_skill_system_first_dynamic_skills.md` when P13 is approved.
+2. `phases/P15_fast_triage_static_workflow_registry.md`
+3. Next phase spec: `phases/P16_supervisor_dag_workflow_engine.md` when P15 is approved.
 
-Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 IN PROGRESS**
+Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 IN PROGRESS**
 
 ## Gate ledger (single source of truth)
 
@@ -58,8 +59,14 @@ APPROVED P12   received from user 2026-09-07 ("approved p12") against
                 reviews/P12_review_pack.md — closes Phase 12 (CommunicationAgent
                 + CalendarAgent, incl. live-Google verification §4.2 and the
                 People API host fix). Unblocks Phase 13.
-NEXT GATE      `APPROVED P13` — closes Phase 13 based on reviews/P13_review_pack.md.
-                Unblocks Phase 14.
+APPROVED P13   received from user 2026-09-07 ("approved p13") against
+                reviews/P13_review_pack.md — closes Phase 13 (KnowledgeResearchAgent,
+                retrieval/web tools, read-only research boundary). Unblocks Phase 14.
+APPROVED P14   received from user 2026-09-07 ("approved p14") against
+                 reviews/P14_review_pack.md — closes Phase 14 (Skill System +
+                 First Dynamic Skills). Unblocks Phase 15.
+NEXT GATE      `APPROVED P15` — closes Phase 15 based on reviews/P15_review_pack.md.
+                 Unblocks Phase 16.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -126,8 +133,14 @@ P10       split approved (see P10 spec header); ownership entry requirement
                  **APPROVED & CLOSED 2026-09-07.** Review Pack:
                  reviews/P12_review_pack.md (incl. live-Google verification
                  and People API host fix in §4.1/§4.2).
-           P13   KnowledgeResearchAgent — IN PROGRESS.
-                 Spec: phases/P13_knowledgeresearchagent.md.
+           P13   KnowledgeResearchAgent —
+                 **APPROVED & CLOSED 2026-09-07.** Review Pack at
+                 reviews/P13_review_pack.md.
+           P14   Skill System + First Dynamic Skills —
+                 **APPROVED & CLOSED 2026-09-07.** Review Pack at
+                 reviews/P14_review_pack.md.
+           P15   Fast Triage & Static Workflow Registry — IN PROGRESS.
+                 Spec: phases/P15_fast_triage_static_workflow_registry.md.
 ```
 
 ---

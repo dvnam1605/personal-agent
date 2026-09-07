@@ -30,6 +30,7 @@ from app.services.google_auth import (
 )
 from app.services.retention import RetentionService, RetentionWorker
 from app.services.run_persistence import RunPersistenceService
+from app.services.skills import SkillExecutor, SkillRegistry, load_production_skills
 from app.services.spill import (
     InMemorySpillStore,
     LocalFileSpillStore,
@@ -64,8 +65,11 @@ __all__ = [
     "RunPersistenceService",
     "RetentionService",
     "RetentionWorker",
+    "SkillExecutor",
+    "SkillRegistry",
     "SpillPolicy",
     "SpillStore",
+    "load_production_skills",
     "create_sanitized_state_snapshot",
     "busy_intervals_from_events",
     "find_deterministic_free_slots",

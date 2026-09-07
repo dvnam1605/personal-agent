@@ -15,6 +15,16 @@ skills/
 - `metadata.yaml`: Contains skill identifier, required tools/domains, trigger patterns, version, and author.
 - `SKILL.md`: Detailed markdown instructions for the agent runtime describing the step-by-step reasoning procedure.
 
+`meeting-prep` requires calendar + Gmail + Drive + retrieval together. No
+single P12/P13 specialist holds all four capabilities; the intended activator
+is the Supervisor (P16) or a later compiled `MeetingPrepGraph` (P19).
+`email-follow-up` can run on `CommunicationAgent` for its read steps, then
+must stop at `NEEDS_APPROVAL` before `gmail.create_draft`.
+
+Hardening telemetry (ADR 0005) records the **observed** tool path after
+`SpecialistRunner.run()`, never the declared `SKILL.md` step list at
+activation time.
+
 ### What is a Static Workflow Graph?
 A **Static Workflow Graph** is a compiled Python LangGraph workflow with deterministic state models, parallel execution nodes, and explicit transition edges.
 

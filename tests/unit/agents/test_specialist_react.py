@@ -7,7 +7,7 @@ from typing import Any
 
 from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ExecutionMode
-from app.domain.models import ExecutionBudget, SpecialistTask
+from app.domain.models import ExecutionBudget, SpecialistTask, ToolRestriction
 from app.services.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
@@ -240,6 +240,35 @@ class TestPolicyGating:
         assert outcome.needs_approval is True
         assert executor.calls == []
 
+    async def test_run_applies_task_tool_restriction_to_wide_view(self) -> None:
+        chat = ScriptedChat(
+            [fakes.calls_turn(("test.lookup", {"q": "x"}))],
+            repeat_last=True,
+        )
+        executor = DictExecutor(
+            {
+                "test.search": lambda args: fakes.ok_result("test.search"),
+                "test.lookup": lambda args: fakes.ok_result("test.lookup"),
+            }
+        )
+        runner, gate, _ = _harness(
+            chat,
+            executor,
+            tools=[fakes.make_read_tool(), fakes.make_read_tool("test.lookup")],
+        )
+        agent = fakes.make_agent()
+        wide = gate.for_agent(agent.name)
+        assert "test.lookup" in wide.tool_names
+        outcome = await runner.run(
+            _task(tool_restriction=ToolRestriction(allow=["test.search"])),
+            agent,
+            wide,
+            run_id="r1",
+            user_id="u1",
+        )
+        assert "not available" in outcome.trace.steps[0].observation_summary
+        assert executor.calls == []
+
 
 class TestPostReviewFixes:
     """Regression tests for the P11 review findings (H1/H2, M1/M2/M3/M5/M6)."""
@@ -456,9 +485,7 @@ class TestToolAdvertLeastPrivilege:
         agent = fakes.make_agent()
         # Approvals off by default: the mutation tool can never execute, so it
         # must be invisible in the tool schemas sent to the LLM.
-        await runner.run(
-            _task(), agent, gate.for_agent(agent.name), run_id="r1", user_id="u1"
-        )
+        await runner.run(_task(), agent, gate.for_agent(agent.name), run_id="r1", user_id="u1")
         assert "test.write" not in chat.tool_schemas_seen[0]
         assert "test.search" in chat.tool_schemas_seen[0]
         assert "specialist.report" in chat.tool_schemas_seen[0]
@@ -471,4 +498,3 @@ class TestToolAdvertLeastPrivilege:
         task = _task(permit_mutations=True, approval_token="tok")
         await runner.run(task, agent, gate.for_agent(agent.name), run_id="r1", user_id="u1")
         assert "test.write" in chat.tool_schemas_seen[0]
-

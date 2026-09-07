@@ -29,7 +29,7 @@ from app.agents.specialist.report import (
 )
 from app.core.sanitization import sanitize_payload
 from app.domain.enums import ExecutionMode, SpecialistStatus, StopReason
-from app.domain.errors import NotFoundError
+from app.domain.errors import NotFoundError, PermissionDeniedError
 from app.domain.models.agent import AgentDefinition
 from app.domain.models.budget import BudgetUsage, evaluate_budget_violations
 from app.domain.models.specialist import (
@@ -130,6 +130,8 @@ class SpecialistRunner:
         user_id: str,
     ) -> SpecialistOutcome:
         """Run DIRECT or BOUNDED_REACT under the task budget (timeout enforced)."""
+        if task.tool_restriction is not None:
+            tools = tools.restrict(task.tool_restriction)
         state = _RunState()
         try:
             return await asyncio.wait_for(
@@ -178,9 +180,7 @@ class SpecialistRunner:
             REPORT_TOOL_DEFINITION,
         ]
         token = task.approval_token or (
-            task.context_data.get("approval_token")
-            if isinstance(task.context_data, dict)
-            else None
+            task.context_data.get("approval_token") if isinstance(task.context_data, dict) else None
         )
         context = ToolContext(
             run_id=run_id,
@@ -322,11 +322,9 @@ class SpecialistRunner:
 
         try:
             definition = tools.get(call.tool_name)
-        except NotFoundError:
+        except (NotFoundError, PermissionDeniedError):
             observation = f"Tool '{call.tool_name}' is not available to agent '{agent.name}'."
-            self._record_step(
-                state, iteration, call, observation, success=False, reminder=False
-            )
+            self._record_step(state, iteration, call, observation, success=False, reminder=False)
             messages.append(ChatMessage(role="tool", content=observation))
             return None
 

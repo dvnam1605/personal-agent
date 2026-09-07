@@ -1,0 +1,57 @@
+name: email-follow-up
+version: 1.0.0
+description: >
+  Extract questions and commitments from an email thread, ground the reply in
+  internal knowledge, and prepare a cited draft that still requires approval.
+required_capabilities:
+  - gmail.read
+  - retrieval.read
+  - gmail.drafts
+tags:
+  - email
+  - follow-up
+  - draft
+triggers:
+  - "soạn follow-up"
+  - "email follow-up"
+  - "trả lời thread"
+  - "follow up email"
+  - "nháp trả lời"
+is_mutation: true
+inputs_schema:
+  type: object
+  properties:
+    thread_id:
+      type: string
+    message_id:
+      type: string
+  required:
+    - thread_id
+output_schema:
+  type: object
+  properties:
+    questions:
+      type: array
+    commitments:
+      type: array
+    draft_id:
+      type: string
+    citations:
+      type: array
+safety_constraints:
+  - "Creating a draft is a mutation and requires an approval token."
+  - "Never send, reply, or forward without a separate approved send action."
+  - "Cite internal evidence; do not invent policy answers."
+completion_criteria: >
+  The thread is summarized, sender questions and commitments are listed, and
+  an approved draft reply exists or the mutation is blocked pending approval.
+constraints:
+  max_steps: 4
+  timeout_seconds: 40
+  allow_mutations: true
+  allowed_tools:
+    - gmail.get_thread
+    - gmail.get_message
+    - retrieval.retrieve
+    - retrieval.synthesize
+    - gmail.create_draft

@@ -1,0 +1,67 @@
+name: meeting-prep
+version: 1.0.0
+description: >
+  Prepare a structured meeting brief from calendar, recent mail, Drive files,
+  and internal RAG documents without writing anything back. Requires calendar
+  + Gmail + Drive + retrieval; no single specialist can activate it alone
+  (Supervisor P16 / MeetingPrepGraph P19).
+required_capabilities:
+  - calendar.read
+  - gmail.read
+  - drive.read
+  - retrieval.read
+tags:
+  - meeting
+  - briefing
+  - research
+triggers:
+  - "chuẩn bị họp"
+  - "chuẩn bị cuộc họp"
+  - "meeting prep"
+  - "brief cuộc họp"
+  - "meeting brief"
+is_mutation: false
+inputs_schema:
+  type: object
+  properties:
+    meeting_query:
+      type: string
+      description: Event title, attendee, or free-text calendar search.
+    window_start:
+      type: string
+    window_end:
+      type: string
+  required:
+    - meeting_query
+output_schema:
+  type: object
+  properties:
+    brief:
+      type: string
+    attendees:
+      type: array
+    unresolved_items:
+      type: array
+    citations:
+      type: array
+safety_constraints:
+  - "Read-only: never create, update, or delete calendar events."
+  - "Never send, reply, or trash email."
+  - "Never upload, move, rename, or delete Drive files."
+  - "Cite internal evidence with [evidence_id]; report gaps instead of guessing."
+completion_criteria: >
+  A structured meeting brief is produced with attendees, agenda topics,
+  cited internal evidence, and unresolved items, or an explicit insufficiency
+  is reported.
+constraints:
+  max_steps: 6
+  timeout_seconds: 45
+  allow_mutations: false
+  allowed_tools:
+    - calendar.search_events
+    - calendar.get_event
+    - gmail.search_messages
+    - gmail.get_thread
+    - drive.search_files
+    - retrieval.retrieve
+    - retrieval.synthesize

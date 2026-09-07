@@ -1,5 +1,5 @@
-> Active phase specification for P14. Read `../MASTER_PLAN.md` first.
-> Do not implement any downstream phase (P15+) until the user sends `APPROVED P14`.
+> Specification for P14. Read `../MASTER_PLAN.md` first.
+> Status: **APPROVED & CLOSED 2026-09-07** by user ("approved p14"). See `../reviews/P14_review_pack.md`.
 
 # P14 — SKILL SYSTEM + FIRST DYNAMIC SKILLS SPECIFICATION
 
@@ -23,8 +23,8 @@ Phase 14 establishes the dynamic skill substrate of the assistant: reusable, com
 ## 2. Entry Criteria
 
 Before P14 implementation begins, all of the following MUST be satisfied:
-- [ ] **APPROVED P13**: `KnowledgeResearchAgent` operational, with strict read-only boundary and RAG/Drive synthesis verified.
-- [ ] **APPROVED P12**: `CommunicationAgent` and `CalendarAgent` operational with tested tool execution.
+- [x] **APPROVED P13**: `KnowledgeResearchAgent` operational, with strict read-only boundary and RAG/Drive synthesis verified.
+- [x] **APPROVED P12**: `CommunicationAgent` and `CalendarAgent` operational with tested tool execution.
 - [x] **Specialist Runtime Operational (P11)**: Bounded ReAct engine, token budgets, and capability gate active.
 - [x] **Spill Storage Operational (P02/P11)**: Spill store available for large intermediate skill artifacts.
 

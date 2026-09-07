@@ -21,8 +21,8 @@ Phase 15 introduces the core routing efficiency and graph execution infrastructu
 ## 2. Entry Criteria
 
 Before P15 implementation begins, all of the following MUST be satisfied:
-- [ ] **APPROVED P14**: Dynamic skill system and first skills (`MeetingPrepSkill`, `EmailFollowUpSkill`) verified and operational.
-- [ ] **Specialist Agents Operational**: `CommunicationAgent` (P12), `CalendarAgent` (P12), and `KnowledgeResearchAgent` (P13) operational.
+- [x] **APPROVED P14**: Dynamic skill system and first skills (`MeetingPrepSkill`, `EmailFollowUpSkill`) verified and operational.
+- [x] **Specialist Agents Operational**: `CommunicationAgent` (P12), `CalendarAgent` (P12), and `KnowledgeResearchAgent` (P13) operational.
 - [x] **Channel Schema Defined (P11)**: Typed channels and state reducers established in `app/harness/channels.py`.
 
 ---
