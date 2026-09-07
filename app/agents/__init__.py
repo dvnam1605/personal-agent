@@ -6,6 +6,8 @@ from app.agents.declarations import (
     COMMUNICATION_AGENT,
     COMMUNICATION_AGENT_NAME,
     FIRST_PARTY_AGENTS,
+    KNOWLEDGE_RESEARCH_AGENT,
+    KNOWLEDGE_RESEARCH_AGENT_NAME,
     build_first_party_registry,
 )
 from app.agents.registry import AgentRegistry
@@ -17,6 +19,8 @@ __all__ = [
     "COMMUNICATION_AGENT",
     "COMMUNICATION_AGENT_NAME",
     "FIRST_PARTY_AGENTS",
+    "KNOWLEDGE_RESEARCH_AGENT",
+    "KNOWLEDGE_RESEARCH_AGENT_NAME",
     "AgentDefinition",
     "AgentRegistry",
     "build_first_party_registry",

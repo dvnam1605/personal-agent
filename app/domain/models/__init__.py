@@ -125,6 +125,10 @@ from app.domain.models.tool import (
     ToolRestriction,
     ToolResult,
 )
+from app.domain.models.web import (
+    WebSearchPage,
+    WebSearchResultItem,
+)
 from app.domain.models.workflow import (
     WorkflowDefinition,
     WorkflowEdge,
@@ -232,6 +236,8 @@ __all__ = [
     "ToolInput",
     "ToolRestriction",
     "ToolResult",
+    "WebSearchPage",
+    "WebSearchResultItem",
     "validate_timezone_name",
     "WorkflowDefinition",
     "WorkflowEdge",

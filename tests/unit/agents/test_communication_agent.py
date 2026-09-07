@@ -4,6 +4,7 @@ import pytest
 
 from app.agents import COMMUNICATION_AGENT_NAME, build_first_party_registry
 from app.agents.specialist.communication import (
+    build_message_action_proposal,
     build_send_proposal,
     complex_task,
     contact_lookup_task,
@@ -32,8 +33,12 @@ def _agent():
 
 async def test_communication_agent_direct_read() -> None:
     """Exact email lookup bypasses the ReAct loop (0 tool iterations)."""
-    task = latest_email_task("Nam")
+    task = latest_email_task(
+        "Nam", context_data={"contact_email": "nam@example.com", "hint": "họp RAG thứ sáu"}
+    )
     assert ModeSelector.select(task, _agent()) is ExecutionMode.DIRECT
+    assert task.context_data["contact_email"] == "nam@example.com"
+    assert "KHÔNG gọi" in task.goal
 
     chat = ScriptedChat([fakes.text_turn("Email mới nhất của Nam: họp RAG thứ sáu.")])
     runner, gate = _harness(chat, DictExecutor({}))
@@ -111,6 +116,20 @@ def test_communication_agent_contact_not_found_asks_for_email() -> None:
     assert report.missing_context == ["contact_email: manual email input required"]
 
 
+def test_communication_agent_single_candidate_is_unique_match() -> None:
+    report = disambiguation_report([{"name": "Nam Nguyen", "email": "nam@example.com"}])
+    assert report.status is SpecialistStatus.SUCCESS
+    assert "duy nhất" in report.summary
+    assert "Nam Nguyen <nam@example.com>" in report.summary
+
+
+def test_communication_agent_disambiguation_rejects_bad_shapes() -> None:
+    with pytest.raises(ValidationError):
+        disambiguation_report("Nam")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        disambiguation_report(["not-a-dict"])  # type: ignore[list-item]
+
+
 def test_communication_agent_draft_generates_proposal() -> None:
     """Write intent produces a fail-closed ProposedAction, not a live send."""
     long_body = "Nội dung họp. " * 500
@@ -127,6 +146,38 @@ def test_communication_agent_draft_generates_proposal() -> None:
     assert proposal.parameters["subject"] == "Xác nhận lịch họp RAG"
     assert "[TRUNCATED]" in str(proposal.parameters["body_preview"])
     assert "nam@example.com" in proposal.description
+
+
+def test_communication_agent_reply_forward_target_real_tools() -> None:
+    reply = build_send_proposal(
+        recipients=["nam@example.com"],
+        subject="Re: họp",
+        body="Đồng ý.",
+        message_id="m1",
+        action_type="reply",
+    )
+    assert reply.tool_name == "gmail.reply"
+    assert reply.parameters["message_id"] == "m1"
+
+    forward = build_send_proposal(
+        recipients=["lan@example.com"],
+        subject="Fwd: họp",
+        body="Xem giúp.",
+        message_id="m1",
+        action_type="forward",
+    )
+    assert forward.tool_name == "gmail.forward"
+
+    with pytest.raises(ValidationError):
+        build_send_proposal(
+            recipients=["nam@example.com"], subject="s", body="b", action_type="reply"
+        )
+    with pytest.raises(ValidationError):
+        build_send_proposal(
+            recipients=["nam@example.com"], subject="s", body="b", action_type="shred"
+        )
+    with pytest.raises(ValidationError):
+        build_send_proposal(recipients="nam@example.com", subject="s", body="b")  # type: ignore[arg-type]
 
 
 async def test_communication_agent_mutation_without_approval_blocked() -> None:
@@ -149,9 +200,100 @@ async def test_communication_agent_mutation_without_approval_blocked() -> None:
     assert executor.calls == []
 
 
+async def test_communication_agent_contact_lookup_direct_read() -> None:
+    """Contact lookup runs DIRECT from pre-resolved context (0 tool iterations)."""
+    task = contact_lookup_task(
+        "Nam", context_data={"name": "Nam Nguyen", "email": "nam@example.com"}
+    )
+    assert ModeSelector.select(task, _agent()) is ExecutionMode.DIRECT
+    assert "KHÔNG gọi tool" in task.goal
+    assert task.context_data["name"] == "Nam Nguyen"
+
+    chat = ScriptedChat([fakes.text_turn("Thông tin liên hệ: Nam Nguyen <nam@example.com>.")])
+    runner, gate = _harness(chat, DictExecutor({}))
+    outcome = await runner.run(
+        task,
+        _agent(),
+        gate.for_agent(COMMUNICATION_AGENT_NAME),
+        run_id="p12-c-contact",
+        user_id="u1",
+    )
+
+    assert outcome.report.status is SpecialistStatus.SUCCESS
+    assert outcome.usage.llm_calls == 1
+    assert outcome.usage.react_steps == 0
+    assert outcome.trace.escalated_to_react is False
+
+
+async def test_communication_agent_thread_read_direct() -> None:
+    """Thread summary runs DIRECT from pre-resolved context (0 tool iterations)."""
+    task = thread_read_task("t-123", context_data={"thread_id": "t-123", "messages": ["m1", "m2"]})
+    assert ModeSelector.select(task, _agent()) is ExecutionMode.DIRECT
+    assert "KHÔNG gọi tool" in task.goal
+
+    chat = ScriptedChat([fakes.text_turn("Tóm tắt thread t-123: thảo luận kiến trúc P12.")])
+    runner, gate = _harness(chat, DictExecutor({}))
+    outcome = await runner.run(
+        task,
+        _agent(),
+        gate.for_agent(COMMUNICATION_AGENT_NAME),
+        run_id="p12-c-thread",
+        user_id="u1",
+    )
+
+    assert outcome.report.status is SpecialistStatus.SUCCESS
+    assert outcome.usage.llm_calls == 1
+    assert outcome.usage.react_steps == 0
+    assert outcome.trace.escalated_to_react is False
+
+
+def test_communication_agent_send_draft_with_draft_id() -> None:
+    proposal = build_send_proposal(
+        recipients=["nam@example.com"],
+        subject="Re: thảo luận",
+        body="Đã gửi.",
+        draft_id="d-123",
+        action_type="send_email",
+    )
+    assert proposal.tool_name == "gmail.send_draft"
+    assert proposal.parameters["draft_id"] == "d-123"
+
+
+def test_communication_agent_message_action_proposals() -> None:
+    archive = build_message_action_proposal(message_id="m1", action_type="archive")
+    assert archive.tool_name == "gmail.archive"
+    assert archive.parameters["message_id"] == "m1"
+    assert archive.risk_level is ActionRiskLevel.LOW_IMPACT_WRITE
+
+    trash = build_message_action_proposal(message_id="m1", action_type="trash")
+    assert trash.tool_name == "gmail.trash"
+    assert trash.parameters["message_id"] == "m1"
+    assert trash.risk_level is ActionRiskLevel.IRREVERSIBLE
+
+    delete_draft = build_message_action_proposal(draft_id="d1", action_type="delete_draft")
+    assert delete_draft.tool_name == "gmail.delete_draft"
+    assert delete_draft.parameters["draft_id"] == "d1"
+    assert delete_draft.risk_level is ActionRiskLevel.IRREVERSIBLE
+
+    with pytest.raises(ValidationError):
+        build_message_action_proposal(action_type="archive")
+    with pytest.raises(ValidationError):
+        build_message_action_proposal(action_type="delete_draft")
+    with pytest.raises(ValidationError):
+        build_message_action_proposal(message_id="m1", action_type="explode")
+
+
 def test_communication_task_builders_reject_blank_input() -> None:
     with pytest.raises(ValidationError):
         latest_email_task("   ")
+    with pytest.raises(ValidationError):
+        latest_email_task("Nam", page_size=0)
+    with pytest.raises(ValidationError):
+        latest_email_task("Nam", page_size=True)  # type: ignore[arg-type]
+    task_float = latest_email_task("Nam", page_size=2.0)  # type: ignore[arg-type]
+    assert "page_size=2" in task_float.goal
+    with pytest.raises(ValidationError):
+        latest_email_task("Nam", page_size=2.5)  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
         thread_read_task("")
     with pytest.raises(ValidationError):

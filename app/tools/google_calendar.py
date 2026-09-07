@@ -460,12 +460,18 @@ class GoogleCalendarTools:
                 time_zone=time_zone,
             )
         if name == "calendar.find_free_slots":
-            start = _parse_datetime_argument(
-                args.get("window_start"), time_zone=time_zone, label="window_start"
+            raw_start = (
+                args.get("window_start")
+                if args.get("window_start") is not None
+                else args.get("time_min")
             )
-            end = _parse_datetime_argument(
-                args.get("window_end"), time_zone=time_zone, label="window_end"
+            raw_end = (
+                args.get("window_end")
+                if args.get("window_end") is not None
+                else args.get("time_max")
             )
+            start = _parse_datetime_argument(raw_start, time_zone=time_zone, label="window_start")
+            end = _parse_datetime_argument(raw_end, time_zone=time_zone, label="window_end")
             return await self.service.find_free_slots(
                 start,
                 end,
