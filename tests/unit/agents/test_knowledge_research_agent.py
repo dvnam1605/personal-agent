@@ -111,6 +111,7 @@ async def test_internal_only_synthesis() -> None:
     )
 
     assert result.success is True
+    assert result.output is not None
     assert result.output["status"] == SufficiencyStatus.SUFFICIENT.value
     assert result.output["internal_only"] is True
     cited = [citation["evidence_id"] for citation in result.output["citations"]]
@@ -128,6 +129,7 @@ async def test_insufficient_evidence_reports_clean_no_answer() -> None:
     )
 
     assert result.success is True
+    assert result.output is not None
     assert result.output["status"] == SufficiencyStatus.INSUFFICIENT.value
     assert result.output["citations"] == []
     assert "không tìm thấy" in result.output["answer"].lower()
@@ -161,6 +163,7 @@ async def test_mixed_mode_separates_internal_and_external_sources() -> None:
     )
 
     assert result.success is True
+    assert result.output is not None
     assert result.output["results"][0]["url"] == "https://example.com/gia-ca-phe"
 
     task = mixed_task("Đối chiếu chính sách nội bộ với giá thị trường")
@@ -238,6 +241,7 @@ async def test_prompt_injection_in_document_treated_as_text() -> None:
     )
 
     assert result.success is True
+    assert result.output is not None
     bounded = result.output["evidence"][0]["bounded_content"]
     assert bounded.startswith("<retrieved_document ")
     assert "attacker@bad.com" in bounded
@@ -257,6 +261,7 @@ async def test_prompt_injection_in_document_treated_as_text() -> None:
         _context(),
     )
     assert synth_result.success is True
+    assert synth_result.output is not None
     assert "attacker@bad.com" not in synth_result.output["answer"]
 
 
@@ -430,6 +435,7 @@ class TestKnowledgeToolEdgeCases:
             _context(),
         )
         assert result.success is True
+        assert result.output is not None
         assert [entry["url"] for entry in result.output["results"]] == [
             "https://x/0",
             "https://x/1",
@@ -441,6 +447,7 @@ class TestKnowledgeToolEdgeCases:
             _context(),
         )
         assert missing.success is True
+        assert missing.output is not None
         assert missing.output["total"] == 0
 
         blank = await web.execute(
@@ -471,6 +478,8 @@ class TestKnowledgeToolEdgeCases:
         via_invoke = await tools.invoke(tool_input, _context())
         assert via_execute.success is True
         assert via_invoke.success is True
+        assert via_invoke.output is not None
+        assert via_execute.output is not None
         assert via_invoke.output["total"] == via_execute.output["total"]
 
     async def test_provider_rejects_blank_query_and_web_invoke_alias(self) -> None:
@@ -484,4 +493,5 @@ class TestKnowledgeToolEdgeCases:
         via_invoke = await web.invoke(tool_input, _context())
         assert via_execute.success is True
         assert via_invoke.success is True
+        assert via_invoke.output is not None
         assert via_invoke.output["total"] == 0

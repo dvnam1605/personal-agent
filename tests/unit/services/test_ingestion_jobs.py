@@ -48,6 +48,9 @@ class RecordingStore:
     async def record(self, observability: IngestionObservability) -> None:
         self.recorded.append(observability.status)
 
+    async def heartbeat(self, job_id: str) -> None:
+        pass
+
 
 async def test_batch_isolates_failures_per_file() -> None:
     orchestrator, repository = make_orchestrator()

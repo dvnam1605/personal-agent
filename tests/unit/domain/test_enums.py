@@ -31,11 +31,36 @@ def test_complexity_enum_values() -> None:
 
 
 def test_route_type_enum_values() -> None:
-    """Verify RouteType enum values."""
+    """Verify RouteType enum values, legacy strings, and wire round-trip (M3)."""
     assert RouteType.DIRECT_SPECIALIST == "direct_specialist"
-    assert RouteType.KNOWN_WORKFLOW == "known_workflow"
-    assert RouteType.SUPERVISOR == "supervisor"
+    assert RouteType.STATIC_WORKFLOW == "static_workflow"
+    assert RouteType.SUPERVISOR_DAG == "supervisor_dag"
+    assert RouteType.CLARIFICATION == "clarification"
+    assert RouteType.REJECT == "reject"
     assert RouteType.CASUAL_RESPONSE == "casual_response"
+
+    # Distinct legacy string values for DB/wire round-trip compatibility
+    assert RouteType.KNOWN_WORKFLOW == "known_workflow"
+    assert RouteType("known_workflow") == RouteType.KNOWN_WORKFLOW
+    assert RouteType.SUPERVISOR == "supervisor"
+    assert RouteType("supervisor") == RouteType.SUPERVISOR
+
+    # Predicate helpers (M2: standalone functions are the single source of truth)
+    from app.domain.enums import is_supervisor_route, is_workflow_route
+
+    assert is_workflow_route(RouteType.STATIC_WORKFLOW) is True
+    assert is_workflow_route(RouteType.KNOWN_WORKFLOW) is True
+    assert is_workflow_route(RouteType.DIRECT_SPECIALIST) is False
+    assert is_workflow_route("known_workflow") is True
+    assert is_workflow_route("static_workflow") is True
+    assert is_workflow_route("direct_specialist") is False
+
+    assert is_supervisor_route(RouteType.SUPERVISOR_DAG) is True
+    assert is_supervisor_route(RouteType.SUPERVISOR) is True
+    assert is_supervisor_route(RouteType.DIRECT_SPECIALIST) is False
+    assert is_supervisor_route("supervisor_dag") is True
+    assert is_supervisor_route("supervisor") is True
+    assert is_supervisor_route("direct_specialist") is False
 
 
 def test_run_status_enum_values() -> None:
@@ -47,6 +72,7 @@ def test_run_status_enum_values() -> None:
     assert RunStatus.COMPLETED == "completed"
     assert RunStatus.FAILED == "failed"
     assert RunStatus.CANCELLED == "cancelled"
+    assert RunStatus.APPROVED_UNEXECUTED == "approved_unexecuted"
 
 
 def test_task_status_enum_values() -> None:

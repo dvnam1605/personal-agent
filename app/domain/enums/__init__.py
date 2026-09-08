@@ -12,6 +12,8 @@ from app.domain.enums.enums import (
     SpecialistStatus,
     StopReason,
     TaskStatus,
+    is_supervisor_route,
+    is_workflow_route,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "SpecialistStatus",
     "StopReason",
     "TaskStatus",
+    "is_supervisor_route",
+    "is_workflow_route",
 ]

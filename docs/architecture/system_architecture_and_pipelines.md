@@ -1,6 +1,6 @@
 # Toàn Cảnh Kiến Trúc Hệ Thống & Các Pipeline Chi Tiết (Personal AI Assistant)
 
-> **Trạng thái hệ thống**: P0–P12 đã nghiệm thu & đóng (`CLOSED`), Phase 13 (`KnowledgeResearchAgent`) đang thực hiện (`IN PROGRESS`).
+> **Trạng thái hệ thống**: P0–P14 đã nghiệm thu & đóng (`CLOSED`), Phase 15 (`FastTriage & Static Workflows`) đang hoàn thiện nghiệm thu (`IN PROGRESS`).
 > **Triết lý thiết kế cốt lõi**: *"Multi-agent is a capability boundary, not an execution requirement"* (Đa tác tử là ranh giới năng lực, không phải là yêu cầu bắt buộc cho mọi luồng thực thi).
 
 ---
@@ -75,7 +75,7 @@ flowchart TD
 | Tuyến | Điều Kiện Kích Hoạt | Cơ Chế Điều Phối | Budget Dự Kiến |
 | :--- | :--- | :--- | :--- |
 | **Path A: Direct Specialist** | Yêu cầu thuộc 1 domain duy nhất (ví dụ: "Lịch ngày mai của tôi", "Tìm email từ Nam") | Fast Triage chuyển thẳng tới Specialist tương ứng. Specialist chạy ở chế độ **Direct** (1-shot tool call) hoặc **Bounded ReAct** (vòng lặp tìm kiếm giới hạn) | 0–1 LLM call (Direct), 1–3 LLM calls (ReAct). Latency: < 2-3s (Direct), 2-6s (ReAct). |
-| **Path B: Known Workflow** | Khớp với quy trình chuẩn đã đăng ký trong `WorkflowRegistry` (ví dụ: `WF-05: MeetingPrepGraph`, `DailyBriefing`) | Sử dụng LangGraph tĩnh đã biên dịch trước. Các node fetch dữ liệu (Calendar, Gmail, RAG) chạy **song song (parallel)** không cần Supervisor phân tích | 1–2 LLM synthesis calls, không tốn token lập kế hoạch. Latency giảm > 30%. |
+| **Path B: Known Workflow** | Khớp với quy trình chuẩn đã đăng ký trong `StaticWorkflowRegistry` (ví dụ: `WF-01: Quick Meeting Follow-up`, `WF-02: Document Search & Briefing`) | Sử dụng LangGraph tĩnh đã biên dịch trước trong `app/harness/workflows/`. Các node fetch dữ liệu (Calendar, Gmail, RAG, Drive) chạy **song song (parallel)** qua LangGraph `Send` không cần Supervisor phân tích | 1–2 LLM synthesis calls, không tốn token lập kế hoạch. Latency giảm > 30%. |
 | **Path C: Supervisor DAG** | Nhiệm vụ đa miền, mở, có quan hệ phụ thuộc phức tạp (ví dụ: "So sánh hợp đồng trên Drive với email mới nhất của đối tác và xếp lịch họp xử lý sự khác biệt") | `SupervisorAgent` phân rã câu hỏi thành đồ thị có hướng không chu trình (DAG JSON), điều phối các Specialist thực thi, tái lập kế hoạch (replanning tối đa 2 lần) | 3–5 LLM calls (Plan + Subtasks + Replanning + Final Synthesis). |
 
 ---

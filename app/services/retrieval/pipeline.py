@@ -58,7 +58,6 @@ class RetrievalPipeline:
         provider: RowProvider | None = None,
         *,
         reranker: Reranker | None = None,
-        use_viranker: bool = False,
         per_document_cap: int | None = None,
         rerank_top_k_max: int = DEFAULT_RERANK_TOP_K_MAX,
         sufficiency_checker: SufficiencyChecker | None = None,
@@ -66,21 +65,7 @@ class RetrievalPipeline:
         synthesizer: AnswerSynthesizer | None = None,
     ) -> None:
         self._hybrid = hybrid_service
-        if reranker is not None:
-            self._reranker = reranker
-        elif use_viranker:
-            try:
-                from app.services.retrieval.factory import build_reranker
-
-                self._reranker = build_reranker(use_viranker=True)
-            except Exception as exc:
-                logger.warning(
-                    "viranker_build_failed_fallback_identity",
-                    extra={"error": str(exc)},
-                )
-                self._reranker = IdentityReranker()
-        else:
-            self._reranker = IdentityReranker()
+        self._reranker = reranker or IdentityReranker()
         self._expansion = ExpansionService(provider or SqlAlchemyRowProvider())
         self._per_document_cap = per_document_cap
         self._rerank_top_k_max = max(int(rerank_top_k_max), 1)

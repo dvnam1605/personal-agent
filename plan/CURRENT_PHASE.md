@@ -1,17 +1,18 @@
 # CURRENT PHASE
 
-Current phase: **P14 CLOSED · P15 IN PROGRESS (Fast Triage & Static Workflow Registry).**
+Current phase: **P15 CLOSED · P16 IN PROGRESS (Supervisor Dynamic Multi-Agent DAG).**
 P9 family (P9A..P9E), P10A, P10B, P10C, and P10D are approved and CLOSED as of
 2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 / 2026-09-03 respectively.
 P11 was APPROVED 2026-09-07, P12 was APPROVED 2026-09-07, P13 was
-APPROVED 2026-09-07, and P14 was APPROVED 2026-09-07 (see ledger).
+APPROVED 2026-09-07, P14 was APPROVED 2026-09-07, and P15 was
+APPROVED 2026-09-08 (see ledger).
 
 Read:
 1. `MASTER_PLAN.md`
-2. `phases/P15_fast_triage_static_workflow_registry.md`
-3. Next phase spec: `phases/P16_supervisor_dag_workflow_engine.md` when P15 is approved.
+2. `phases/P16_supervisor_dynamic_multi_agent_dag.md`
+3. Next phase spec: `phases/P17_context_memory_entity_resolution_memory_gate.md` when P16 is approved.
 
-Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 IN PROGRESS**
+Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 CLOSED · P16 IN PROGRESS**
 
 ## Gate ledger (single source of truth)
 
@@ -65,8 +66,12 @@ APPROVED P13   received from user 2026-09-07 ("approved p13") against
 APPROVED P14   received from user 2026-09-07 ("approved p14") against
                  reviews/P14_review_pack.md — closes Phase 14 (Skill System +
                  First Dynamic Skills). Unblocks Phase 15.
-NEXT GATE      `APPROVED P15` — closes Phase 15 based on reviews/P15_review_pack.md.
+APPROVED P15   received from user 2026-09-08 ("ok approved p15") against
+                 reviews/P15_review_pack.md — closes Phase 15 (Fast Triage +
+                 Static Workflow Registry, §18A.5 LangGraph isolation in harness,
+                 H1-H8, M1-M9, L1-L5, N1-N6 remediated, 61 P15 tests, 819 unit tests passing).
                  Unblocks Phase 16.
+NEXT GATE      `APPROVED P16` — closes Phase 16 based on reviews/P16_review_pack.md.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -139,8 +144,11 @@ P10       split approved (see P10 spec header); ownership entry requirement
            P14   Skill System + First Dynamic Skills —
                  **APPROVED & CLOSED 2026-09-07.** Review Pack at
                  reviews/P14_review_pack.md.
-           P15   Fast Triage & Static Workflow Registry — IN PROGRESS.
-                 Spec: phases/P15_fast_triage_static_workflow_registry.md.
+            P15   Fast Triage & Static Workflow Registry —
+                 **APPROVED & CLOSED 2026-09-08.** Review Pack at
+                 reviews/P15_review_pack.md.
+           P16   Supervisor Dynamic Multi-Agent DAG — IN PROGRESS.
+                 Spec: phases/P16_supervisor_dynamic_multi_agent_dag.md.
 ```
 
 ---

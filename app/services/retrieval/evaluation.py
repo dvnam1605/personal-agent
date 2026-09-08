@@ -30,8 +30,9 @@ from app.services.retrieval.benchmark_dataset import (
     BenchmarkQueryCategory,
 )
 from app.services.retrieval.expansion import resolve_expansion_policy
+from app.services.retrieval.factory import build_retrieval_pipeline
 from app.services.retrieval.packing import build_bundle, unit_for_chunk
-from app.services.retrieval.pipeline import HybridRetriever, RetrievalPipeline
+from app.services.retrieval.pipeline import HybridRetriever
 from app.services.retrieval.provider import RowProvider
 from app.services.retrieval.rerank import IdentityReranker, Reranker
 
@@ -457,10 +458,10 @@ class AblationRunner:
             effective_reranker = reranker or IdentityReranker()
         else:
             effective_reranker = IdentityReranker()
-        pipeline = RetrievalPipeline(
-            hybrid_service=retriever,
+        pipeline = build_retrieval_pipeline(
             provider=self.provider,
             reranker=effective_reranker,
+            hybrid_service=retriever,
         )
 
         query_results: list[QueryEvaluationResult] = []

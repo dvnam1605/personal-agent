@@ -175,11 +175,11 @@ class IngestionOrchestrator:
 
             await mark(IngestionStatus.EMBEDDING)
             try:
+                heartbeat_fn = self._heartbeat
+                batch_cb = (lambda *a, **k: heartbeat_fn(obs.job_id)) if heartbeat_fn is not None else None
                 vectors = await self._embedding.embed_documents(
                     [child.embedding_text for child, _ in children],
-                    batch_callback=(lambda: self._heartbeat(obs.job_id))
-                    if self._heartbeat is not None
-                    else None,
+                    batch_callback=batch_cb,
                 )
             except TypeError:
                 vectors = await self._embedding.embed_documents(

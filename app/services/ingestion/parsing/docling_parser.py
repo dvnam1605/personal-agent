@@ -247,13 +247,13 @@ class DoclingDocumentParser:
                         getattr(c, "text", str(c)) for c in captions if getattr(c, "text", None)
                     ).strip()
                 parts = [p for p in (pic_caption, pic_text) if p]
-                content = " - ".join(parts)
-                if content:
+                pic_description = " - ".join(parts)
+                if pic_description:
                     nodes.append(
                         ParagraphNode(
                             node_id=f"n{len(nodes):04d}",
                             order=block_index,
-                            text=f"[Hình ảnh: {content}]",
+                            text=f"[Hình ảnh: {pic_description}]",
                             heading_path=heading_path(),
                             anchor=anchor,
                         )

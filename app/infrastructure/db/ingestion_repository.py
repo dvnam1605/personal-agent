@@ -314,11 +314,6 @@ class SqlAlchemyIngestionRepository:
         rowcount: int = getattr(result, "rowcount", 0) or 0
         return rowcount > 0
 
-    @staticmethod
-    def _session(session: object) -> AsyncSession:
-        assert isinstance(session, AsyncSession), "expected an AsyncSession transaction"
-        return session
-
 
 def _embedding_model() -> str:
     from app.core.config import settings as app_settings

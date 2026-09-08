@@ -139,7 +139,7 @@ class TestCheckpointerDsn:
 
 class TestLangGraphBoundary:
     def test_no_langgraph_import_outside_harness(self) -> None:
-        repo_root = Path(__file__).resolve().parents[4]
+        repo_root = Path(__file__).resolve().parents[3]
         app_dir = repo_root / "app"
         offenders: list[str] = []
         for path in sorted(app_dir.rglob("*.py")):

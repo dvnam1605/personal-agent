@@ -214,7 +214,7 @@ class MarkdownDocumentParser:
                 parser_name=MARKDOWN_PARSER_NAME,
                 parser_version=MARKDOWN_PARSER_VERSION,
                 administrative_metadata=admin_meta.to_dict(),
-                parse_warnings=parse_warnings,
+                parse_warnings=tuple(parse_warnings),
             ),
             nodes=tuple(nodes),
         )

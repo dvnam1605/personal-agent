@@ -154,3 +154,41 @@ def test_route_decision_json_roundtrip() -> None:
     json_str = route.model_dump_json()
     loaded = RouteDecision.model_validate_json(json_str)
     assert loaded == route
+
+
+def test_route_decision_properties() -> None:
+    """Verify is_workflow and is_supervisor properties on RouteDecision (M1)."""
+    wf_static = RouteDecision(
+        route_type=RouteType.STATIC_WORKFLOW,
+        target_workflow_id="WF-01",
+        confidence=0.9,
+        domains=[Domain.CALENDAR, Domain.COMMUNICATION],
+    )
+    assert wf_static.is_workflow is True
+    assert wf_static.is_supervisor is False
+
+    wf_known = RouteDecision(
+        route_type=RouteType.KNOWN_WORKFLOW,
+        workflow_name="meeting_prep",
+        confidence=0.9,
+        domains=[Domain.GENERAL],
+    )
+    assert wf_known.is_workflow is True
+    assert wf_known.is_supervisor is False
+
+    sup_dag = RouteDecision(
+        route_type=RouteType.SUPERVISOR_DAG,
+        confidence=0.9,
+        domains=[Domain.GENERAL],
+    )
+    assert sup_dag.is_supervisor is True
+    assert sup_dag.is_workflow is False
+
+    sup_legacy = RouteDecision(
+        route_type=RouteType.SUPERVISOR,
+        confidence=0.9,
+        domains=[Domain.GENERAL],
+    )
+    assert sup_legacy.is_supervisor is True
+    assert sup_legacy.is_workflow is False
+

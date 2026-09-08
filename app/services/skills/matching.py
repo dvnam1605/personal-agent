@@ -1,4 +1,4 @@
-"""Capability and trigger matching helpers for dynamic skills."""
+"""Capability and trigger matching helpers for dynamic skills and workflows (M3 / M9)."""
 
 from __future__ import annotations
 
@@ -33,31 +33,69 @@ def unaccent_vietnamese(text: str) -> str:
     return " ".join(stripped.casefold().split())
 
 
-def trigger_matches(trigger: str, query: str) -> bool:
-    """Match a trigger phrase, ``/regex/`` literal, or unaccented substring.
+def match_trigger(
+    trigger: str,
+    query: str,
+    *,
+    unaccented_query: str | None = None,
+    allow_token_subset: bool = False,
+) -> bool:
+    """Unified trigger matching across skills and static workflows (M3 / N1).
 
-    Plain-phrase matching folds Vietnamese diacritics (P10 FTS posture) so
-    ``chuan bi hop`` still hits ``chuẩn bị họp``. When the folded phrase is
-    not a contiguous substring, every trigger token of length ≥ 2 must appear
-    in the query (word-order / filler variants such as ``chuan bi cuoc hop``).
+    Supports:
+    1. Literal ``/regex/`` syntax with case-insensitivity.
+    2. Contiguous phrase matching with word boundaries on unaccented Vietnamese.
+    3. Optional token-subset matching when ``allow_token_subset=True``.
     """
     needle = trigger.strip()
     haystack = query.strip()
     if not needle or not haystack:
         return False
+
     if len(needle) >= 2 and needle.startswith("/") and needle.endswith("/"):
         try:
             return re.search(needle[1:-1], haystack, flags=re.IGNORECASE) is not None
         except re.error:
             return False
+
     needle_n = unaccent_vietnamese(needle)
-    haystack_n = unaccent_vietnamese(haystack)
+    haystack_n = unaccented_query if unaccented_query is not None else unaccent_vietnamese(haystack)
     if not needle_n or not haystack_n:
         return False
-    if needle_n in haystack_n:
+
+    # Exact or contiguous word-boundary match
+    if needle_n == haystack_n:
         return True
-    needle_tokens = {token for token in _TOKEN_RE.findall(needle_n) if len(token) >= 2}
-    if not needle_tokens:
-        return False
-    haystack_tokens = set(_TOKEN_RE.findall(haystack_n))
-    return needle_tokens <= haystack_tokens
+    pattern = r"(?:\A|\s)" + re.escape(needle_n) + r"(?:\Z|\s|[.,!?;:])"
+    if re.search(pattern, haystack_n) is not None:
+        return True
+
+    if allow_token_subset:
+        needle_tokens = {token for token in _TOKEN_RE.findall(needle_n) if len(token) >= 2}
+        if not needle_tokens:
+            return False
+        haystack_tokens = set(_TOKEN_RE.findall(haystack_n))
+        return needle_tokens <= haystack_tokens
+
+    return False
+
+
+def trigger_matches(
+    trigger: str,
+    query: str,
+    *,
+    unaccented_query: str | None = None,
+    allow_token_subset: bool = True,
+) -> bool:
+    """Skill trigger matching delegate (defaults to allow_token_subset=True)."""
+    return match_trigger(
+        trigger,
+        query,
+        unaccented_query=unaccented_query,
+        allow_token_subset=allow_token_subset,
+    )
+
+
+def match_workflow_trigger(trigger: str, query: str) -> bool:
+    """Strict workflow trigger matching delegate (strictly contiguous, allow_token_subset=False)."""
+    return match_trigger(trigger, query, allow_token_subset=False)

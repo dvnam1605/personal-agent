@@ -99,6 +99,7 @@ def build_retrieval_pipeline(
     provider: RowProvider | None = None,
     *,
     engine: Any | None = None,
+    hybrid_service: Any | None = None,
     embedding_service: LocalEmbeddingService | None = None,
     reranker: Reranker | None = None,
     use_viranker: bool = True,
@@ -123,12 +124,15 @@ def build_retrieval_pipeline(
         provider = SqlAlchemyRowProvider(engine)
     shared_provider: RowProvider = provider or SqlAlchemyRowProvider()
 
-    embedding = embedding_service or build_embedding_service(resolved)
-    hybrid = HybridRetrievalService(
-        dense_service=DenseRetrievalService(embedding_service=embedding, provider=shared_provider),
-        sparse_service=SparseRetrievalService(provider=shared_provider),
-        k=rrf_k,
-    )
+    if hybrid_service is not None:
+        hybrid = hybrid_service
+    else:
+        embedding = embedding_service or build_embedding_service(resolved)
+        hybrid = HybridRetrievalService(
+            dense_service=DenseRetrievalService(embedding_service=embedding, provider=shared_provider),
+            sparse_service=SparseRetrievalService(provider=shared_provider),
+            k=rrf_k,
+        )
 
     effective_reranker = (
         reranker if reranker is not None else build_reranker(resolved, use_viranker=use_viranker)

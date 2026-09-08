@@ -37,8 +37,18 @@ from app.services.spill import (
     SpillPolicy,
     SpillStore,
 )
+from app.services.triage import FastTriage
+from app.services.workflow_registry import (
+    StaticWorkflowEntry,
+    StaticWorkflowRegistry,
+    load_default_workflow_registry,
+)
 
 __all__ = [
+    "FastTriage",
+    "StaticWorkflowEntry",
+    "StaticWorkflowRegistry",
+    "load_default_workflow_registry",
     "AuditService",
     "AuditOutboxService",
     "AuditOutboxWorker",

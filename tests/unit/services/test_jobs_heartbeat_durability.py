@@ -54,6 +54,7 @@ async def test_job_heartbeat_updates_claimed_at(
         updated = (
             await session.execute(select(IngestionJobRecord).where(IngestionJobRecord.id == job_id))
         ).scalar_one()
+        assert updated.claimed_at is not None
         claimed_time = (
             updated.claimed_at.replace(tzinfo=UTC)
             if updated.claimed_at.tzinfo is None

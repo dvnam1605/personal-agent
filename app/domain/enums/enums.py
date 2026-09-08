@@ -26,9 +26,27 @@ class RouteType(StrEnum):
     """Execution route classification."""
 
     DIRECT_SPECIALIST = "direct_specialist"
+    STATIC_WORKFLOW = "static_workflow"
+    SUPERVISOR_DAG = "supervisor_dag"
+    CLARIFICATION = "clarification"
+    REJECT = "reject"
+    CASUAL_RESPONSE = "casual_response"
+
+    # Legacy enum values (kept strictly for deserialization compatibility with historical DB/wire records)
     KNOWN_WORKFLOW = "known_workflow"
     SUPERVISOR = "supervisor"
-    CASUAL_RESPONSE = "casual_response"
+
+
+def is_workflow_route(route_type: RouteType | str) -> bool:
+    """Return True if route_type represents a static or known workflow."""
+    val = route_type.value if isinstance(route_type, RouteType) else str(route_type)
+    return val in (RouteType.STATIC_WORKFLOW.value, RouteType.KNOWN_WORKFLOW.value)
+
+
+def is_supervisor_route(route_type: RouteType | str) -> bool:
+    """Return True if route_type represents supervisor-led orchestration."""
+    val = route_type.value if isinstance(route_type, RouteType) else str(route_type)
+    return val in (RouteType.SUPERVISOR_DAG.value, RouteType.SUPERVISOR.value)
 
 
 class RunStatus(StrEnum):
@@ -41,6 +59,7 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    APPROVED_UNEXECUTED = "approved_unexecuted"
 
 
 class TaskStatus(StrEnum):

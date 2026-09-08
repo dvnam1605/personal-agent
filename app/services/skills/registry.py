@@ -12,7 +12,7 @@ from app.services.skills.loader import (
     SKILL_MARKDOWN_NAME,
     parse_skill_directory,
 )
-from app.services.skills.matching import capabilities_are_satisfied, trigger_matches
+from app.services.skills.matching import capabilities_are_satisfied, match_trigger
 
 DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
 
@@ -72,7 +72,10 @@ class SkillRegistry:
             return []
         matches: list[SkillDefinition] = []
         for skill in self._iter_latest():
-            if not any(trigger_matches(trigger, query) for trigger in skill.metadata.triggers):
+            if not any(
+                match_trigger(trigger, query, allow_token_subset=True)
+                for trigger in skill.metadata.triggers
+            ):
                 continue
             if not capabilities_are_satisfied(
                 skill.metadata.required_capabilities, available_capabilities
