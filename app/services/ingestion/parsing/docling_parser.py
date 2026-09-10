@@ -100,7 +100,7 @@ class DoclingDocumentParser:
                 DocumentStream(name=source.filename, stream=io.BytesIO(content)),
                 raises_on_error=True,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - wrap any Docling failure as DocumentParseError
             raise DocumentParseError(f"docling failed on {source.filename}: {exc}") from exc
 
         document = result.document

@@ -3,7 +3,10 @@
 import json
 from pathlib import Path
 
-from app.core.config import Environment, GoogleOAuthSettings, Settings
+import pytest
+from pydantic import ValidationError
+
+from app.core.config import Environment, GoogleOAuthSettings, SecuritySettings, Settings
 
 
 def test_default_settings_instantiation():
@@ -26,6 +29,8 @@ def test_budget_settings():
     assert settings.react_budget.max_steps == 6
     assert settings.react_budget.max_tool_calls == 8
     assert settings.supervisor_budget.max_replans == 2
+    assert settings.supervisor_budget.timeout_seconds == 30.0
+    assert settings.supervisor_budget.cost_per_task_usd == 0.02
     assert settings.llm_budget.direct_specialist.target_llm_calls == 1
     assert settings.llm_budget.supervisor_dag.max_tokens == 16000
 
@@ -72,3 +77,74 @@ def test_google_client_secrets_file_loads_credentials_without_serializing_secret
     assert google.client_id == "test-client-id"
     assert google.client_secret == "test-client-secret"
     assert "client_secret" not in google.model_dump()
+
+
+def test_cors_allowlist_rejects_wildcard() -> None:
+    with pytest.raises(ValidationError, match="must not include"):
+        SecuritySettings(cors_allowed_origins=["*"])
+
+
+def test_docs_and_redoc_disabled_in_production(monkeypatch) -> None:
+    from app.core.config import Environment, settings
+    from app.main import create_app
+
+    monkeypatch.setattr(settings, "environment", Environment.PRODUCTION)
+    monkeypatch.setattr(settings, "debug", False)
+    application = create_app()
+    assert application.docs_url is None
+    assert application.redoc_url is None
+    assert application.openapi_url is None
+
+
+def test_compose_requires_database_and_redis_passwords() -> None:
+    compose = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+    text = compose.read_text(encoding="utf-8")
+    assert "POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD" in text
+    assert "REDIS_PASSWORD:?Set REDIS_PASSWORD" in text
+    assert ":-postgres" not in text
+    assert "--requirepass" in text
+
+
+def test_development_rejects_remote_database_url() -> None:
+    with pytest.raises(ValidationError, match="not local"):
+        Settings(
+            environment=Environment.DEVELOPMENT,
+            database={"url": "postgresql+asyncpg://u:p@db.prod.internal:5432/assistant"},
+            _env_file=None,  # type: ignore[call-arg]
+        )
+
+
+def test_deploy_target_production_rejects_development_environment() -> None:
+    with pytest.raises(ValidationError, match="DEPLOY_TARGET"):
+        Settings(
+            environment=Environment.DEVELOPMENT,
+            deploy_target="production",
+            _env_file=None,  # type: ignore[call-arg]
+        )
+
+
+def test_production_requires_api_key_user_binding() -> None:
+    with pytest.raises(ValidationError, match="API_KEY_USER_ID"):
+        Settings(
+            environment=Environment.PRODUCTION,
+            database={
+                "url": "postgresql+asyncpg://app:StrongSecret123!@db.internal:5432/assistant"
+            },
+            redis={"url": "redis://:redis-secret@redis.internal:6379/0"},
+            security=SecuritySettings(api_key="shared-key", approval_signing_key="a" * 32),
+            _env_file=None,  # type: ignore[call-arg]
+        )
+
+
+def test_production_signing_key_never_falls_back_to_test_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings as app_settings
+    from app.services.approval_tokens import _TEST_SIGNING_KEY, _get_signing_key
+
+    monkeypatch.setattr(app_settings, "environment", Environment.PRODUCTION)
+    monkeypatch.setattr(app_settings.security, "approval_signing_key", None)
+    with pytest.raises(ValueError, match="APPROVAL_SIGNING_KEY"):
+        _get_signing_key()
+    monkeypatch.setattr(app_settings.security, "approval_signing_key", "p" * 32)
+    assert _get_signing_key() != _TEST_SIGNING_KEY

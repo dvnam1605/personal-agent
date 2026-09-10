@@ -17,6 +17,7 @@ from app.domain.models import (
     ToolInput,
 )
 from app.integrations.google_drive import DRIVE_READONLY_SCOPE, DRIVE_SCOPE
+from app.services.approvals import generate_approval_token
 from app.services.drive import DriveService
 from app.tools.google_drive import (
     GoogleDriveTools,
@@ -43,7 +44,7 @@ def _mock_service() -> DriveService:
         )
     )
     service.get_metadata = AsyncMock(
-        return_value=DriveFile(id="f3", name="meta.txt", mime_type="text/plain")
+        return_value=DriveFile(id="f3", name="meta.txt", mime_type="text/plain", version="v1")
     )
     service.download_file = AsyncMock(
         return_value=DriveDownloadResult(
@@ -117,6 +118,15 @@ def test_drive_tool_definitions_integrity() -> None:
                 ActionClass.PERMISSION_CHANGE,
             }
             assert DRIVE_SCOPE in definition.required_scopes
+            if definition.name in {
+                "drive.move_file",
+                "drive.rename_file",
+                "drive.delete_file",
+                "drive.update_permissions",
+            }:
+                assert "expected_version" in props
+            else:
+                assert "expected_version" not in props
         else:
             assert definition.action_class == ActionClass.READ
             assert definition.risk_level == ActionRiskLevel.READ_ONLY
@@ -168,96 +178,87 @@ async def test_google_drive_tools_read_only_rejection() -> None:
 async def test_google_drive_tools_execution_dispatch() -> None:
     service = _mock_service()
     tools = GoogleDriveTools(service)
-    context = ToolContext(
-        run_id="run-1",
-        user_id="u1",
-        read_only_view=False,
-        approval_token="test-approved",
-    )
+
+    async def _run(tool_name: str, arguments: dict[str, Any], *, mutation: bool = False):
+        token = None
+        if mutation:
+            token = generate_approval_token(
+                approval_id=f"drive-{tool_name}",
+                tool_name=tool_name,
+                run_id="run-1",
+                arguments=arguments,
+            )
+        context = ToolContext(
+            run_id="run-1",
+            user_id="u1",
+            read_only_view=False,
+            approval_token=token,
+        )
+        return await tools.execute(ToolInput(tool_name=tool_name, arguments=arguments), context)
 
     # 1. search_files
-    res = await tools.execute(
-        ToolInput(tool_name="drive.search_files", arguments={"query": "hello"}),
-        context,
-    )
+    res = await _run("drive.search_files", {"query": "hello"})
     assert res.success is True
     assert isinstance(res.output, DriveFilePage)
 
     # 2. list_folder
-    res = await tools.execute(
-        ToolInput(tool_name="drive.list_folder", arguments={"folder_id": "root"}),
-        context,
-    )
+    res = await _run("drive.list_folder", {"folder_id": "root"})
     assert res.success is True
 
     # 3. get_metadata
-    res = await tools.execute(
-        ToolInput(tool_name="drive.get_metadata", arguments={"file_id": "f3"}),
-        context,
-    )
+    res = await _run("drive.get_metadata", {"file_id": "f3"})
     assert res.success is True
 
     # 4. download_file
-    res = await tools.execute(
-        ToolInput(tool_name="drive.download_file", arguments={"file_id": "f4"}),
-        context,
-    )
+    res = await _run("drive.download_file", {"file_id": "f4"})
     assert res.success is True
 
     # 5. upload_file
-    res = await tools.execute(
-        ToolInput(
-            tool_name="drive.upload_file",
-            arguments={"name": "new.txt", "content": "hello world"},
-        ),
-        context,
+    res = await _run(
+        "drive.upload_file",
+        {"name": "new.txt", "content": "hello world"},
+        mutation=True,
     )
     assert res.success is True
 
     # 6. create_folder
-    res = await tools.execute(
-        ToolInput(tool_name="drive.create_folder", arguments={"name": "Folder 1"}),
-        context,
-    )
+    res = await _run("drive.create_folder", {"name": "Folder 1"}, mutation=True)
     assert res.success is True
 
     # 7. move_file
-    res = await tools.execute(
-        ToolInput(
-            tool_name="drive.move_file",
-            arguments={"file_id": "f7", "destination_folder_id": "new-parent"},
-        ),
-        context,
+    res = await _run(
+        "drive.move_file",
+        {"file_id": "f7", "destination_folder_id": "new-parent", "expected_version": "v1"},
+        mutation=True,
     )
     assert res.success is True
 
     # 8. rename_file
-    res = await tools.execute(
-        ToolInput(
-            tool_name="drive.rename_file",
-            arguments={"file_id": "f8", "new_name": "renamed.txt"},
-        ),
-        context,
+    res = await _run(
+        "drive.rename_file",
+        {"file_id": "f8", "new_name": "renamed.txt", "expected_version": "v1"},
+        mutation=True,
     )
     assert res.success is True
 
     # 9. delete_file
-    res = await tools.execute(
-        ToolInput(
-            tool_name="drive.delete_file",
-            arguments={"file_id": "f9", "permanent": False},
-        ),
-        context,
+    res = await _run(
+        "drive.delete_file",
+        {"file_id": "f9", "permanent": False, "expected_version": "v1"},
+        mutation=True,
     )
     assert res.success is True
 
     # 10. update_permissions
-    res = await tools.execute(
-        ToolInput(
-            tool_name="drive.update_permissions",
-            arguments={"file_id": "f10", "role": "writer", "email_address": "test@example.com"},
-        ),
-        context,
+    res = await _run(
+        "drive.update_permissions",
+        {
+            "file_id": "f10",
+            "role": "writer",
+            "email_address": "test@example.com",
+            "expected_version": "v1",
+        },
+        mutation=True,
     )
     assert res.success is True
 
@@ -299,7 +300,8 @@ async def test_google_drive_tools_missing_arguments_and_generic_exception() -> N
         context,
     )
     assert res_exc.success is False
-    assert "Unexpected provider socket failure" in (res_exc.error or "")
+    assert "Drive tool execution failed: RuntimeError" in (res_exc.error or "")
+    assert "Unexpected provider socket failure" not in (res_exc.error or "")
 
 
 @pytest.mark.asyncio
@@ -317,3 +319,65 @@ async def test_google_drive_mutation_fails_without_approval_token() -> None:
     )
     assert res.success is False
     assert "requires human approval verification" in (res.error or "")
+
+
+@pytest.mark.asyncio
+async def test_google_drive_mutation_fails_with_spoofed_or_expired_token() -> None:
+    service = _mock_service()
+    tools = GoogleDriveTools(service)
+    # 1. Arbitrary spoofed token fails closed (H1)
+    context_spoofed = ToolContext(
+        run_id="run-1", user_id="u1", read_only_view=False, approval_token="test-approved"
+    )
+    res_spoofed = await tools.execute(
+        ToolInput(
+            tool_name="drive.upload_file",
+            arguments={"name": "new.txt", "content": "hello world"},
+        ),
+        context_spoofed,
+    )
+    assert res_spoofed.success is False
+    assert "rejected: approval token is invalid, expired, or unverified" in (
+        res_spoofed.error or ""
+    )
+
+    # 2. Token issued for a different tool fails closed
+    wrong_tool_token = generate_approval_token(
+        approval_id="drive-req-wrong", tool_name="drive.rename_file"
+    )
+    context_wrong = ToolContext(
+        run_id="run-1", user_id="u1", read_only_view=False, approval_token=wrong_tool_token
+    )
+    res_wrong = await tools.execute(
+        ToolInput(
+            tool_name="drive.upload_file",
+            arguments={"name": "new.txt", "content": "hello world"},
+        ),
+        context_wrong,
+    )
+    assert res_wrong.success is False
+    assert "rejected: approval token is invalid, expired, or unverified" in (res_wrong.error or "")
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_rejects_stale_live_version() -> None:
+    """When expected_version is set, live metadata.version is curr_fp (M3)."""
+    service = _mock_service()
+    service.get_metadata = AsyncMock(
+        return_value=DriveFile(id="f9", name="gone.txt", mime_type="text/plain", version="v2")
+    )
+    tools = GoogleDriveTools(service)
+    args = {"file_id": "f9", "permanent": False, "expected_version": "v1"}
+    token = generate_approval_token(
+        approval_id="drive-stale-ver",
+        tool_name="drive.delete_file",
+        run_id="run-1",
+        arguments=args,
+    )
+    res = await tools.execute(
+        ToolInput(tool_name="drive.delete_file", arguments=args),
+        ToolContext(run_id="run-1", user_id="u1", approval_token=token),
+    )
+    assert res.success is False
+    assert "stale target state" in (res.error or "")
+    cast(Any, service.delete_file).assert_not_called()

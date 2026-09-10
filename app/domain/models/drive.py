@@ -192,6 +192,7 @@ class DriveFile(BaseModel):
     app_properties: dict[str, str] = Field(default_factory=dict)
     spaces: list[str] = Field(default_factory=list)
     version: str | None = None
+    etag: str | None = None
     web_content_link: str | None = None
     web_view_link: str | None = None
     icon_link: str | None = None

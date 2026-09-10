@@ -8,12 +8,20 @@ from app.harness.channels import (
 from app.harness.dispatch import HarnessDispatcher
 from app.harness.dsn import derive_checkpointer_dsn
 from app.harness.graph import SpecialistGraphBuilder
+from app.harness.supervisor import (
+    SupervisorChannels,
+    SupervisorGraphBuilder,
+    TaskDispatchChannel,
+)
 from app.harness.workflow_channels import WorkflowState, WorkflowStatus
 
 __all__ = [
     "HarnessDispatcher",
     "SpecialistChannels",
     "SpecialistGraphBuilder",
+    "SupervisorChannels",
+    "SupervisorGraphBuilder",
+    "TaskDispatchChannel",
     "WorkflowState",
     "WorkflowStatus",
     "apply_channels_to_state",

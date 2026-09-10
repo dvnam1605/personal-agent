@@ -13,6 +13,8 @@ import logging
 from typing import Protocol, runtime_checkable
 
 from app.agents.registry import AgentRegistry
+from app.core.sanitization import sanitize_string, strip_sensitive_keys
+from app.domain.enums import SpecialistStatus
 from app.domain.errors import ConfigurationError, NotFoundError, PermissionDeniedError
 from app.domain.models.agent import AgentDefinition, DelegationContext, DelegationResult
 from app.domain.models.specialist import (
@@ -33,6 +35,9 @@ DELEGATION_CONTEXT = (
     "automatically. When the task needs access beyond that scope, "
     "return a CapabilityRequest so the orchestration layer can handle it."
 )
+
+# Credential keys stripped recursively from child context_data (shared with session_manager).
+# Implementation lives in app.core.sanitization.strip_sensitive_keys.
 
 
 @runtime_checkable
@@ -81,6 +86,7 @@ class DelegationService:
                 details={"depth": child_depth, "limit": limit},
             )
         scoped = view if view is not None else self._scoped_view(request, target)
+        sandbox_scope = tuple(sorted(scoped.tool_names))
         delegation = DelegationContext(
             parent_agent=parent.name,
             target_agent=target.name,
@@ -89,22 +95,34 @@ class DelegationService:
             # Truthful metadata: permit_mutations=False below rejects every
             # mutation, so the child is strictly read-only in effect.
             read_only=True,
+            approval_policy="NEVER",
+            sandbox_scope=sandbox_scope,
         )
         scope_line = (
             f"Delegated by '{parent.name}' at depth {child_depth} "
             f"(limit {limit}). Permitted tools: "
             f"{', '.join(delegation.allowed_tools) or '(none)'}."
         )
+        child_context_data = strip_sensitive_keys(request.context_data)
+        if not isinstance(child_context_data, dict):
+            child_context_data = {}
+        clean_goal = sanitize_string(request.goal, max_string_len=4_000)
+        clean_preamble = tuple(
+            sanitize_string(line, max_string_len=4_000) for line in request.system_preamble
+        )
         return SpecialistTask(
             agent_name=target.name,
-            goal=request.goal,
+            goal=clean_goal,
             mode=None,
-            context_data=dict(request.context_data),
+            context_data=child_context_data,
             budget=request.budget,
             tool_restriction=request.tool_restriction,
             permit_mutations=False,
+            approval_token=None,
+            approval_policy="NEVER",
+            sandbox_scope=sandbox_scope,
             delegation=delegation,
-            system_preamble=(*request.system_preamble, DELEGATION_CONTEXT, scope_line),
+            system_preamble=(*clean_preamble, DELEGATION_CONTEXT, scope_line),
         )
 
     async def delegate(self, request: DelegationRequest) -> DelegationResult:
@@ -122,12 +140,16 @@ class DelegationService:
                 "status": outcome.report.status.value,
             },
         )
+        report = outcome.report
         return DelegationResult(
             agent_name=target.name,
-            success=outcome.report.status.value == "success",
-            output=outcome.report.summary,
+            success=report.status is SpecialistStatus.SUCCESS,
+            output=report.summary,
             needs_approval=outcome.needs_approval,
             delegation_depth=outcome.delegation_depth,
+            status=report.status.value,
+            missing_context=list(report.missing_context or []),
+            usage=outcome.usage,
         )
 
     # ------------------------------------------------------------------

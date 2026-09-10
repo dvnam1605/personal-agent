@@ -8,21 +8,20 @@ resume (wired in P18). No prebuilt agents, no supervisor helpers, no handoffs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from langgraph.graph import END, StateGraph
 
 from app.agents.registry import AgentRegistry
 from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ExecutionMode
+from app.domain.errors import PermissionDeniedError
 from app.domain.models.agent import AgentDefinition
 from app.domain.models.specialist import SpecialistTask
+from app.domain.models.tool import ToolRestriction
 from app.harness.channels import SpecialistChannels
 from app.services.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistryView
-
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
 
 
 class SpecialistGraphBuilder:
@@ -62,8 +61,7 @@ class SpecialistGraphBuilder:
     # Nodes (first-party policy; the graph only carries their outputs)
     # ------------------------------------------------------------------
 
-    def _select_mode(self, state: SpecialistChannels, config: RunnableConfig) -> dict[str, Any]:
-        del config
+    def _select_mode(self, state: SpecialistChannels) -> dict[str, Any]:
         task = SpecialistTask.model_validate(state["task_json"])
         agent = self._agents.get(state["agent_name"])
         mode = ModeSelector.select(task, agent)
@@ -74,16 +72,10 @@ class SpecialistGraphBuilder:
             return "react"
         return "direct"
 
-    async def _execute_direct(
-        self, state: SpecialistChannels, config: RunnableConfig
-    ) -> dict[str, Any]:
-        del config
+    async def _execute_direct(self, state: SpecialistChannels) -> dict[str, Any]:
         return await self._execute(state, ExecutionMode.DIRECT)
 
-    async def _execute_react(
-        self, state: SpecialistChannels, config: RunnableConfig
-    ) -> dict[str, Any]:
-        del config
+    async def _execute_react(self, state: SpecialistChannels) -> dict[str, Any]:
         return await self._execute(state, ExecutionMode.BOUNDED_REACT)
 
     async def _execute(self, channels: SpecialistChannels, mode: ExecutionMode) -> dict[str, Any]:
@@ -101,8 +93,7 @@ class SpecialistGraphBuilder:
         }
 
     @staticmethod
-    def _finalize(state: SpecialistChannels, config: RunnableConfig) -> dict[str, Any]:
-        del config
+    def _finalize(state: SpecialistChannels) -> dict[str, Any]:
         if state.get("report_json") is None:
             return {"errors": ["finalize: execute node produced no report"]}
         return {}
@@ -114,10 +105,26 @@ class SpecialistGraphBuilder:
         payload["mode"] = mode.value
         task = SpecialistTask.model_validate(payload)
         agent = self._agents.get(channels["agent_name"])
+        if task.delegation is not None:
+            if task.approval_policy != "NEVER" or task.permit_mutations:
+                raise PermissionDeniedError(
+                    "Delegated specialists cannot carry permit_mutations or a non-NEVER "
+                    "approval_policy; mutations are pinned off at DelegationService."
+                )
         read_only = (
-            task.delegation is not None and task.delegation.read_only
-        ) or not task.permit_mutations
+            (task.delegation is not None and task.delegation.read_only)
+            or not task.permit_mutations
+            or task.approval_policy == "NEVER"
+        )
         view: ToolRegistryView = self._gate.for_agent(agent.name, read_only=read_only)
+        allowed_mut = task.context_data.get("allowed_mutation_tool") if task.context_data else None
+        if isinstance(allowed_mut, str) and allowed_mut.strip():
+            allow = [tool.name for tool in view.list() if not tool.is_mutation] + [
+                allowed_mut.strip()
+            ]
+            view = view.restrict(ToolRestriction(allow=allow))
+        if task.sandbox_scope:
+            view = view.restrict(ToolRestriction(allow=list(task.sandbox_scope)))
         if task.tool_restriction is not None:
             view = view.restrict(task.tool_restriction)
         return task, agent, view

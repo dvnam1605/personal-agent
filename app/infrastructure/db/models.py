@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -198,6 +199,9 @@ class AssistantRun(Base, TimestampMixin):
     )
     approval_requests: Mapped[list["ApprovalRequest"]] = relationship(
         "ApprovalRequest", back_populates="run", cascade="all, delete-orphan"
+    )
+    user_questions: Mapped[list["UserQuestion"]] = relationship(
+        "UserQuestion", back_populates="run"
     )
     workflow_runs: Mapped[list["WorkflowRun"]] = relationship(
         "WorkflowRun", back_populates="run", cascade="all, delete-orphan"
@@ -536,6 +540,7 @@ class ApprovalRequest(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     proposal_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     approver_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -548,13 +553,13 @@ class ApprovalRequest(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled')",
+            "status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled', 'unavailable')",
             name="ck_approval_requests_status",
         ),
         CheckConstraint(
             "(status = 'pending' AND approved IS NULL) "
             "OR (status = 'approved' AND approved = true) "
-            "OR (status IN ('rejected', 'expired', 'cancelled') AND approved = false)",
+            "OR (status IN ('rejected', 'expired', 'cancelled', 'unavailable') AND approved = false)",
             name="ck_approval_requests_decision_consistency",
         ),
         Index("ix_approval_requests_run_status", "run_id", "status"),
@@ -580,8 +585,41 @@ class ApprovalRequest(Base):
     def sanitize_bounded_text(self, _key: str, value: str | None) -> str | None:
         if value is None:
             return None
-        max_len = 32 if _key == "risk_level" else 64
-        return sanitize_string(value, max_string_len=max_len)[:max_len]
+        return _sanitize_bounded_text(value, 64)
+
+
+class UserQuestion(Base):
+    """Question Plane model for interactive human clarification (P18-02A)."""
+
+    __tablename__ = "user_questions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("assistant_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    questions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    answers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    answered_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+
+    run: Mapped["AssistantRun | None"] = relationship(
+        "AssistantRun", back_populates="user_questions"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'answered', 'cancelled', 'expired')",
+            name="ck_user_questions_status",
+        ),
+        Index("ix_user_questions_run_status", "run_id", "status"),
+    )
 
 
 class AuditEvent(Base):
@@ -698,3 +736,17 @@ class WorkflowRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["AssistantRun"] = relationship("AssistantRun", back_populates="workflow_runs")
+
+
+def _forbid_append_only_orm_mutation(_mapper, _connection, target) -> None:
+    """Block ORM UPDATE/DELETE on claimed append-only audit tables (M7)."""
+    table = getattr(target, "__tablename__", type(target).__name__)
+    raise PermissionError(f"{table} is append-only")
+
+
+event.listen(ToolExecution, "before_update", _forbid_append_only_orm_mutation)
+event.listen(ToolExecution, "before_delete", _forbid_append_only_orm_mutation)
+event.listen(LLMExecution, "before_update", _forbid_append_only_orm_mutation)
+event.listen(LLMExecution, "before_delete", _forbid_append_only_orm_mutation)
+event.listen(AuditEvent, "before_update", _forbid_append_only_orm_mutation)
+event.listen(AuditEvent, "before_delete", _forbid_append_only_orm_mutation)

@@ -32,6 +32,7 @@ from app.domain.models import (
 )
 from app.integrations.google_common import (
     GoogleResourceAdapter,
+    if_match_headers,
     require_list,
     require_object,
 )
@@ -365,6 +366,7 @@ class CalendarAdapter(GoogleResourceAdapter):
         calendar_id: str = "primary",
         *,
         send_updates: str = "all",
+        if_match: str | None = None,
     ) -> CalendarEvent:
         """Update an event with PUT for full requests or PATCH for partial requests."""
         calendar_identifier = _validate_identifier(calendar_id, "calendar identifier")
@@ -376,6 +378,7 @@ class CalendarAdapter(GoogleResourceAdapter):
             operation="Google Calendar event update",
             params={"sendUpdates": _validate_send_updates(send_updates)},
             json=request.to_google(),
+            headers=if_match_headers(if_match),
             retryable=False,
         )
         return _event_from_payload(payload, calendar_identifier)
@@ -386,6 +389,7 @@ class CalendarAdapter(GoogleResourceAdapter):
         calendar_id: str = "primary",
         *,
         send_updates: str = "all",
+        if_match: str | None = None,
     ) -> CalendarMutationResult:
         """Delete an event and return a provider-neutral mutation result."""
         calendar_identifier = _validate_identifier(calendar_id, "calendar identifier")
@@ -395,6 +399,7 @@ class CalendarAdapter(GoogleResourceAdapter):
             f"/calendar/v3/calendars/{quote(calendar_identifier, safe='')}/events/{quote(event_identifier, safe='')}",
             operation="Google Calendar event deletion",
             params={"sendUpdates": _validate_send_updates(send_updates)},
+            headers=if_match_headers(if_match),
             allow_empty=True,
             retryable=False,
         )
@@ -411,6 +416,7 @@ class CalendarAdapter(GoogleResourceAdapter):
         calendar_id: str = "primary",
         *,
         send_updates: str = "all",
+        if_match: str | None = None,
     ) -> CalendarEvent:
         """Add one attendee without duplicating an existing mailbox."""
         current = await self.get_event(event_id, calendar_id)
@@ -420,6 +426,7 @@ class CalendarAdapter(GoogleResourceAdapter):
             current,
             [*current.attendees, attendee],
             send_updates=send_updates,
+            if_match=if_match,
         )
 
     async def remove_attendee(
@@ -429,6 +436,7 @@ class CalendarAdapter(GoogleResourceAdapter):
         calendar_id: str = "primary",
         *,
         send_updates: str = "all",
+        if_match: str | None = None,
     ) -> CalendarEvent:
         """Remove one attendee by normalized email without guessing."""
         current = await self.get_event(event_id, calendar_id)
@@ -440,6 +448,7 @@ class CalendarAdapter(GoogleResourceAdapter):
             current,
             remaining,
             send_updates=send_updates,
+            if_match=if_match,
         )
 
     async def _patch_attendees(
@@ -448,8 +457,10 @@ class CalendarAdapter(GoogleResourceAdapter):
         attendees: list[CalendarAttendee],
         *,
         send_updates: str,
+        if_match: str | None = None,
     ) -> CalendarEvent:
-        if not current.etag:
+        precondition = (if_match or current.etag or "").strip()
+        if not precondition:
             raise ExternalServiceError(
                 "Google Calendar event did not include an ETag; attendee update was aborted.",
                 service_name="calendar",
@@ -461,7 +472,7 @@ class CalendarAdapter(GoogleResourceAdapter):
             operation="Google Calendar attendee update",
             params={"sendUpdates": _validate_send_updates(send_updates)},
             json={"attendees": [attendee.to_google() for attendee in attendees]},
-            headers={"If-Match": current.etag},
+            headers=if_match_headers(precondition),
             retryable=False,
         )
         return _event_from_payload(payload, current.calendar_id)

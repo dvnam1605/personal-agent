@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from app.core.security import TokenEncryptionError
 from app.domain.errors import NotFoundError, ValidationError
 from app.domain.models.spill import SpilledOutput, SpillPolicyConfig, SpillRef
 from app.domain.models.tool import ToolResult
@@ -167,6 +168,7 @@ class LocalFileSpillStore(SpillStore):
         self.base_dir = Path(base_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._meta_cache: dict[str, SpillRef] = {}
+        self._require_encryption = require_encryption
         if cipher is not None:
             self._cipher = cipher
         else:
@@ -174,7 +176,7 @@ class LocalFileSpillStore(SpillStore):
                 from app.core.security import FernetTokenCipher
 
                 self._cipher = FernetTokenCipher.from_settings()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - cipher init is optional unless required
                 if require_encryption:
                     logger.error("spill_encryption_required_failed", extra={"error": str(exc)})
                     raise
@@ -204,7 +206,9 @@ class LocalFileSpillStore(SpillStore):
             if not target_path.exists():
                 # Backwards-compatible check for legacy 16-character session directories
                 legacy_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:16]
-                legacy_path = (self.base_dir / f"session-{legacy_hash}" / f"{artifact_id}.txt").resolve()
+                legacy_path = (
+                    self.base_dir / f"session-{legacy_hash}" / f"{artifact_id}.txt"
+                ).resolve()
                 if legacy_path.exists():
                     target_path = legacy_path
         else:
@@ -261,17 +265,23 @@ class LocalFileSpillStore(SpillStore):
         )
 
         # Write text (encrypted if cipher configured) and metadata
+        if self._require_encryption and self._cipher is None:
+            raise ValidationError("Spill encryption is required but no cipher is configured.")
         payload = self._cipher.encrypt(content) if self._cipher is not None else content
         file_path.write_text(payload, encoding="utf-8")
         try:
             file_path.chmod(0o600)
         except OSError as exc:
-            logger.debug("spill_file_chmod_failed", extra={"path": str(file_path), "error": str(exc)})
+            logger.debug(
+                "spill_file_chmod_failed", extra={"path": str(file_path), "error": str(exc)}
+            )
         meta_path.write_text(ref.model_dump_json(indent=2), encoding="utf-8")
         try:
             meta_path.chmod(0o600)
         except OSError as exc:
-            logger.debug("spill_file_chmod_failed", extra={"path": str(meta_path), "error": str(exc)})
+            logger.debug(
+                "spill_file_chmod_failed", extra={"path": str(meta_path), "error": str(exc)}
+            )
         self._meta_cache[locator] = ref
 
         return ref
@@ -288,13 +298,18 @@ class LocalFileSpillStore(SpillStore):
         if self._cipher is not None:
             try:
                 content = self._cipher.decrypt(raw)
-            except Exception as exc:
-                logger.warning(
-                    "spill_decrypt_failed_fallback_raw",
+            except TokenEncryptionError as exc:
+                logger.error(
+                    "spill_decrypt_failed",
                     extra={"locator": locator, "path": str(file_path), "error": str(exc)},
                 )
-                content = raw
+                raise ValidationError(
+                    "Unable to decrypt spill artifact.",
+                    details={"locator": locator},
+                ) from exc
         else:
+            if self._require_encryption:
+                raise ValidationError("Spill encryption is required but no cipher is configured.")
             content = raw
         if offset < 0:
             offset = 0
@@ -314,7 +329,8 @@ class LocalFileSpillStore(SpillStore):
                 ref = SpillRef.model_validate(data)
                 self._meta_cache[locator] = ref
                 return ref
-        except Exception:
+        except Exception:  # noqa: BLE001 - missing/corrupt spill meta is a cache miss
+            logger.debug("spill_meta_load_failed", extra={"locator": locator}, exc_info=True)
             return None
         return None
 
@@ -325,7 +341,10 @@ class LocalFileSpillStore(SpillStore):
             try:
                 data = json.loads(meta_file.read_text(encoding="utf-8"))
                 results.append(SpillRef.model_validate(data))
-            except Exception:
+            except Exception:  # noqa: BLE001 - skip unreadable spill meta files
+                logger.debug(
+                    "spill_meta_list_failed", extra={"path": str(meta_file)}, exc_info=True
+                )
                 continue
         return results
 
@@ -389,7 +408,7 @@ class SpillPolicy:
                 tool_name=result.tool_name,
                 call_id=call_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - spill is optional; keep the inline result
             logger.warning(
                 "Failed to save oversized tool output to spill store; falling back to inline result",
                 tool_name=result.tool_name,

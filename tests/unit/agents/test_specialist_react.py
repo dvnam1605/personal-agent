@@ -8,6 +8,7 @@ from typing import Any
 from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ExecutionMode
 from app.domain.models import ExecutionBudget, SpecialistTask, ToolRestriction
+from app.services.approvals import generate_approval_token
 from app.services.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
@@ -495,6 +496,32 @@ class TestToolAdvertLeastPrivilege:
         chat = ScriptedChat([fakes.text_turn("ok")])
         runner, gate, _ = _harness(chat, DictExecutor({}), tools=tools)
         agent = fakes.make_agent()
-        task = _task(permit_mutations=True, approval_token="tok")
+        token = generate_approval_token("appr-1", run_id="r1")
+        task = _task(permit_mutations=True, approval_token=token)
         await runner.run(task, agent, gate.for_agent(agent.name), run_id="r1", user_id="u1")
         assert "test.write" in chat.tool_schemas_seen[0]
+
+    async def test_invalid_mutation_token_downgrades_and_does_not_advertise_or_leak(self) -> None:
+        """H2 & M2: Invalid token is not advertised, permit_mutations downgraded, token not leaked into prompts/trace."""
+        tools = [fakes.make_read_tool(), fakes.make_mutation_tool()]
+        chat = ScriptedChat([fakes.text_turn("ok")])
+        runner, gate, _ = _harness(chat, DictExecutor({}), tools=tools)
+        agent = fakes.make_agent()
+        fake_secret_token = "appr_fake_forged_secret_token"
+        task = _task(
+            permit_mutations=True,
+            approval_token=fake_secret_token,
+            context_data={"approval_token": fake_secret_token, "note": "hello"},
+        )
+        outcome = await runner.run(
+            task, agent, gate.for_agent(agent.name), run_id="r1", user_id="u1"
+        )
+        # M2: Mutation tool not advertised
+        assert "test.write" not in chat.tool_schemas_seen[0]
+        # H2: Token is not leaked in user prompt
+        all_prompt_text = "\n".join(m.content for m in chat.prompts[0])
+        assert fake_secret_token not in all_prompt_text
+        assert "hello" in all_prompt_text
+        # H2: Token is not in trace steps
+        for step in outcome.trace.steps:
+            assert fake_secret_token not in str(step.arguments)

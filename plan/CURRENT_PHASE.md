@@ -1,20 +1,19 @@
 # CURRENT PHASE
 
-Current phase: **P15 CLOSED · P16 IN PROGRESS (Supervisor Dynamic Multi-Agent DAG).**
-P9 family (P9A..P9E), P10A, P10B, P10C, and P10D are approved and CLOSED as of
-2026-08-25 / 2026-08-27 / 2026-08-28 / 2026-09-03 / 2026-09-03 respectively.
-P11 was APPROVED 2026-09-07, P12 was APPROVED 2026-09-07, P13 was
-APPROVED 2026-09-07, P14 was APPROVED 2026-09-07, and P15 was
-APPROVED 2026-09-08 (see ledger).
+Current phase: **P20 WAITING FOR USER REVIEW — V1 RELEASE (End-to-End Evaluation, Security Hardening & v1.0 Release).**
+P9 family (P9A..P9E), P10 family (P10A..P10D), P11, P12, P13, P14, P15, P16, P17, P18, and P19
+are approved and CLOSED as of 2026-09-09 (see ledger).
 
 Read:
 1. `MASTER_PLAN.md`
-2. `phases/P16_supervisor_dynamic_multi_agent_dag.md`
-3. Next phase spec: `phases/P17_context_memory_entity_resolution_memory_gate.md` when P16 is approved.
+2. `phases/P20_end_to_end_evaluation_security_hardening_v1_release.md`
+3. `reviews/P20_v1_release_report.md` (P20 Review Pack - V1 Release Report)
+4. `docs/V1_RELEASE_NOTES.md` (v1.0 Production Release Notes)
 
-Gate status: **P10A CLOSED · P10B CLOSED · P10C CLOSED · P10D CLOSED · P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 CLOSED · P16 IN PROGRESS**
+Gate status: **P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 CLOSED · P16 CLOSED · P17 CLOSED · P18 CLOSED · P19 CLOSED · P20 WAITING FOR USER REVIEW — V1 RELEASE**
 
 ## Gate ledger (single source of truth)
+
 
 ```text
 APPROVED P8    received from user 2026-08-24 ("Approve P8 làm P9B đi").
@@ -71,7 +70,28 @@ APPROVED P15   received from user 2026-09-08 ("ok approved p15") against
                  Static Workflow Registry, §18A.5 LangGraph isolation in harness,
                  H1-H8, M1-M9, L1-L5, N1-N6 remediated, 61 P15 tests, 819 unit tests passing).
                  Unblocks Phase 16.
-NEXT GATE      `APPROVED P16` — closes Phase 16 based on reviews/P16_review_pack.md.
+APPROVED P16   received from user 2026-09-09 ("ok vậy approved 16, làm phase 17 đi")
+                 against reviews/P16_review_pack.md v3 — closes Phase 16 (Supervisor +
+                 Dynamic Multi-Agent DAG, H1-H2, L1-L2 remediated, 5 non-blocking MEDIUM
+                 debts triaged to P17/P18, 0 warnings, full suite green, ruff/pyright 0 errors).
+                 Unblocks Phase 17.
+APPROVED P17   received from user 2026-09-09 ("approved p17") against
+                 reviews/P17_review_pack.md v2 — closes Phase 17 (Context Memory,
+                 Entity Resolution, Memory Gate, Token-Pressure Compaction, H1 backfill hash key fix,
+                 M1 runtime wiring, M2 ambiguous preservation, M3 gate fallback, M4 prompt sanitization,
+                 L1-L3 fixes, 23 Phase 17 tests, full suite green 90% coverage across 13,321 stmts).
+                 Unblocks Phase 18.
+APPROVED P18   received from user 2026-09-09 ("oke approved p18") against
+                 reviews/P18_review_pack.md — closes Phase 18 (PolicyEngine, Question Plane,
+                 token-API approval plane, single-use token consumption, REST APIs,
+                 16 security invariant tests passing, 0 pyright/ruff errors).
+                 Unblocks Phase 19.
+APPROVED P19   received from user 2026-09-09 ("approved p19") against
+                 reviews/P19_review_pack.md — closes Phase 19 (Workflow Hardening +
+                 Meeting Prep Graph WF-05, H1-H2, M1-M4 remediated, calibrated benchmark,
+                 fail-closed 0 fabrication, 35 unit tests green, 0 ruff/pyright errors).
+                 Unblocks Phase 20.
+NEXT GATE      `WAITING FOR USER REVIEW — V1 RELEASE` (`APPROVED P20`) — closes Phase 20 based on phases/P20_end_to_end_evaluation_security_hardening_v1_release.md.
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -147,8 +167,17 @@ P10       split approved (see P10 spec header); ownership entry requirement
             P15   Fast Triage & Static Workflow Registry —
                  **APPROVED & CLOSED 2026-09-08.** Review Pack at
                  reviews/P15_review_pack.md.
-           P16   Supervisor Dynamic Multi-Agent DAG — IN PROGRESS.
-                 Spec: phases/P16_supervisor_dynamic_multi_agent_dag.md.
+            P16   Supervisor Dynamic Multi-Agent DAG —
+                 **APPROVED & CLOSED 2026-09-09.** Review Pack at
+                 reviews/P16_review_pack.md.
+            P17   Context + Memory + Entity Resolution + Memory Gate —
+                  **APPROVED & CLOSED 2026-09-09.** Review Pack at
+                  reviews/P17_review_pack.md.
+            P18   Policy + Approval Plane + Question Plane + Full Write Access —
+                  **APPROVED & CLOSED 2026-09-09.** Review Pack at
+                  reviews/P18_review_pack.md.
+            P19   Workflow Hardening + Meeting Prep Graph (WF-05) —
+                  IN PROGRESS. Spec: phases/P19_workflow_hardening_meeting_prep_graph.md.
 ```
 
 ---

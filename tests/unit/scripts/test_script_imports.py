@@ -24,6 +24,7 @@ def test_script_imports_without_error(script_name: str) -> None:
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     import sys
+
     sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)

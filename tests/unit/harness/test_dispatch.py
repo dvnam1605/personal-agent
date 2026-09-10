@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -10,7 +11,12 @@ from app.domain.enums import Domain, RouteType
 from app.domain.errors import ConfigurationError, ValidationError
 from app.domain.models import AssistantState, RouteDecision
 from app.harness.dispatch import HarnessDispatcher
+from app.harness.supervisor.channels import TaskDispatchChannel
 from app.harness.workflows.document_briefing import build_document_briefing_graph
+from app.services.approvals import (
+    generate_approval_token,
+    verify_approval_token_sync,
+)
 
 
 @pytest.fixture
@@ -61,6 +67,11 @@ class TestHarnessDispatcher:
 
         def fake_draft_creator(ctx: dict[str, Any]) -> dict[str, Any]:
             created_drafts.append(ctx)
+            tok = str(ctx.get("approval_token") or "")
+            # Tool gate consumes token
+            verify_approval_token_sync(
+                tok, "gmail.create_draft", consume=True, expected_run_id=base_state.run_id
+            )
             return {"draft_id": "draft_abc", "status": "draft_created"}
 
         from app.harness.workflows.meeting_followup import build_meeting_followup_graph
@@ -84,22 +95,38 @@ class TestHarnessDispatcher:
             reasoning="Matched WF-01",
         )
 
-        # Token passed in parameters dict at dispatch time
+        token = generate_approval_token(
+            "wf01-appr",
+            tool_name="gmail.create_draft",
+            run_id=base_state.run_id,
+            arguments={},
+        )
+        extra = {"approval_token": token, "arguments": {}}
         res = await dispatcher.dispatch(
             decision,
             base_state,
-            {"approval_token": "valid_token_xyz"},
+            extra,
         )
         assert res.get("status") == "draft_created"
         assert res.get("draft_id") == "draft_abc"
         assert res.get("output", {}).get("draft_id") == "draft_abc"
         assert len(created_drafts) == 1
-        assert created_drafts[0]["approval_token"] == "valid_token_xyz"
+        assert created_drafts[0]["approval_token"] == token
+
+        res_replay = await dispatcher.dispatch(
+            decision,
+            base_state,
+            extra,
+        )
+        assert res_replay.get("status") == "needs_approval"
+        assert res_replay.get("draft_id") is None
+        assert len(created_drafts) == 1
 
     async def test_dispatch_wf02_partial_error_propagation(
         self, base_state: AssistantState
     ) -> None:
         """WF-02 returns partial_error when one search branch succeeds and another fails."""
+
         def failing_drive(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             raise RuntimeError("Google Drive API rate limit exceeded")
 
@@ -171,11 +198,9 @@ class TestHarnessDispatcher:
             await dispatcher.dispatch(decision, base_state)
         assert "non-empty query" in str(exc_info.value)
 
-    async def test_dispatch_terminal_routes(
-        self, base_state: AssistantState
-    ) -> None:
+    async def test_dispatch_terminal_routes(self, base_state: AssistantState) -> None:
         """Immediate terminal routes (REJECT, CLARIFICATION, CASUAL_RESPONSE, DIRECT_SPECIALIST, SUPERVISOR_DAG)."""
-        dispatcher = HarnessDispatcher()
+        dispatcher = HarnessDispatcher(specialist_builder=None)
 
         # REJECT
         rej = RouteDecision(
@@ -217,7 +242,7 @@ class TestHarnessDispatcher:
             "message": "Xin chào bạn! Tôi có thể giúp gì?",
         }
 
-        # DIRECT_SPECIALIST
+        # DIRECT_SPECIALIST is fail-closed when specialist_builder is not wired
         spec = RouteDecision(
             route_type=RouteType.DIRECT_SPECIALIST,
             target_agent="calendar_specialist",
@@ -226,11 +251,29 @@ class TestHarnessDispatcher:
             parameters={"query": "Lịch họp ngày mai"},
             reasoning="Calendar request",
         )
-        res_spec = await dispatcher.dispatch(spec, base_state)
-        assert res_spec["status"] == "dispatched_specialist"
-        assert res_spec["target_agent"] == "calendar_specialist"
+        with pytest.raises(ConfigurationError, match="specialist_builder"):
+            await dispatcher.dispatch(spec, base_state)
 
-        # SUPERVISOR_DAG
+        # SUPERVISOR_DAG with default (unwired) executor fails closed — no fabricated facts
+        async def _ok_executor(payload: TaskDispatchChannel) -> dict[str, Any]:
+            tid = payload["task_id"]
+            return {
+                "task_results": {tid: {"status": "completed", "output": "ok"}},
+                "completed_task_ids": [tid],
+            }
+
+        from app.agents.declarations import build_first_party_registry
+        from app.harness.supervisor import SupervisorGraphBuilder
+        from app.services.supervisor import SupervisorPlanner, build_capability_catalog
+
+        registry = build_first_party_registry()
+        catalog = build_capability_catalog(registry)
+        graph = SupervisorGraphBuilder(
+            planner=SupervisorPlanner(),
+            catalog=catalog,
+            task_executor=_ok_executor,
+        ).build()
+        wired = HarnessDispatcher(supervisor_builder=lambda **k: graph)
         sup = RouteDecision(
             route_type=RouteType.SUPERVISOR_DAG,
             confidence=0.85,
@@ -238,6 +281,75 @@ class TestHarnessDispatcher:
             parameters={"query": "Lên lịch và gửi email"},
             reasoning="Multi-domain request",
         )
-        res_sup = await dispatcher.dispatch(sup, base_state)
-        assert res_sup["status"] == "pending_supervisor_orchestration"
-        assert res_sup["phase"] == "P16"
+        res_sup = await wired.dispatch(sup, base_state)
+        assert res_sup["status"] == "completed"
+        assert "final_synthesis" in res_sup
+
+        closed = HarnessDispatcher(supervisor_builder=None)
+        with pytest.raises(ConfigurationError, match="supervisor_builder"):
+            await closed.dispatch(sup, base_state)
+
+    async def test_default_supervisor_does_not_fabricate_evidence(
+        self, base_state: AssistantState
+    ) -> None:
+        """H3: unwired task_executor fails closed instead of inventing specialist facts."""
+        dispatcher = HarnessDispatcher()
+        sup = RouteDecision(
+            route_type=RouteType.SUPERVISOR_DAG,
+            confidence=0.85,
+            domains=[Domain.CALENDAR, Domain.COMMUNICATION],
+            parameters={"query": "Lên lịch và gửi email"},
+            reasoning="Multi-domain request",
+        )
+        res = await dispatcher.dispatch(sup, base_state)
+        synthesis = str(res.get("final_synthesis") or "")
+        assert "Fact gathered by" not in synthesis
+        assert res.get("status") in (
+            "failed",
+            "partial_failure",
+            "validation_failed",
+            "blocked",
+            "needs_more_context",
+        )
+        for item in res.get("evidence") or []:
+            content = getattr(item, "content", None) or str(item)
+            assert "Fact gathered by" not in content
+
+    @pytest.mark.asyncio
+    async def test_direct_specialist_executes_real_graph_and_updates_state(
+        self, base_state: AssistantState
+    ) -> None:
+        """H4: DIRECT_SPECIALIST executes real specialist graph and updates AssistantState telemetry."""
+        fake_spec_graph = MagicMock()
+        fake_spec_graph.ainvoke = AsyncMock(
+            return_value={
+                "report_json": {"status": "completed", "summary": "Scheduled meeting"},
+                "usage": {"llm_calls": 2, "tool_calls": 3, "react_steps": 2},
+                "trace_steps": [{"step": 1}, {"step": 2}],
+            }
+        )
+        dispatcher = HarnessDispatcher(
+            specialist_builder=lambda *, checkpointer=None: fake_spec_graph
+        )
+
+        decision = RouteDecision(
+            route_type=RouteType.DIRECT_SPECIALIST,
+            target_agent="CalendarAgent",
+            confidence=0.95,
+            domains=[Domain.CALENDAR],
+            parameters={"query": "Họp 10h sáng mai"},
+            reasoning="Direct calendar request",
+        )
+
+        initial_llm = base_state.llm_call_count
+        initial_tools = base_state.tool_call_count
+        initial_react = base_state.react_steps
+
+        res = await dispatcher.dispatch(decision, base_state)
+
+        assert res["status"] == "completed"
+        assert res["target_agent"] == "CalendarAgent"
+        assert res["report"] == {"status": "completed", "summary": "Scheduled meeting"}
+        assert base_state.llm_call_count == initial_llm + 2
+        assert base_state.tool_call_count == initial_tools + 3
+        assert base_state.react_steps == initial_react + 2

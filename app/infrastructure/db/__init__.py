@@ -17,6 +17,7 @@ from app.infrastructure.db.models import (
     Skill,
     ToolExecution,
     User,
+    UserQuestion,
     WorkflowRun,
 )
 from app.infrastructure.db.session import (
@@ -43,6 +44,7 @@ __all__ = [
     "TimestampMixin",
     "ToolExecution",
     "User",
+    "UserQuestion",
     "WorkflowRun",
     "get_db_session",
     "get_engine",

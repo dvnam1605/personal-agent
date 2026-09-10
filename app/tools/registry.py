@@ -219,14 +219,19 @@ class ToolRegistryView:
         del tool
         raise PermissionDeniedError("Tool registry views are immutable and cannot register tools.")
 
-    def get(self, tool_name: str) -> ToolDefinition:
-        """Return an exposed tool or behave as if an unavailable tool does not exist."""
+    def get(self, tool_name: str, *, agent_name: str | None = None) -> ToolDefinition:
+        """Return an exposed tool or behave as if an unavailable tool does not exist.
+
+        The view itself is the ACL. *agent_name* is recorded on errors so
+        Restricted/Scoped views and callers share one signature.
+        """
         try:
             tool = self._tools[tool_name]
         except KeyError as exc:
             raise NotFoundError(
-                f"Tool '{tool_name}' is not available in this registry view.",
-                details={"tool_name": tool_name},
+                f"Tool '{tool_name}' is not available in this registry view"
+                + (f" for agent '{agent_name}'." if agent_name else "."),
+                details={"tool_name": tool_name, "agent_name": agent_name},
             ) from exc
         return tool.model_copy(deep=True)
 

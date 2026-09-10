@@ -82,7 +82,10 @@ class StaticWorkflowRegistry:
         if not normalized_query:
             return None
         for entry in self._workflows.values():
-            if any(match_workflow_trigger(trigger, normalized_query) for trigger in entry.trigger_patterns):
+            if any(
+                match_workflow_trigger(trigger, normalized_query)
+                for trigger in entry.trigger_patterns
+            ):
                 return entry
         return None
 
@@ -134,6 +137,38 @@ def load_default_workflow_registry() -> StaticWorkflowRegistry:
             ),
             domains=(Domain.KNOWLEDGE_RESEARCH,),
             metadata={"adr_reference": "ADR 0005"},
+        )
+    )
+
+    registry.register(
+        StaticWorkflowEntry(
+            workflow_id="WF-05",
+            name="Meeting Prep Graph",
+            description="Deterministically identifies meeting context, runs parallel email & document research, and synthesizes an executive briefing dossier.",
+            trigger_patterns=(
+                "chuẩn bị họp",
+                "chuan bi hop",
+                "chuẩn bị cuộc họp",
+                "chuan bi cuoc hop",
+                "hop ngay mai",
+                "họp ngày mai",
+                "meeting prep",
+                "chuẩn bị tài liệu cuộc họp",
+                "chuẩn bị hồ sơ họp",
+                "tổng hợp trước cuộc họp",
+                "tổng hợp hồ sơ họp",
+                "chuẩn bị tài liệu họp",
+                "meeting prep graph",
+                "meeting-prep graph",
+                "hồ sơ cuộc họp",
+                "chuan bi ho so hop",
+                "chuan bi tai lieu cuoc hop",
+                "tong hop ho so hop",
+                "wf-05",
+                r"/(?:họp|cuộc họp|hop|cuoc hop).*(?:chuẩn bị|chuan bi)|(?:chuẩn bị|chuan bi).*(?:họp|cuộc họp|hop|cuoc hop)/",
+            ),
+            domains=(Domain.CALENDAR, Domain.COMMUNICATION, Domain.KNOWLEDGE_RESEARCH),
+            metadata={"adr_reference": "ADR 0005", "phase": "P19"},
         )
     )
 

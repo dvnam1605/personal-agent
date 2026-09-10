@@ -24,14 +24,6 @@ dependencies = [
     "langsmith>=0.11.0",
     "psycopg[binary]>=3.3.4",
     "docling>=2.59,<3",
-    # Runtime ML stack: imported lazily by the ingestion embedding backend
-    # (embedding.py) and the ViRanker reranker (rerank.py) via
-    # huggingface_hub snapshots. Declared explicitly so a fresh install
-    # without transitive luck still runs retrieval — previously these only
-    # arrived transitively via docling.
-    "torch>=2.2",
-    "transformers>=4.40",
-    "huggingface-hub>=0.23",
     # Explicit floors: transitive pins resolved to pillow 10.4.0 / pyyaml
     # 6.0.2, which have no CPython 3.13+/3.14 wheels and fail to build from
     # source. Keep these floors until docling's chain lifts them.
@@ -50,6 +42,13 @@ dependencies = [
 override-dependencies = ["pillow>=11.0", "pyyaml>=6.0.3"]
 
 [project.optional-dependencies]
+# Local embedding/rerank backends (embedding.py, rerank.py) import these lazily.
+# Install with: uv sync --extra ml
+ml = [
+    "torch>=2.2",
+    "transformers>=4.40",
+    "huggingface-hub>=0.23",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -79,6 +78,11 @@ packages = ["app"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = [
+    "deepseek-harness",
+    "TencentDB-Agent-Memory",
+    "data",
+]
 
 [tool.ruff.lint]
 select = [
@@ -87,6 +91,7 @@ select = [
     "F",   # pyflakes
     "I",   # isort
     "B",   # flake8-bugbear
+    "BLE", # blind except Exception (L5)
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
@@ -96,17 +101,31 @@ ignore = [
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q --strict-markers --cov=app --cov-report=term-missing"
+addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+norecursedirs = [".*", "deepseek-harness", "TencentDB-Agent-Memory", "data"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
+
 [tool.pyright]
 include = ["app", "tests"]
-exclude = ["**/node_modules", "**/__pycache__", ".venv"]
+exclude = ["**/node_modules", "**/__pycache__", ".venv", "deepseek-harness", "TencentDB-Agent-Memory", "data"]
 venvPath = "."
 venv = ".venv"
-pythonVersion = "3.11"
+pythonVersion = "3.14"
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false

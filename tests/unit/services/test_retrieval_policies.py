@@ -852,6 +852,7 @@ class TestExtraPolicies:
             retrieval_type="hybrid",
             metadata={
                 "document_title": "Annual Report 2026",
+                "filename": "annual-report.pdf",
                 "uri": "drive://annual.pdf",
                 "source_type": "drive_file",
                 "version_number": 2,
@@ -861,9 +862,10 @@ class TestExtraPolicies:
         assert ev.score == 0.88
         assert ev.rerank_score == 0.92
         assert ev.title == "Annual Report 2026"
-        assert ev.filename == "drive://annual.pdf"
+        assert ev.filename == "annual-report.pdf"
         assert ev.source_type == "drive_file"
-        assert ev.document_version_id == "2"
+        assert ev.document_version_id == "d-1"
+        assert ev.anchors.get("version_number") == 2
 
     @pytest.mark.asyncio
     async def test_parent_expansion_populates_provenance(self) -> None:
@@ -872,6 +874,7 @@ class TestExtraPolicies:
 
         pid = uuid.uuid4().hex
         did = uuid.uuid4().hex
+        version_id = uuid.uuid4().hex
         cid = uuid.uuid4().hex
 
         fake_provider = FakeProvider(
@@ -886,7 +889,9 @@ class TestExtraPolicies:
                     "citation_label": "p. 5-7",
                     "document_title": "Doc Title",
                     "source_type": "pdf",
-                    "uri": "file.pdf",
+                    "uri": "drive://annual.pdf",
+                    "filename": "annual-report.pdf",
+                    "document_version_id": version_id,
                     "version_number": 1,
                 }
             ]
@@ -911,8 +916,33 @@ class TestExtraPolicies:
         assert ev.score == 0.85
         assert ev.rerank_score == 0.90
         assert ev.title == "Doc Title"
-        assert ev.filename == "file.pdf"
+        assert ev.filename == "annual-report.pdf"
         assert ev.source_type == "pdf"
-        assert ev.document_version_id == "1"
+        assert ev.document_version_id == version_id
+        assert ev.document_version_id != did
         assert ev.anchors.get("page_start") == 5
         assert ev.anchors.get("page_end") == 7
+        assert ev.anchors.get("version_number") == 1
+
+    def test_provenance_fallback_to_title_when_uri_none(self) -> None:
+        """H9: When uri is None (local corpus), filename falls back to document_title."""
+        from app.services.retrieval.packing import unit_for_chunk
+
+        c = RetrievedChunk(
+            chunk_id="c-local-1",
+            parent_id="p-local-1",
+            document_id="doc-uuid-12345",
+            content_raw="van ban noi bo",
+            score=0.9,
+            retrieval_type="hybrid",
+            metadata={
+                "document_title": "quyet_dinh_123.pdf",
+                "uri": None,
+                "source_type": "local_file",
+                "version_number": 1,
+            },
+        )
+        ev = unit_for_chunk(c)
+        assert ev.document_version_id == "doc-uuid-12345"
+        assert ev.filename == "quyet_dinh_123.pdf"
+        assert ev.title == "quyet_dinh_123.pdf"

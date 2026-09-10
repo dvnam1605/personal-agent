@@ -22,9 +22,7 @@ from app.domain.models.retrieval import (
     RetrievalQuery,
     RetrievedChunk,
 )
-from app.services.retrieval.benchmark_dataset import (
-    BENCHMARK_CORPUS,
-    BENCHMARK_QUERIES,
+from app.services.retrieval.benchmark_types import (
     BenchmarkCorpus,
     BenchmarkQuery,
     BenchmarkQueryCategory,
@@ -377,13 +375,15 @@ class BenchmarkRowProvider(RowProvider):
 class AblationRunner:
     """Orchestrates benchmark runs and ablation experiments (spec P10-22..24)."""
 
-    def __init__(
-        self,
-        corpus: BenchmarkCorpus | None = None,
-        queries: list[BenchmarkQuery] | None = None,
-    ) -> None:
-        self.corpus = corpus or BENCHMARK_CORPUS
-        self.queries = queries or BENCHMARK_QUERIES
+    def __init__(self, corpus: BenchmarkCorpus, queries: Sequence[BenchmarkQuery]) -> None:
+        """Require an explicit corpus and query list (eval data lives under tests/)."""
+        if queries is None:
+            raise TypeError(
+                "AblationRunner(corpus, queries) requires a query sequence; "
+                "load BENCHMARK_QUERIES from tests.fixtures.retrieval_benchmark_dataset"
+            )
+        self.corpus = corpus
+        self.queries = list(queries)
         self.provider = BenchmarkRowProvider(self.corpus)
 
     async def evaluate_single_level_baseline(self) -> AblationReport:

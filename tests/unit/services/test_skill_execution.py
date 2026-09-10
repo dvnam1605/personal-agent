@@ -16,6 +16,7 @@ from app.domain.models import (
     SpecialistTrace,
     ToolDefinition,
 )
+from app.services.approvals import generate_approval_token
 from app.services.skills.execution import (
     SkillExecutor,
     authorize_skill_step,
@@ -170,18 +171,22 @@ def test_mutation_step_cannot_execute_in_read_only_intersected_view() -> None:
 
 def test_approved_mutation_skill_keeps_draft_tool_and_guidance() -> None:
     executor = SkillExecutor()
+    token = generate_approval_token(
+        "skill-appr-1", tool_name="gmail.create_draft", run_id="run-skill"
+    )
     activation = executor.activate(
         _follow_up_skill(),
         agent_name="CommunicationAgent",
         goal="Draft a follow-up",
         available_capabilities={"gmail.read", "retrieval.read", "gmail.drafts"},
         agent_view=_full_view(),
-        approval_token="tok-approved",
+        approval_token=token,
         permit_mutations=True,
+        run_id="run-skill",
     )
     assert "gmail.create_draft" in activation.tool_view
     assert activation.task.permit_mutations is True
-    assert activation.task.approval_token == "tok-approved"
+    assert activation.task.approval_token == token
     assert any("email-follow-up" in line for line in activation.guidance_preamble)
     assert activation.task.system_preamble == activation.guidance_preamble
 

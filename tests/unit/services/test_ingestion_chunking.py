@@ -210,7 +210,7 @@ class TestTableStrategy:
                 ),
             ]
         )
-        settings = ChunkingSettings(child_hard_max_tokens=120)
+        settings = ChunkingSettings(child_target_tokens=80, child_hard_max_tokens=120)
         result = chunk(tree, settings=settings)
         table_children = [c for c in result.children if c.level is ChunkLevel.TABLE_CHILD]
         assert len(table_children) >= 2
@@ -384,7 +384,7 @@ class TestReviewL2OversizedRowAtomic:
         wide_row = f"| k | {'v' * 600} |"
         markdown = "| Key | Value |\n| --- | --- |\n" + wide_row + "\n| small | cell |"
         tree = document([table(markdown, rows=2, cols=2)])
-        settings = ChunkingSettings(child_hard_max_tokens=80)
+        settings = ChunkingSettings(child_target_tokens=40, child_hard_max_tokens=80)
         result = chunk(tree, settings=settings)
         table_children = [c for c in result.children if c.level is ChunkLevel.TABLE_CHILD]
         assert len(table_children) >= 2
@@ -462,3 +462,30 @@ class TestReviewL5HeadingContextInParent:
         # heading line is context only — it never becomes its own child
         child_texts = [c.raw_text for c in result.children]
         assert all(text != "Deployment" for text in child_texts)
+
+
+class TestChunkingSettingsBounds:
+    def test_hard_max_below_target_is_rejected(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="child_hard_max_tokens must be"):
+            ChunkingSettings(child_target_tokens=500, child_hard_max_tokens=20)
+        with pytest.raises(ValidationError, match="parent_hard_max_tokens must be"):
+            ChunkingSettings(parent_target_tokens=1600, parent_hard_max_tokens=100)
+
+    def test_zero_and_negative_targets_are_rejected(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ChunkingSettings(child_target_tokens=0, child_hard_max_tokens=20)
+        with pytest.raises(ValidationError):
+            ChunkingSettings(parent_target_tokens=-50, parent_hard_max_tokens=-1)
+
+    def test_merge_below_cannot_exceed_hard_max(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="merge_small_nodes_below_tokens"):
+            ChunkingSettings(merge_small_nodes_below_tokens=900)

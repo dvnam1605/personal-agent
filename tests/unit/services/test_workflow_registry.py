@@ -28,6 +28,10 @@ from app.harness.workflows import (
     build_document_briefing_graph,
     build_meeting_followup_graph,
 )
+from app.services.approvals import (
+    generate_approval_token,
+    verify_approval_token_sync,
+)
 from app.services.workflow_registry import (
     StaticWorkflowEntry,
     StaticWorkflowRegistry,
@@ -219,7 +223,13 @@ def test_wf01_token_without_tool_does_not_fabricate_draft_id() -> None:
         "user_id": "user-corp-1",
         "query": "Sync with Client",
         "parameters": {
-            "approval_token": "appr-valid-tok-123",
+            "approval_token": generate_approval_token(
+                "wf-appr-1",
+                tool_name="gmail.create_draft",
+                run_id="run-p15-02",
+                arguments={},
+            ),
+            "arguments": {},
             "meeting_context": {
                 "event_id": "evt-client-99",
                 "title": "Client Status Sync",
@@ -254,7 +264,13 @@ def test_wf01_tool_with_token_creates_draft() -> None:
         "user_id": "user-corp-1",
         "query": "Sync with Client",
         "parameters": {
-            "approval_token": "appr-valid-tok-123",
+            "approval_token": generate_approval_token(
+                "wf-appr-1",
+                tool_name="gmail.create_draft",
+                run_id="run-p15-03",
+                arguments={},
+            ),
+            "arguments": {},
             "meeting_context": {
                 "title": "Client Status Sync",
                 "attendees": ["client@corp.com"],
@@ -268,6 +284,99 @@ def test_wf01_tool_with_token_creates_draft() -> None:
     assert result["output"]["status"] == "draft_created"
     assert result["draft_id"] == "real-draft-789"
     assert "Dear Client" in result["draft_content"]
+
+
+def test_wf01_peek_rejects_token_when_arguments_do_not_match() -> None:
+    """N3: mock WF-01 must not peek-pass a hashed token without matching arguments."""
+
+    def mock_creator(_ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"draft_id": "should-not-create", "status": "draft_created"}
+
+    graph = build_meeting_followup_graph(draft_creator=mock_creator)
+    token = generate_approval_token(
+        "wf-appr-n3",
+        tool_name="gmail.create_draft",
+        run_id="run-p15-n3",
+        arguments={"body": "approved text"},
+    )
+    result = graph.invoke(
+        {
+            "workflow_id": "WF-01",
+            "run_id": "run-p15-n3",
+            "user_id": "user-corp-1",
+            "query": "Sync with Client",
+            "parameters": {
+                "approval_token": token,
+                "arguments": {"body": "different text"},
+                "meeting_context": {"title": "Client Status Sync", "attendees": ["c@x.com"]},
+            },
+        }
+    )
+    assert result["status"] == "needs_approval"
+    assert result["draft_id"] is None
+
+
+def test_wf01_tool_consumes_token_without_double_consume_failure() -> None:
+    """H1 regression: live executor consumes token via verify(consume=True).
+
+    The workflow node must only peek (consume=False) so that the tool gate does not fail
+    on double consumption.
+    """
+    token = generate_approval_token(
+        "wf-appr-consume",
+        tool_name="gmail.create_draft",
+        run_id="run-p15-consume",
+        arguments={},
+    )
+    tool_consumed_successfully = False
+
+    def consuming_draft_creator(ctx: dict[str, Any]) -> dict[str, Any]:
+        nonlocal tool_consumed_successfully
+        tok = str(ctx.get("approval_token") or "")
+        ok = verify_approval_token_sync(
+            tok,
+            "gmail.create_draft",
+            consume=True,
+            expected_run_id="run-p15-consume",
+        )
+        if not ok:
+            raise PermissionError("Double consume or invalid token!")
+        tool_consumed_successfully = True
+        return {
+            "draft_id": "real-draft-consumed",
+            "status": "draft_created",
+            "draft_content": "Dear Client, thank you.",
+        }
+
+    graph = build_meeting_followup_graph(draft_creator=consuming_draft_creator)
+    state: WorkflowState = {
+        "workflow_id": "WF-01",
+        "run_id": "run-p15-consume",
+        "user_id": "user-corp-1",
+        "query": "Sync with Client",
+        "parameters": {
+            "approval_token": token,
+            "arguments": {},
+            "meeting_context": {
+                "title": "Client Status Sync",
+                "attendees": ["client@corp.com"],
+            },
+        },
+    }
+
+    result = graph.invoke(state)
+
+    assert tool_consumed_successfully is True
+    assert result["status"] == "draft_created"
+    assert result["draft_id"] == "real-draft-consumed"
+
+    # Token has now been burned by the tool gate
+    assert not verify_approval_token_sync(
+        token,
+        "gmail.create_draft",
+        consume=False,
+        expected_run_id="run-p15-consume",
+    )
 
 
 def test_wf01_meeting_followup_with_custom_injected_fetchers() -> None:
@@ -300,11 +409,22 @@ def test_wf01_meeting_followup_with_custom_injected_fetchers() -> None:
         draft_creator=mock_draft,
     )
 
-    result = graph.invoke({
-        "query": "Strategy Sync",
-        "user_id": "user-exec-1",
-        "parameters": {"approval_token": "appr-valid-123"},
-    })
+    result = graph.invoke(
+        {
+            "query": "Strategy Sync",
+            "user_id": "user-exec-1",
+            "run_id": "run-p15-04",
+            "parameters": {
+                "approval_token": generate_approval_token(
+                    "wf-appr-2",
+                    tool_name="gmail.create_draft",
+                    run_id="run-p15-04",
+                    arguments={},
+                ),
+                "arguments": {},
+            },
+        }
+    )
 
     assert len(received_contexts) == 3
     # Check tenant isolation context passed to all tools
@@ -411,11 +531,13 @@ def test_wf02_pending_domains_filtering() -> None:
     )
 
     # Only request RAG domain
-    result = graph.invoke({
-        "query": "Only RAG",
-        "user_id": "u1",
-        "pending_domains": ["rag"],
-    })
+    result = graph.invoke(
+        {
+            "query": "Only RAG",
+            "user_id": "u1",
+            "pending_domains": ["rag"],
+        }
+    )
 
     assert called == ["rag"]
     assert len(result["branch_results"]) == 1

@@ -2978,7 +2978,6 @@ dependencies = [
     { name = "docling" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "huggingface-hub" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langsmith" },
@@ -2993,9 +2992,6 @@ dependencies = [
     { name = "redis" },
     { name = "sqlalchemy" },
     { name = "structlog" },
-    { name = "torch" },
-    { name = "transformers", version = "5.8.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'darwin'" },
-    { name = "transformers", version = "5.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or sys_platform != 'darwin'" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -3007,6 +3003,12 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+]
+ml = [
+    { name = "huggingface-hub" },
+    { name = "torch" },
+    { name = "transformers", version = "5.8.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'darwin'" },
+    { name = "transformers", version = "5.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or sys_platform != 'darwin'" },
 ]
 ocr-paddle = [
     { name = "paddleocr" },
@@ -3026,7 +3028,7 @@ requires-dist = [
     { name = "docling", specifier = ">=2.59,<3" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "huggingface-hub", specifier = ">=0.23" },
+    { name = "huggingface-hub", marker = "extra == 'ml'", specifier = ">=0.23" },
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.2" },
     { name = "langsmith", specifier = ">=0.11.0" },
@@ -3049,11 +3051,11 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.36" },
     { name = "structlog", specifier = ">=24.4.0" },
     { name = "surya-ocr", marker = "extra == 'ocr-surya'", specifier = ">=0.17.0" },
-    { name = "torch", specifier = ">=2.2" },
-    { name = "transformers", specifier = ">=4.40" },
+    { name = "torch", marker = "extra == 'ml'", specifier = ">=2.2" },
+    { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.40" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev", "ocr-paddle", "ocr-surya"]
+provides-extras = ["ml", "dev", "ocr-paddle", "ocr-surya"]
 
 [[package]]
 name = "pgvector"

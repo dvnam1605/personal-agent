@@ -267,3 +267,32 @@ async def test_logical_document_id_is_deterministic_and_bounded() -> None:
     second = logical_document_id_for("drive-file-123")
     assert first == second
     assert first.startswith("ldg-") and len(first) == 36
+
+
+async def test_orchestrator_respects_custom_chunking_settings() -> None:
+    from app.core.config import ChunkingSettings
+
+    payload = MD_FIXTURE.read_bytes()
+    default_orch, default_repo = make_orchestrator()
+    default_obs = await default_orch.ingest_source(make_source(), payload)
+    assert default_obs.status is IngestionStatus.COMPLETED
+    default_fp = next(iter(default_repo.documents.values())).fingerprint
+
+    repository = InMemoryRepository()
+    embedding = LocalEmbeddingService(FakeBackend(), contract=EmbeddingContract("fake", 8))
+    custom_settings = ChunkingSettings(
+        child_target_tokens=10,
+        child_hard_max_tokens=20,
+        merge_small_nodes_below_tokens=10,
+    )
+    orchestrator = IngestionOrchestrator(
+        repository=repository,
+        transaction=NullTx(),
+        embedding=embedding,
+        chunking_settings=custom_settings,
+    )
+    obs = await orchestrator.ingest_source(make_source(), payload)
+    assert obs.status is IngestionStatus.COMPLETED
+    assert obs.child_count > 0
+    custom_fp = next(iter(repository.documents.values())).fingerprint
+    assert custom_fp != default_fp

@@ -15,6 +15,7 @@ from app.domain.models import (
     ToolDefinition,
     ToolRestriction,
 )
+from app.services.approvals import verify_approval_token_sync
 from app.services.skills.matching import capabilities_are_satisfied
 from app.services.skills.telemetry import SkillTelemetry
 from app.tools.registry import ToolRegistryView, capability_matches
@@ -47,6 +48,8 @@ class SkillExecutor:
         read_only: bool = False,
         approval_token: str | None = None,
         permit_mutations: bool = False,
+        run_id: str | None = None,
+        user_id: str | None = None,
     ) -> SkillActivation:
         """Intersect capabilities, enforce mutation policy, and build guidance.
 
@@ -74,7 +77,18 @@ class SkillExecutor:
             )
 
         mutations_armed = bool(
-            mutation_requested and permit_mutations and approval_token and approval_token.strip()
+            mutation_requested
+            and permit_mutations
+            and approval_token
+            and approval_token.strip()
+            # Peek only: do not compare against skill.metadata.name (not a tool).
+            and verify_approval_token_sync(
+                approval_token,
+                tool_name=None,
+                consume=False,
+                expected_run_id=run_id,
+                expected_user_id=user_id,
+            )
         )
         view_is_read_only = read_only or not mutation_requested
         view = intersect_agent_view_with_skill(
@@ -91,6 +105,8 @@ class SkillExecutor:
                 view,
                 read_only=view_is_read_only,
                 approval_token=approval_token,
+                run_id=run_id,
+                user_id=user_id,
             )
 
         preamble = build_skill_preamble(skill)
@@ -144,6 +160,8 @@ def authorize_skill_step(
     *,
     read_only: bool,
     approval_token: str | None,
+    run_id: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Fail-closed check for one skill step against the intersected tool view."""
     if step.tool_name is None:
@@ -170,6 +188,18 @@ def authorize_skill_step(
     if not (approval_token and approval_token.strip()):
         raise PermissionDeniedError(
             f"Mutation skill step '{step.name}' requires an approval token.",
+            details={"skill": skill.metadata.name, "tool": step.tool_name},
+        )
+    # H-REMAIN1: verify token cryptographically for the specific tool
+    if not verify_approval_token_sync(
+        approval_token,
+        step.tool_name,
+        consume=False,
+        expected_run_id=run_id,
+        expected_user_id=user_id,
+    ):
+        raise PermissionDeniedError(
+            f"Mutation skill step '{step.name}' approval token is invalid, expired, or unverified.",
             details={"skill": skill.metadata.name, "tool": step.tool_name},
         )
 

@@ -53,6 +53,11 @@ from app.domain.models.communication import (
     GmailThreadSummary,
     Page,
 )
+from app.domain.models.compaction import (
+    CompactionCheckpoint,
+    CompactionTokenPressure,
+)
+from app.domain.models.context import ContextSlice
 from app.domain.models.drive import (
     CANONICAL_ROLES,
     DEFAULT_EXPORT_MIME_TYPES,
@@ -84,14 +89,37 @@ from app.domain.models.drive import (
     is_google_native_document,
     is_shortcut,
 )
+from app.domain.models.entity import (
+    EntityRecord,
+    EntityResolutionResult,
+)
 from app.domain.models.evidence import (
     EvidenceItem,
     EvidenceSource,
 )
+from app.domain.models.meeting_dossier import (
+    MeetingAttendee,
+    MeetingDocumentRef,
+    MeetingDossier,
+)
+from app.domain.models.memory import (
+    MemoryGateDecision,
+    MemoryItem,
+)
 from app.domain.models.plan import (
+    CapabilityRequest,
     ExecutionPlan,
     ExecutionTask,
+    NeedMoreContext,
+    PlanValidationResult,
     TaskDependency,
+)
+from app.domain.models.question import (
+    AskUserQuestionRequest,
+    UserQuestionAnswer,
+    UserQuestionItem,
+    UserQuestionOption,
+    UserQuestionResponse,
 )
 from app.domain.models.route import RouteDecision
 from app.domain.models.skill import (
@@ -118,6 +146,12 @@ from app.domain.models.spill import (
     SpillRef,
 )
 from app.domain.models.state import AssistantState
+from app.domain.models.supervisor import (
+    AgentCapabilityDescriptor,
+    CapabilityCatalog,
+    SubagentSessionState,
+    SupervisorResult,
+)
 from app.domain.models.tool import (
     ToolContext,
     ToolDefinition,
@@ -140,6 +174,11 @@ from app.domain.models.workflow import (
 __all__ = [
     "ActionApproval",
     "AgentDefinition",
+    "AskUserQuestionRequest",
+    "UserQuestionAnswer",
+    "UserQuestionItem",
+    "UserQuestionOption",
+    "UserQuestionResponse",
     "AssistantState",
     "AssistantTurn",
     "BudgetUsage",
@@ -227,6 +266,13 @@ __all__ = [
     "SpecialistTask",
     "SpecialistTrace",
     "SpillPolicyConfig",
+    "AgentCapabilityDescriptor",
+    "CapabilityCatalog",
+    "CapabilityRequest",
+    "NeedMoreContext",
+    "PlanValidationResult",
+    "SubagentSessionState",
+    "SupervisorResult",
     "SpillRef",
     "SpilledOutput",
     "TaskDependency",
@@ -246,4 +292,14 @@ __all__ = [
     "WorkflowExecutionResult",
     "WorkflowNode",
     "evaluate_budget_violations",
+    "CompactionCheckpoint",
+    "CompactionTokenPressure",
+    "ContextSlice",
+    "EntityRecord",
+    "EntityResolutionResult",
+    "MemoryGateDecision",
+    "MemoryItem",
+    "MeetingAttendee",
+    "MeetingDocumentRef",
+    "MeetingDossier",
 ]

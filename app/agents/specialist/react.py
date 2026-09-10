@@ -27,8 +27,8 @@ from app.agents.specialist.report import (
     parse_report_call,
     report_from_stop,
 )
-from app.core.sanitization import sanitize_payload
-from app.domain.enums import ExecutionMode, SpecialistStatus, StopReason
+from app.core.sanitization import sanitize_payload, strip_sensitive_keys
+from app.domain.enums import CompactionStage, ExecutionMode, SpecialistStatus, StopReason
 from app.domain.errors import NotFoundError, PermissionDeniedError
 from app.domain.models.agent import AgentDefinition
 from app.domain.models.budget import BudgetUsage, evaluate_budget_violations
@@ -43,6 +43,13 @@ from app.domain.models.specialist import (
     ToolCallRequest,
 )
 from app.domain.models.tool import ToolContext, ToolDefinition, ToolInput, ToolResult
+from app.services.approvals import (
+    approval_token_bound_tool,
+    canonical_proposal_hash,
+    verify_approval_token_sync,
+)
+from app.services.context.compaction import ContextCompactor
+from app.services.retrieval.injection_boundary import wrap_untrusted_tool_result
 from app.tools.registry import ToolRegistryView
 
 logger = logging.getLogger(__name__)
@@ -104,6 +111,7 @@ class SpecialistRunner:
         repeat_remind_after: int = 2,
         repeat_breaker_after: int = 3,
         observation_truncate: int = 500,
+        compactor: ContextCompactor | None = None,
     ) -> None:
         if no_progress_limit < 1:
             raise ValueError("no_progress_limit must be >= 1")
@@ -119,6 +127,7 @@ class SpecialistRunner:
         self._repeat_remind_after = repeat_remind_after
         self._repeat_breaker_after = repeat_breaker_after
         self._observation_truncate = observation_truncate
+        self._compactor = compactor
 
     async def run(
         self,
@@ -172,22 +181,66 @@ class SpecialistRunner:
             breaker_after=self._repeat_breaker_after,
         )
         messages = self._initial_messages(task)
+        token = None
+        bound_mutation_tool: str | None = None
+        permit_mutations = task.permit_mutations
+        if permit_mutations and task.approval_policy != "NEVER":
+            raw_token = task.approval_token or (
+                task.context_data.get("approval_token")
+                if isinstance(task.context_data, dict)
+                else None
+            )
+            if raw_token and isinstance(raw_token, str):
+                bound_mutation_tool = approval_token_bound_tool(raw_token)
+                ctx = task.context_data if isinstance(task.context_data, dict) else {}
+                raw_args = ctx.get("arguments")
+                expected_hash = (
+                    canonical_proposal_hash(bound_mutation_tool, raw_args)
+                    if bound_mutation_tool and isinstance(raw_args, dict)
+                    else None
+                )
+                if verify_approval_token_sync(
+                    raw_token,
+                    tool_name=bound_mutation_tool,
+                    consume=False,
+                    expected_run_id=run_id,
+                    expected_user_id=user_id,
+                    expected_proposal_hash=expected_hash,
+                ):
+                    token = raw_token
+                else:
+                    permit_mutations = False
+                    bound_mutation_tool = None
+            else:
+                permit_mutations = False
+
         # P11-04 least privilege: mutation tools this execution can never run
-        # (read-only view or approvals off) are not advertised to the LLM.
-        advertise_mutations = not tools.is_read_only and task.permit_mutations
+        # (read-only view or approvals off or approval_policy == NEVER or invalid token) are not advertised to the LLM.
+        advertise_mutations = (
+            not tools.is_read_only
+            and permit_mutations
+            and task.approval_policy != "NEVER"
+            and token is not None
+        )
         tool_schemas = [
-            *(tool for tool in tools.list() if advertise_mutations or not tool.is_mutation),
+            *(
+                tool
+                for tool in tools.list()
+                if (not tool.is_mutation)
+                or (
+                    advertise_mutations
+                    and (bound_mutation_tool is None or tool.name == bound_mutation_tool)
+                )
+            ),
             REPORT_TOOL_DEFINITION,
         ]
-        token = task.approval_token or (
-            task.context_data.get("approval_token") if isinstance(task.context_data, dict) else None
-        )
         context = ToolContext(
             run_id=run_id,
             user_id=user_id,
             agent_name=agent.name,
             read_only_view=tools.is_read_only,
             approval_token=token,
+            delegation=task.delegation,
         )
         iteration = 0
 
@@ -201,7 +254,7 @@ class SpecialistRunner:
                     direct_stop,
                     report_from_stop(direct_stop, self._stop_summary(direct_stop)),
                 )
-            turn = await self._complete(messages, tool_schemas, state)
+            turn = await self._complete(messages, tool_schemas, state, conversation_id=run_id)
             budget_stop = self._post_llm_stop(task, state.usage)
             if budget_stop is not None:
                 return self._finish(
@@ -242,7 +295,7 @@ class SpecialistRunner:
                     stop,
                     report_from_stop(stop, self._stop_summary(stop)),
                 )
-            turn = await self._complete(messages, tool_schemas, state)
+            turn = await self._complete(messages, tool_schemas, state, conversation_id=run_id)
             budget_stop = self._post_llm_stop(task, state.usage)
             if budget_stop is not None:
                 return self._finish(
@@ -321,26 +374,48 @@ class SpecialistRunner:
             return report, StopReason.SUCCESS, report.status is SpecialistStatus.NEEDS_APPROVAL
 
         try:
-            definition = tools.get(call.tool_name)
+            definition = tools.get(call.tool_name, agent_name=agent.name)
         except (NotFoundError, PermissionDeniedError):
             observation = f"Tool '{call.tool_name}' is not available to agent '{agent.name}'."
             self._record_step(state, iteration, call, observation, success=False, reminder=False)
             messages.append(ChatMessage(role="tool", content=observation))
             return None
 
-        if definition.is_mutation and (tools.is_read_only or not task.permit_mutations):
-            summary = (
-                f"Blocked: tool '{call.tool_name}' requires approval, which is "
-                "rejected automatically in this execution."
+        if definition.is_mutation:
+            from app.domain.models import ProposedAction
+            from app.services.policy_engine import PolicyEngine
+
+            proposed_action = ProposedAction(
+                action_type=definition.name,
+                description=definition.description,
+                tool_name=definition.name,
+                parameters=call.arguments if isinstance(call.arguments, dict) else {},
+                risk_level=definition.risk_level,
+                requires_approval=True,
             )
-            self._record_step(state, iteration, call, summary, success=False, reminder=False)
-            status = (
-                SpecialistStatus.NEEDS_APPROVAL
-                if not task.permit_mutations
-                else SpecialistStatus.BLOCKED
+            policy_decision = PolicyEngine.evaluate_action(
+                proposed_action,
+                session_policy=task.approval_policy,
+                delegation=task.delegation,
             )
-            report = SpecialistReport(status=status, summary=summary, blockers=[summary])
-            return report, StopReason.POLICY, status is SpecialistStatus.NEEDS_APPROVAL
+
+            if tools.is_read_only or not policy_decision.allowed or not task.permit_mutations:
+                summary = (
+                    f"Blocked: tool '{call.tool_name}' "
+                    f"{policy_decision.reason or 'requires approval, which is rejected automatically in this execution.'}"
+                )
+                self._record_step(state, iteration, call, summary, success=False, reminder=False)
+                status = (
+                    SpecialistStatus.NEEDS_APPROVAL
+                    if (
+                        policy_decision.needs_approval
+                        and not task.permit_mutations
+                        and not tools.is_read_only
+                    )
+                    else SpecialistStatus.BLOCKED
+                )
+                report = SpecialistReport(status=status, summary=summary, blockers=[summary])
+                return report, StopReason.POLICY, status is SpecialistStatus.NEEDS_APPROVAL
 
         if state.usage.tool_calls >= task.budget.max_tool_calls:
             summary = self._stop_summary(StopReason.MAX_TOOL_CALLS)
@@ -352,6 +427,7 @@ class SpecialistRunner:
 
         started = time.perf_counter()
         result: ToolResult | None
+        executor_error = ""
         try:
             result = await self._executor.execute(
                 ToolInput(tool_name=call.tool_name, arguments=call.arguments), context
@@ -363,15 +439,21 @@ class SpecialistRunner:
         state.usage.record_tool_call()
 
         if result is not None and result.success:
-            observation = _summarize_output(result.output, limit=self._observation_truncate)
+            observation = wrap_untrusted_tool_result(
+                call.tool_name,
+                _summarize_output(result.output, limit=self._observation_truncate),
+            )
             guard_output: object = result.output
             guard_error: str | None = None
             success = True
         elif result is not None:
-            observation = (result.error or "Unknown tool error").strip()
+            observation = wrap_untrusted_tool_result(
+                call.tool_name,
+                (result.error or "Unknown tool error").strip(),
+            )
             guard_output, guard_error, success = None, observation, False
         else:
-            observation = executor_error
+            observation = wrap_untrusted_tool_result(call.tool_name, executor_error)
             guard_output, guard_error, success = None, observation, False
 
         decision = guard.observe(
@@ -411,8 +493,9 @@ class SpecialistRunner:
 
     def _initial_messages(self, task: SpecialistTask) -> list[ChatMessage]:
         messages = [ChatMessage(role="system", content=text) for text in task.system_preamble]
+        sanitized_context = strip_sensitive_keys(task.context_data)
         context_json = json.dumps(
-            task.context_data, ensure_ascii=False, sort_keys=True, default=str
+            sanitized_context, ensure_ascii=False, sort_keys=True, default=str
         )
         messages.append(
             ChatMessage(role="user", content=f"Goal: {task.goal}\nContext: {context_json}")
@@ -424,7 +507,22 @@ class SpecialistRunner:
         messages: list[ChatMessage],
         tool_schemas: list[ToolDefinition],
         state: _RunState,
+        *,
+        conversation_id: str = "default",
     ) -> AssistantTurn:
+        if self._compactor is not None:
+            char_tokens = sum(len(m.content) for m in messages) // 4
+            current_tokens = max(state.usage.prompt_tokens, char_tokens)
+            context_limit = 8192
+            compacted_msgs, _checkpoint, stage = self._compactor.compact(
+                conversation_id=conversation_id,
+                messages=messages,
+                current_tokens=current_tokens,
+                context_limit=context_limit,
+            )
+            if stage is not CompactionStage.NONE:
+                messages.clear()
+                messages.extend(compacted_msgs)
         turn = await self._chat.complete(messages, tool_schemas)
         state.usage.record_llm_call()
         if turn.prompt_tokens or turn.completion_tokens:

@@ -40,26 +40,25 @@ class PersistCandidateResult(tuple):
 
 
 def _is_postgres_session(session: AsyncSession) -> bool:
-    try:
-        bind = (
-            session.get_bind() if hasattr(session, "get_bind") else getattr(session, "bind", None)
-        )
-        if bind is not None and getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
-            return True
-    except Exception:
-        pass
-    sync_session = getattr(session, "sync_session", None)
-    if sync_session is not None:
+    """Return True if session is connected to PostgreSQL."""
+    bind = getattr(session, "bind", None)
+    if bind is None and hasattr(session, "get_bind"):
         try:
-            bind = (
-                sync_session.get_bind()
-                if hasattr(sync_session, "get_bind")
-                else getattr(sync_session, "bind", None)
-            )
-            if bind is not None and getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
-                return True
-        except Exception:
-            pass
+            bind = session.get_bind()
+        except Exception:  # noqa: BLE001 - bind lookup is diagnostic only
+            sync_session = getattr(session, "sync_session", None)
+            if sync_session is not None:
+                try:
+                    bind = (
+                        sync_session.get_bind()
+                        if hasattr(sync_session, "get_bind")
+                        else getattr(sync_session, "bind", None)
+                    )
+                except Exception:  # noqa: BLE001 - bind lookup is diagnostic only
+                    bind = getattr(sync_session, "bind", None)
+    if bind is not None:
+        dialect = getattr(bind, "dialect", None)
+        return getattr(dialect, "name", "") == "postgresql"
     return False
 
 
@@ -146,7 +145,9 @@ class SqlAlchemyIngestionRepository:
             and latest_row.fingerprint == fingerprint
             and latest_row.is_active
         ):
-            return PersistCandidateResult(latest_row.id, latest_row.version_number, is_deduplicated=True)
+            return PersistCandidateResult(
+                latest_row.id, latest_row.version_number, is_deduplicated=True
+            )
 
         # If another worker committed a new version concurrently, calculate next version cleanly
         actual_version = (
@@ -166,7 +167,10 @@ class SqlAlchemyIngestionRepository:
                 new_pid = parent_chunk_id(
                     document_version_id=actual_document_id,
                     heading_path=parent.heading_path,
-                    block_range=(real_ids[0] if real_ids else None, real_ids[-1] if real_ids else None),
+                    block_range=(
+                        real_ids[0] if real_ids else None,
+                        real_ids[-1] if real_ids else None,
+                    ),
                     ordinal=parent.ordinal,
                     version=parent.parent_chunker_version,
                 )
@@ -241,7 +245,10 @@ class SqlAlchemyIngestionRepository:
                     real_ids = child.source_block_ids
                 new_cid = child_chunk_id(
                     parent_id=new_pid,
-                    block_range=(real_ids[0] if real_ids else None, real_ids[-1] if real_ids else None),
+                    block_range=(
+                        real_ids[0] if real_ids else None,
+                        real_ids[-1] if real_ids else None,
+                    ),
                     ordinal=child.chunk_index,
                     content_hash=child.content_hash,
                     version=child.child_chunker_version,

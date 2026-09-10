@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import structlog
 
-from app.core.config import settings as app_settings
+from app.core.config import ChunkingSettings, get_settings
 from app.domain.models.chunks import ChunkLevel
 from app.domain.models.documents import FingerprintInputs, SourceDocument
 from app.domain.models.ingestion import (
@@ -32,7 +32,7 @@ from app.services.ingestion.chunking.identity import (
 from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.embedding import LocalEmbeddingService
-from app.services.ingestion.fingerprint import compute_fingerprint
+from app.services.ingestion.fingerprint import compute_fingerprint, fingerprint_matches_stored
 from app.services.ingestion.parsing.base import parse_source
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
@@ -75,11 +75,13 @@ class IngestionOrchestrator:
         transaction: UnitOfWork,
         embedding: LocalEmbeddingService,
         heartbeat_callback: Callable[[str], Awaitable[None]] | None = None,
+        chunking_settings: ChunkingSettings | None = None,
     ) -> None:
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
         self._heartbeat = heartbeat_callback
+        self._chunking_settings = (chunking_settings or get_settings().chunking).model_copy()
 
     async def ingest_source(
         self,
@@ -88,6 +90,7 @@ class IngestionOrchestrator:
         *,
         job_id: str | None = None,
         on_status: StatusCallback | None = None,
+        force_reindex: bool = False,
     ) -> IngestionObservability:
         obs = _Obs(job_id or str(uuid4()), source, len(content))
         started_stage = time.perf_counter()
@@ -101,7 +104,7 @@ class IngestionOrchestrator:
             if self._heartbeat is not None:
                 try:
                     await self._heartbeat(obs.job_id)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - heartbeat is best-effort
                     # Heartbeat is best-effort, but a dead heartbeat silently
                     # disables stale-claim protection — never swallow it quietly.
                     logger.debug(
@@ -124,9 +127,18 @@ class IngestionOrchestrator:
             # the existing version with is_deduplicated=True — no corruption,
             # no silent overwrite.
             state = await self._repository.latest_state(logical_id)
-            if state is not None and state.fingerprint == fingerprint:
+            unchanged, is_legacy = (
+                fingerprint_matches_stored(state.fingerprint, self._fingerprint_inputs(source))
+                if state is not None
+                else (False, False)
+            )
+            if state is not None and unchanged and not force_reindex:
                 # L3: an unchanged fingerprint is a healthy skip, not a failure.
                 obs.warnings.append("fingerprint unchanged; skipping reindex")
+                if is_legacy:
+                    obs.warnings.append(
+                        "fingerprint_v1_compat_skip; next content change emits fp_v2"
+                    )
                 await mark(IngestionStatus.SKIPPED)
                 return obs.freeze()
 
@@ -161,11 +173,13 @@ class IngestionOrchestrator:
 
             await mark(IngestionStatus.BUILDING_PARENTS)
             chunk_context = self._chunk_context(source, document_id)
-            parents = SectionParentChunker(chunk_context).build_parents(tree)
+            parents = SectionParentChunker(chunk_context, self._chunking_settings).build_parents(
+                tree
+            )
             obs.durations["parents"] = stage_elapsed()
 
             await mark(IngestionStatus.BUILDING_CHILDREN)
-            child_chunker = SentenceChildChunker(chunk_context)
+            child_chunker = SentenceChildChunker(chunk_context, self._chunking_settings)
             children = [
                 (child, parent)
                 for parent in parents
@@ -176,7 +190,9 @@ class IngestionOrchestrator:
             await mark(IngestionStatus.EMBEDDING)
             try:
                 heartbeat_fn = self._heartbeat
-                batch_cb = (lambda *a, **k: heartbeat_fn(obs.job_id)) if heartbeat_fn is not None else None
+                batch_cb = (
+                    (lambda *a, **k: heartbeat_fn(obs.job_id)) if heartbeat_fn is not None else None
+                )
                 vectors = await self._embedding.embed_documents(
                     [child.embedding_text for child, _ in children],
                     batch_callback=batch_cb,
@@ -236,22 +252,35 @@ class IngestionOrchestrator:
             obs.status = IngestionStatus.FAILED
             try:
                 await mark(IngestionStatus.FAILED)
-            except Exception:  # noqa: BLE001 - never mask the original failure
-                pass
+            except Exception as mark_exc:  # noqa: BLE001 - never mask the original failure
+                logger.warning("ingestion_mark_failed_error", error=str(mark_exc))
             return obs.freeze()
 
     async def sync_decision(
         self, source: SourceDocument
     ) -> tuple[str, StoredFingerprintState | None]:
         """NEW / MODIFIED / UNCHANGED without ingesting (spec P9D-4)."""
-        fingerprint = compute_fingerprint(self._fingerprint_inputs(source)).fingerprint
+        inputs = self._fingerprint_inputs(source)
         logical_id = logical_document_id_for(source.source_id)
         state = await self._repository.latest_state(logical_id)
         if state is None:
             return "NEW", None
-        if state.fingerprint == fingerprint:
+        unchanged, _is_legacy = fingerprint_matches_stored(state.fingerprint, inputs)
+        if unchanged:
             return "UNCHANGED", state
         return "MODIFIED", state
+
+    async def check_legacy_fingerprint(
+        self, source: SourceDocument
+    ) -> tuple[bool, StoredFingerprintState | None]:
+        """Check if stored document has an active legacy fp_v1 fingerprint requiring upgrade."""
+        inputs = self._fingerprint_inputs(source)
+        logical_id = logical_document_id_for(source.source_id)
+        state = await self._repository.latest_state(logical_id)
+        if state is None:
+            return False, None
+        unchanged, is_legacy = fingerprint_matches_stored(state.fingerprint, inputs)
+        return (unchanged and is_legacy), state
 
     async def deactivate_source(self, source_id: str) -> bool:
         """Deleted-source policy: archive versions, never hard-delete."""
@@ -260,7 +289,8 @@ class IngestionOrchestrator:
             return await self._repository.deactivate_logical_document(session, logical_id)
 
     def _fingerprint_inputs(self, source: SourceDocument) -> FingerprintInputs:
-        embedding = app_settings.embedding
+        embedding = get_settings().embedding
+        chunking = self._chunking_settings
         ocr_meta = source.metadata.get("ocr_sidecar") if isinstance(source.metadata, dict) else None
         ocr_source_checksum = (
             ocr_meta.get("source_checksum") if isinstance(ocr_meta, dict) else None
@@ -278,6 +308,10 @@ class IngestionOrchestrator:
             child_chunker_version=CHILD_CHUNKER_VERSION,
             embedding_model=embedding.model,
             embedding_dimensions=embedding.dimensions,
+            parent_target_tokens=chunking.parent_target_tokens,
+            child_target_tokens=chunking.child_target_tokens,
+            parent_hard_max_tokens=chunking.parent_hard_max_tokens,
+            child_hard_max_tokens=chunking.child_hard_max_tokens,
             ocr_source_checksum=ocr_source_checksum,
             ocr_engine=ocr_engine,
             ocr_engine_version=ocr_engine_version,
@@ -285,7 +319,7 @@ class IngestionOrchestrator:
         )
 
     def _chunk_context(self, source: SourceDocument, document_id: str) -> ChunkContext:
-        embedding = app_settings.embedding
+        embedding = get_settings().embedding
         return ChunkContext(
             document_id=document_id,
             document_version_id=document_id,
@@ -322,7 +356,7 @@ class _Obs:
         self.counts = {"parent": 0, "child": 0, "table_child": 0}
 
     def freeze(self) -> IngestionObservability:
-        embedding = app_settings.embedding
+        embedding = get_settings().embedding
         return IngestionObservability(
             job_id=self.job_id,
             source_id=self.source_id,

@@ -42,8 +42,8 @@ INSUFFICIENT_INTERNAL_MESSAGE = "Tôi không tìm thấy đủ tài liệu nội
 
 REACT_BUDGET = ExecutionBudget(
     max_llm_calls=5,
-    max_tool_calls=10,
-    max_react_steps=4,
+    max_tool_calls=8,
+    max_react_steps=6,
     max_prompt_tokens=4000,
     max_total_tokens=6000,
 )

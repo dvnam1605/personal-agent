@@ -26,8 +26,8 @@ COMMUNICATION_AGENT = COMMUNICATION_AGENT_NAME
 
 P12_REACT_BUDGET = ExecutionBudget(
     max_llm_calls=5,
-    max_tool_calls=10,
-    max_react_steps=4,
+    max_tool_calls=8,
+    max_react_steps=6,
     max_prompt_tokens=3000,
     max_total_tokens=4000,
 )

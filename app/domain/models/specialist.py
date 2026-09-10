@@ -115,6 +115,14 @@ class SpecialistTask(BaseModel):
         default=None,
         description="Optional security token granting authorization for permitted mutation tools.",
     )
+    approval_policy: Literal["NEVER", "ALWAYS", "POLICY"] = Field(
+        default="POLICY",
+        description="Delegation policy pinning (§17.1): child specialists cannot self-approve (NEVER when delegated).",
+    )
+    sandbox_scope: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Frozen sandbox scope boundary captured before first await (§17.1).",
+    )
     delegation: DelegationContext | None = Field(default=None)
     system_preamble: tuple[str, ...] = Field(default_factory=tuple)
 

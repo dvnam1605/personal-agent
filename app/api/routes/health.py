@@ -1,6 +1,7 @@
 """Health and readiness probe endpoints with real dependency checks."""
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.infrastructure.db.session import get_session_factory
@@ -41,7 +43,7 @@ async def check_database() -> bool:
 
         await asyncio.wait_for(_probe(), timeout=PROBE_TIMEOUT_SECONDS)
         return True
-    except Exception:
+    except (TimeoutError, OSError, RuntimeError, SQLAlchemyError):
         return False
 
 
@@ -49,7 +51,7 @@ async def check_redis() -> bool:
     """Verify Redis responds to PING."""
     try:
         return await asyncio.wait_for(redis_manager.health_check(), timeout=PROBE_TIMEOUT_SECONDS)
-    except Exception:
+    except (TimeoutError, OSError, RuntimeError):
         return False
 
 
@@ -65,27 +67,26 @@ def check_configuration() -> bool:
         ):
             return False
 
-        # Validate Google credentials only when explicitly configured
+        # Validate Google credentials only when explicitly configured (M7)
         secrets_file = settings.google.client_secrets_file
-        if secrets_file and Path(secrets_file).is_file():
-            try:
-                import json
+        if secrets_file:
+            from app.core.config import PROJECT_ROOT
 
-                content = json.loads(Path(secrets_file).read_text(encoding="utf-8"))
-                if not isinstance(content, dict) or not (
-                    "web" in content or "installed" in content
-                ):
+            path = Path(secrets_file)
+            if not path.is_absolute():
+                path = PROJECT_ROOT / path
+            if path.is_file():
+                try:
+                    content = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(content, dict) or not (
+                        "web" in content or "installed" in content
+                    ):
+                        return False
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     return False
-            except Exception:
-                return False
-
-        if settings.redis.url and not (
-            settings.redis.url.startswith("redis://") or settings.redis.url.startswith("rediss://")
-        ):
-            return False
 
         return True
-    except Exception:
+    except (OSError, ValueError, TypeError, RuntimeError, AttributeError):
         return False
 
 
@@ -112,15 +113,23 @@ async def health_check() -> HealthResponse:
 )
 async def readiness_check() -> ReadinessResponse | JSONResponse:
     """Return readiness based on live database and Redis dependency checks."""
+    from app.core.config import Environment
+
     db_ok, redis_ok = await asyncio.gather(check_database(), check_redis())
     config_ok = check_configuration()
+    is_ready = db_ok and redis_ok and config_ok
+
     checks = {
         "database": {"status": "ok" if db_ok else "error"},
         "redis": {"status": "ok" if redis_ok else "error"},
         "configuration": {"status": "ok" if config_ok else "error"},
     }
-    if db_ok and redis_ok and config_ok:
+    if is_ready:
         return ReadinessResponse(status="ready", checks=checks)
+
+    # In production without debug, conceal granular internal dependency details (L6)
+    if settings.environment == Environment.PRODUCTION and not settings.debug:
+        return JSONResponse(status_code=503, content={"status": "degraded"})
     return JSONResponse(status_code=503, content={"status": "degraded", "checks": checks})
 
 

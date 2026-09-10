@@ -238,12 +238,20 @@ async def test_persist_candidate_concurrent_chunk_id_collision_prevention(
     # Verify both version's chunks exist and have different IDs in the database
     async with session_maker() as session:
         chunks_v1 = (
-            (await session.execute(select(DocumentChunk).where(DocumentChunk.document_id == doc_id_1)))
+            (
+                await session.execute(
+                    select(DocumentChunk).where(DocumentChunk.document_id == doc_id_1)
+                )
+            )
             .scalars()
             .all()
         )
         chunks_v2 = (
-            (await session.execute(select(DocumentChunk).where(DocumentChunk.document_id == doc_id_2)))
+            (
+                await session.execute(
+                    select(DocumentChunk).where(DocumentChunk.document_id == doc_id_2)
+                )
+            )
             .scalars()
             .all()
         )
@@ -252,7 +260,6 @@ async def test_persist_candidate_concurrent_chunk_id_collision_prevention(
         ids_v1 = {c.id for c in chunks_v1}
         ids_v2 = {c.id for c in chunks_v2}
         assert ids_v1.isdisjoint(ids_v2), f"Chunk IDs collided: {ids_v1 & ids_v2}"
-
 
 
 @pytest.mark.asyncio
@@ -285,7 +292,7 @@ async def test_postgres_dialect_detection_triggers_for_update() -> None:
             parents=[],
             children=[],
         )
-    except Exception:
+    except (TypeError, AttributeError, RuntimeError):
         # We only care that execute was called with a query that has for_update
         pass
 

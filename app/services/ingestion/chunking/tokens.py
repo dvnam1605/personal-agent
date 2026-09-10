@@ -103,6 +103,8 @@ def truncate_at_token_boundary(text: str, max_tokens: int) -> tuple[str, int]:
     prefix BEFORE trailing-whitespace stripping so callers can slice the
     remainder losslessly (review L3).
     """
+    if max_tokens < 1:
+        raise ValueError("max_tokens must be >= 1")
     limit = max_tokens * _CHARS_PER_TOKEN
     if len(text) <= limit:
         return text, len(text)

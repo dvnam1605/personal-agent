@@ -96,10 +96,15 @@ async def test_purge_expired_telemetry_preserves_pending_audit_outbox(
         authorized_by=RETENTION_JOB_AUTHORITY,
     )
 
-    assert deleted["assistant_runs"] == 1
+    assert deleted["assistant_runs"] == 0
     assert (
         await db_session.execute(select(AssistantRun).where(AssistantRun.id == expired_run.id))
-    ).first() is None
+    ).first() is not None
+    assert (
+        await db_session.execute(
+            select(ToolExecution).where(ToolExecution.run_id == expired_run.id)
+        )
+    ).first() is not None
     assert (
         await db_session.execute(select(AssistantRun).where(AssistantRun.id == protected_run.id))
     ).first() is not None

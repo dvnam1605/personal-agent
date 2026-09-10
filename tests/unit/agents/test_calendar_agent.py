@@ -63,7 +63,8 @@ async def test_calendar_agent_slot_finding_deterministic() -> None:
         time_max="2026-09-18T23:59:59+07:00",
         attendee_emails=["nam@example.com"],
     )
-    assert task.budget.max_react_steps == 4
+    assert task.budget.max_react_steps == 6
+    assert task.budget.max_tool_calls == 8
     assert task.budget.max_prompt_tokens == 3000
 
     chat = ScriptedChat(

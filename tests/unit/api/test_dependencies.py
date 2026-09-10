@@ -28,11 +28,29 @@ def _app() -> FastAPI:
     return app
 
 
-def _settings(env: Environment, api_key: str | None) -> Settings:
+_TEST_APPROVAL_KEY = "unit-test-approval-signing-key-32b"
+
+
+def _settings(
+    env: Environment, api_key: str | None, *, api_key_user_id: str | None = None
+) -> Settings:
+    extra = {}
+    if env in (Environment.PRODUCTION, Environment.STAGING):
+        extra["database"] = {
+            "url": "postgresql+asyncpg://secure_app_user:StrongSecret123!@db-prod.internal:5432/assistant"
+        }
+        extra["redis"] = {"url": "redis://:redis-secret@redis.internal:6379/0"}
+        if api_key and api_key_user_id is None:
+            api_key_user_id = "bound-user"
     return Settings(
         environment=env,
-        security=SecuritySettings(api_key=api_key),
+        security=SecuritySettings(
+            api_key=api_key,
+            api_key_user_id=api_key_user_id,
+            approval_signing_key=_TEST_APPROVAL_KEY,
+        ),
         _env_file=None,  # type: ignore[call-arg]
+        **extra,
     )
 
 
@@ -52,19 +70,22 @@ async def test_missing_or_wrong_api_key_is_rejected_when_configured(header_value
 
 
 @pytest.mark.asyncio
-async def test_valid_api_key_allows_explicit_user_identity():
+async def test_valid_api_key_binds_configured_user_identity():
     original = deps.settings
-    deps.settings = _settings(Environment.PRODUCTION, "secret-key")
+    deps.settings = _settings(Environment.PRODUCTION, "secret-key", api_key_user_id="alice")
     try:
         transport = ASGITransport(app=_app())
         async with AsyncClient(transport=transport, base_url="http://t") as client:
-            ok = await client.get(
+            ok = await client.get("/whoami", headers={"X-API-Key": "secret-key"})
+            match = await client.get(
                 "/whoami", headers={"X-API-Key": "secret-key", "X-User-ID": "alice"}
             )
-            default = await client.get("/whoami", headers={"X-API-Key": "secret-key"})
+            mismatch = await client.get(
+                "/whoami", headers={"X-API-Key": "secret-key", "X-User-ID": "victim"}
+            )
         assert ok.status_code == 200 and ok.json()["user_id"] == "alice"
-        # With the key verified, the shared default identity is acceptable.
-        assert default.status_code == 200 and default.json()["user_id"] == deps.DEFAULT_USER_ID
+        assert match.status_code == 200 and match.json()["user_id"] == "alice"
+        assert mismatch.status_code == 401
     finally:
         deps.settings = original
 

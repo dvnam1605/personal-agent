@@ -57,7 +57,8 @@ async def test_communication_agent_complex_react_within_budget() -> None:
     """Spec §3.2 flow finishes in <= 4 iterations and <= 3000 prompt tokens."""
     task = complex_task("Tìm email Nam gửi gần đây về RAG và tóm tắt quyết định.")
     assert ModeSelector.select(task, _agent()) is ExecutionMode.BOUNDED_REACT
-    assert task.budget.max_react_steps == 4
+    assert task.budget.max_react_steps == 6
+    assert task.budget.max_tool_calls == 8
     assert task.budget.max_prompt_tokens == 3000
 
     chat = ScriptedChat(

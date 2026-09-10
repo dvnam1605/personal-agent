@@ -41,10 +41,18 @@ async def test_get_current_user_id_allows_custom_id_with_valid_api_key(
     from app.core.config import settings
 
     monkeypatch.setattr(settings.security, "api_key", "secret-key-123")
+    monkeypatch.setattr(settings.security, "api_key_user_id", None)
 
-    # With correct API key, custom user id is accepted
+    # Unbound key in test/dev: custom X-User-ID is accepted.
     uid = await get_current_user_id(x_user_id="authorized-user", x_api_key="secret-key-123")
     assert uid == "authorized-user"
+
+    monkeypatch.setattr(settings.security, "api_key_user_id", "bound-user")
+    with pytest.raises(AuthenticationError, match="does not match the API key binding"):
+        await get_current_user_id(x_user_id="authorized-user", x_api_key="secret-key-123")
+    assert await get_current_user_id(x_user_id="bound-user", x_api_key="secret-key-123") == (
+        "bound-user"
+    )
 
     # With incorrect API key -> rejected
     with pytest.raises(AuthenticationError, match="A valid API key is required"):
@@ -94,13 +102,14 @@ async def test_google_auth_disconnect_fails_open_on_external_revoke_error(caplog
     service._get_integration = AsyncMock(return_value=mock_integration)  # type: ignore
     service._decrypt = MagicMock(side_effect=lambda token: f"plain-{token}")  # type: ignore
     service.client = MagicMock()
-    service.client.revoke_token = AsyncMock(side_effect=RuntimeError("Google 503 Service Unavailable"))
+    service.client.revoke_token = AsyncMock(
+        side_effect=RuntimeError("Google 503 Service Unavailable")
+    )
 
     result = await service.disconnect(session, "user-123")
     assert result is True
     # Still deletes local integration so user is not stuck
     session.delete.assert_awaited_once_with(mock_integration)
-
 
 
 def test_spill_session_dir_has_64_hex_entropy(tmp_path) -> None:

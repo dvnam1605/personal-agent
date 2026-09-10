@@ -191,4 +191,3 @@ def test_route_decision_properties() -> None:
     )
     assert sup_legacy.is_supervisor is True
     assert sup_legacy.is_workflow is False
-

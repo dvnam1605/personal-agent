@@ -260,6 +260,7 @@ class CalendarService:
         calendar_id: str = "primary",
         *,
         send_updates: str = "all",
+        if_match: str | None = None,
     ) -> CalendarEvent:
         normalized = (
             attendee if isinstance(attendee, CalendarAttendee) else CalendarAttendee(email=attendee)
@@ -269,6 +270,7 @@ class CalendarService:
             normalized,
             calendar_id,
             send_updates=send_updates,
+            if_match=if_match,
         )
 
     async def remove_attendee(self, *args, **kwargs) -> CalendarEvent:

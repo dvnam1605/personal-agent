@@ -27,3 +27,14 @@ def test_sensitive_data_censoring():
     assert censored["username"] == "alice"
     assert censored["nested"]["access_token"] == "[REDACTED]"
     assert censored["nested"]["safe_field"] == "public_data"
+
+
+def test_embedded_secrets_in_log_values_are_redacted() -> None:
+    event = {
+        "event": "tool.trace",
+        "message": "bearer ya29.a0AfH6SMBsecretvalueXXXX and sk-ant-abc123456789",
+    }
+    censored = censor_sensitive_data(None, "info", event)
+    assert "ya29." not in censored["message"]
+    assert "sk-ant-" not in censored["message"]
+    assert "[REDACTED_SECRET]" in censored["message"]

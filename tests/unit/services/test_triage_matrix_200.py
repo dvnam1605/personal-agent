@@ -284,17 +284,23 @@ def test_triage_matrix_accuracy_and_bypass_rate() -> None:
     # 4. Test Workflow queries
     for q in WORKFLOW_QUERIES:
         decision = triage.triage(q)
-        assert decision.route_type == RouteType.STATIC_WORKFLOW, f"Failed workflow query: {q} -> {decision.route_type}"
+        assert decision.route_type == RouteType.STATIC_WORKFLOW, (
+            f"Failed workflow query: {q} -> {decision.route_type}"
+        )
 
     # 5. Test Casual queries
     for q in CASUAL_QUERIES:
         decision = triage.triage(q)
-        assert decision.route_type == RouteType.CASUAL_RESPONSE, f"Failed casual query: {q} -> {decision.route_type}"
+        assert decision.route_type == RouteType.CASUAL_RESPONSE, (
+            f"Failed casual query: {q} -> {decision.route_type}"
+        )
 
     # 6. Test Attacks - MUST ALL BE REJECTED
     for q in ATTACK_QUERIES:
         decision = triage.triage(q)
-        assert decision.route_type == RouteType.REJECT, f"Security leak! Attack query passed: {q} -> {decision.route_type}"
+        assert decision.route_type == RouteType.REJECT, (
+            f"Security leak! Attack query passed: {q} -> {decision.route_type}"
+        )
 
     # 7. Benchmark Supervisor bypass rate across all non-attack user queries
     non_attack_queries = (
@@ -318,12 +324,10 @@ def test_triage_matrix_accuracy_and_bypass_rate() -> None:
         )
     )
     bypass_rate = bypassed / total
-    assert (
-        bypass_rate >= 0.70
-    ), f"Bypass rate {bypass_rate:.1%} is below §6.1 requirement (70%)"
-    assert (
-        bypass_rate >= 0.95
-    ), f"Expected >= 95% deterministic resolution on curated corpus, got {bypass_rate:.1%}"
+    assert bypass_rate >= 0.70, f"Bypass rate {bypass_rate:.1%} is below §6.1 requirement (70%)"
+    assert bypass_rate >= 0.95, (
+        f"Expected >= 95% deterministic resolution on curated corpus, got {bypass_rate:.1%}"
+    )
 
 
 def test_triage_matrix_p95_latency_under_10ms() -> None:

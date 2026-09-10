@@ -135,23 +135,37 @@ class FastTriage:
         has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented))
         has_cal_relative = bool(CALENDAR_RELATIVE.search(unaccented))
         has_time_signal = bool(TIME_SIGNAL_TIGHT.search(unaccented))
-        has_calendar_signal = has_calendar_core or has_cal_inquiry or has_cal_relative or has_time_signal
+        has_calendar_signal = (
+            has_calendar_core or has_cal_inquiry or has_cal_relative or has_time_signal
+        )
 
         # Order phrase guard (H1): 'thứ tự' must not be confused with Wednesday 'thứ tư'
         is_order_phrase = bool(ORDER_PHRASE.search(unaccented))
-        has_wednesday = bool(CALENDAR_WEDNESDAY.search(unaccented)) and not is_order_phrase and has_calendar_signal
+        has_wednesday = (
+            bool(CALENDAR_WEDNESDAY.search(unaccented))
+            and not is_order_phrase
+            and has_calendar_signal
+        )
         has_standard_weekday = bool(CALENDAR_WEEKDAY.search(unaccented)) and has_calendar_signal
         has_weekday = has_standard_weekday or has_wednesday
 
         # Relative date alone is calendar ONLY if paired with calendar core, inquiry, or tight time signal
-        has_cal_rel_valid = has_cal_relative and (has_calendar_core or has_cal_inquiry or has_time_signal)
+        has_cal_rel_valid = has_cal_relative and (
+            has_calendar_core or has_cal_inquiry or has_time_signal
+        )
         has_cal_inquiry_with_time = has_cal_inquiry and (has_time_signal or has_cal_relative)
-        has_calendar = has_calendar_core or has_weekday or has_cal_rel_valid or has_cal_inquiry_with_time
+        has_calendar = (
+            has_calendar_core or has_weekday or has_cal_rel_valid or has_cal_inquiry_with_time
+        )
 
         # Communication domain detection
         is_meeting_followup = bool(FOLLOWUP_AFTER_MEETING.search(unaccented))
         is_invitation_comm = bool(INVITATION_PATTERN.search(unaccented))
-        has_comm = bool(COMMUNICATION_PATTERN.search(unaccented)) or is_meeting_followup or is_invitation_comm
+        has_comm = (
+            bool(COMMUNICATION_PATTERN.search(unaccented))
+            or is_meeting_followup
+            or is_invitation_comm
+        )
 
         # If it is a personal follow-up email/message after a meeting or invitation letter:
         # The meeting/event is only temporal/thematic context, active domain is Communication
@@ -171,13 +185,40 @@ class FastTriage:
         else:
             has_research = has_doc_terms or has_lookup_verbs
 
-        # 4. Dynamic Skill Matching (P14 integration)
-        is_calendar_schedule_query = has_calendar and (has_cal_relative or has_cal_inquiry)
-        if not is_calendar_schedule_query:
+        # 4. Known Static Workflow trigger match (WF-01, WF-02, WF-05)
+        # Compiled static workflows take precedence over uncompiled dynamic skills (§5.3 / P19).
+        # Schedule inquiries (e.g. "có lịch gì không", "mấy giờ", "rảnh không") preserve CalendarAgent fast-path.
+        is_calendar_schedule_inquiry = has_calendar and has_cal_inquiry
+        if not is_calendar_schedule_inquiry:
+            matched_workflow = self._workflows.match(normalized)
+            if matched_workflow is not None:
+                is_conflict = matched_workflow.workflow_id == "WF-02" and has_comm
+                if not is_conflict:
+                    wf_domains = (
+                        list(matched_workflow.domains)
+                        if matched_workflow.domains
+                        else [Domain.GENERAL]
+                    )
+                    decision = RouteDecision(
+                        route_type=RouteType.STATIC_WORKFLOW,
+                        target_workflow_id=matched_workflow.workflow_id,
+                        confidence=0.95,
+                        parameters={"query": normalized},
+                        reasoning=f"Matched static workflow trigger for '{matched_workflow.name}'.",
+                        domains=wf_domains,
+                        complexity=Complexity.MULTI_STEP,
+                        reason_code="STATIC_WORKFLOW_MATCH",
+                    )
+                    self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
+                    return decision
+
+            # 5. Dynamic Skill Matching (P14 integration / prototype fallback)
             for skill in self._skills.list_all():
                 skill_def = self._skills.get(skill.name, skill.version)
                 if skill_def and any(
-                    match_trigger(t, normalized, unaccented_query=unaccented, allow_token_subset=False)
+                    match_trigger(
+                        t, normalized, unaccented_query=unaccented, allow_token_subset=False
+                    )
                     for t in skill.triggers
                 ):
                     caps = [str(c).lower() for c in skill.required_capabilities]
@@ -218,7 +259,11 @@ class FastTriage:
                         domain = (
                             Domain.COMMUNICATION
                             if target_agent == "CommunicationAgent"
-                            else (Domain.CALENDAR if target_agent == "CalendarAgent" else Domain.KNOWLEDGE_RESEARCH)
+                            else (
+                                Domain.CALENDAR
+                                if target_agent == "CalendarAgent"
+                                else Domain.KNOWLEDGE_RESEARCH
+                            )
                         )
                         decision = RouteDecision(
                             route_type=RouteType.DIRECT_SPECIALIST,
@@ -232,25 +277,6 @@ class FastTriage:
                         )
                     self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
                     return decision
-
-        # 5. Known Static Workflow trigger match (WF-01, WF-02)
-        matched_workflow = self._workflows.match(normalized)
-        if matched_workflow is not None:
-            is_conflict = matched_workflow.workflow_id == "WF-02" and has_comm
-            if not is_conflict:
-                wf_domains = list(matched_workflow.domains) if matched_workflow.domains else [Domain.GENERAL]
-                decision = RouteDecision(
-                    route_type=RouteType.STATIC_WORKFLOW,
-                    target_workflow_id=matched_workflow.workflow_id,
-                    confidence=0.95,
-                    parameters={"query": normalized},
-                    reasoning=f"Matched static workflow trigger for '{matched_workflow.name}'.",
-                    domains=wf_domains,
-                    complexity=Complexity.MULTI_STEP,
-                    reason_code="STATIC_WORKFLOW_MATCH",
-                )
-                self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
-                return decision
 
         matched_domains: list[tuple[Domain, str]] = []
         if has_calendar:

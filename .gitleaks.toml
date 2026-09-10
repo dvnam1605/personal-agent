@@ -1,0 +1,13 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures, example env templates, and vendored reference trees"
+paths = [
+    '''^tests/''',
+    '''\.env\.example$''',
+    '''^deepseek-harness/''',
+    '''^TencentDB-Agent-Memory/''',
+]

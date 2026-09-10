@@ -38,6 +38,7 @@ from app.services.retrieval.sql import (
     coerce_heading_list,
     owner_scope_sql,
     parent_scope_sql,
+    preferred_filename,
     sibling_scope_sql,
 )
 
@@ -207,26 +208,35 @@ class ExpansionService:
             content_raw = str(row["content_raw"])
             priority_score = _priority(entry["best"], len(entry["hits"]))
             parent_anchors = chunk_anchor_metadata(row) or dict(best_hit.metadata)
+            doc_ver_id = (
+                row.get("document_version_id")
+                or row.get("document_id")
+                or best_hit.metadata.get("document_version_id")
+                or best_hit.document_id
+            )
             doc_ver = (
                 row.get("version_number")
                 if row.get("version_number") is not None
                 else best_hit.metadata.get("version_number")
             )
+            anchors = citation_anchors(parent_anchors)
+            if doc_ver is not None and anchors.get("version_number") is None:
+                anchors["version_number"] = doc_ver
             evidence = Evidence(
                 kind="PARENT",
                 content_raw=content_raw,
                 token_estimate=estimate_tokens(content_raw),
                 primary_chunk_id=pid,
                 document_id=str(row["document_id"]),
-                document_version_id=str(doc_ver) if doc_ver is not None else None,
+                document_version_id=str(doc_ver_id) if doc_ver_id is not None else None,
                 parent_id=pid,
                 chunk_ids=[hit.chunk_id for hit in entry["hits"]],
                 heading_path=coerce_heading_list(row.get("heading_path")),
-                anchors=citation_anchors(parent_anchors),
+                anchors=anchors,
                 score=best_hit.score,
                 rerank_score=best_hit.rerank_score,
                 title=row.get("document_title") or best_hit.metadata.get("document_title"),
-                filename=row.get("uri") or best_hit.metadata.get("uri"),
+                filename=preferred_filename(row, best_hit.metadata),
                 source_type=row.get("source_type") or best_hit.metadata.get("source_type"),
             )
             evidences.append((priority_score, entry["min_index"], evidence))
@@ -294,26 +304,35 @@ class ExpansionService:
             )
             merged_text = "\n\n".join(str(member["content_raw"]) for member in members)
             lead_anchors = chunk_anchor_metadata(lead_row) or dict(best_hit.metadata)
+            doc_ver_id = (
+                lead_row.get("document_version_id")
+                or lead_row.get("document_id")
+                or best_hit.metadata.get("document_version_id")
+                or best_hit.document_id
+            )
             doc_ver = (
                 lead_row.get("version_number")
                 if lead_row.get("version_number") is not None
                 else best_hit.metadata.get("version_number")
             )
+            anchors = citation_anchors(lead_anchors)
+            if doc_ver is not None and anchors.get("version_number") is None:
+                anchors["version_number"] = doc_ver
             evidence = Evidence(
                 kind="NEIGHBOR_GROUP",
                 content_raw=merged_text,
                 token_estimate=estimate_tokens(merged_text),
                 primary_chunk_id=best_hit.chunk_id,
                 document_id=str(lead_row["document_id"]),
-                document_version_id=str(doc_ver) if doc_ver is not None else None,
+                document_version_id=str(doc_ver_id) if doc_ver_id is not None else None,
                 parent_id=pid,
                 chunk_ids=[str(member["chunk_id"]) for member in members],
                 heading_path=heading_path,
-                anchors=citation_anchors(lead_anchors),
+                anchors=anchors,
                 score=best_hit.score,
                 rerank_score=best_hit.rerank_score,
                 title=lead_row.get("document_title") or best_hit.metadata.get("document_title"),
-                filename=lead_row.get("uri") or best_hit.metadata.get("uri"),
+                filename=preferred_filename(lead_row, best_hit.metadata),
                 source_type=lead_row.get("source_type") or best_hit.metadata.get("source_type"),
             )
             best_score = _chunk_score(best_hit)

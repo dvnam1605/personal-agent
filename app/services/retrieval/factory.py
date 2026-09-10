@@ -129,7 +129,9 @@ def build_retrieval_pipeline(
     else:
         embedding = embedding_service or build_embedding_service(resolved)
         hybrid = HybridRetrievalService(
-            dense_service=DenseRetrievalService(embedding_service=embedding, provider=shared_provider),
+            dense_service=DenseRetrievalService(
+                embedding_service=embedding, provider=shared_provider
+            ),
             sparse_service=SparseRetrievalService(provider=shared_provider),
             k=rrf_k,
         )

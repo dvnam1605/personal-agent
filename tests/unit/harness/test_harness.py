@@ -10,14 +10,15 @@ import pytest
 from app.agents import AgentRegistry
 from app.agents.specialist.react import SpecialistRunner
 from app.domain.enums import ExecutionMode
-from app.domain.errors import ConfigurationError
-from app.domain.models import AssistantState, ExecutionBudget, SpecialistTask
+from app.domain.errors import ConfigurationError, PermissionDeniedError
+from app.domain.models import AssistantState, DelegationContext, ExecutionBudget, SpecialistTask
 from app.harness import (
     SpecialistGraphBuilder,
     apply_channels_to_state,
     derive_checkpointer_dsn,
     state_to_channels,
 )
+from app.services.approvals import generate_approval_token
 from app.services.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
@@ -89,17 +90,24 @@ class TestChannelConversion:
 
     def test_state_to_channels_deepcopies_and_respects_approval_token(self) -> None:
         state = AssistantState(user_id="u1", request="do work")
+        token = generate_approval_token(
+            "h-appr-1",
+            tool_name="gmail.create_draft",
+            run_id=state.run_id,
+            arguments={},
+        )
         task_data = {
             "agent_name": "Writer",
             "goal": "write file",
             "permit_mutations": True,
-            "approval_token": "appr_valid_token_123",
+            "approval_token": token,
+            "arguments": {},
             "context_data": {"nested": {"key": "val"}},
         }
         channels = state_to_channels(state, agent_name="Writer", task_json=task_data)
-        # permit_mutations stays True because approval_token is provided top-level
+        token = channels["task_json"]["approval_token"]
         assert channels["task_json"]["permit_mutations"] is True
-        assert channels["task_json"]["approval_token"] == "appr_valid_token_123"
+        assert token.startswith("appr_")
 
         # Mutating channels task_json does not mutate task_data (deep copy)
         channels["task_json"]["context_data"]["nested"]["key"] = "mutated"
@@ -114,7 +122,6 @@ class TestChannelConversion:
         }
         channels_no_tok = state_to_channels(state, agent_name="Writer", task_json=task_no_token)
         assert channels_no_tok["task_json"]["permit_mutations"] is False
-
 
 
 class TestCheckpointerDsn:
@@ -193,3 +200,29 @@ class TestLangGraphBoundary:
         assert result["report_json"]["summary"] == "react done"
         assert len(result["trace_steps"]) == 1
         assert result["usage"]["tool_calls"] == 1
+
+    async def test_delegated_task_cannot_enable_mutations(self) -> None:
+        chat = ScriptedChat([fakes.text_turn("direct answer")])
+        builder, run_id, user_id = _stack(chat, DictExecutor({}))
+        compiled = builder.build()
+        state = AssistantState(user_id=user_id, request="delegated")
+        task = SpecialistTask(
+            agent_name="Direct",
+            goal="quick q",
+            budget=ExecutionBudget(),
+            permit_mutations=True,
+            approval_policy="POLICY",
+            delegation=DelegationContext(
+                parent_agent="Parent",
+                target_agent="Direct",
+                delegation_depth=1,
+                allowed_tools=["test.search"],
+                read_only=True,
+                approval_policy="NEVER",
+                sandbox_scope=("test.search",),
+            ),
+        )
+        with pytest.raises(PermissionDeniedError, match="Delegated specialists"):
+            await compiled.ainvoke(
+                state_to_channels(state, agent_name="Direct", task_json=task.model_dump())
+            )

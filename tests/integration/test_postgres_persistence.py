@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from alembic.config import Config
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
@@ -27,7 +28,7 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
     try:
         async with admin_engine.connect():
             pass
-    except Exception as exc:
+    except (OSError, TimeoutError, SQLAlchemyError) as exc:
         await admin_engine.dispose()
         pytest.skip(f"PostgreSQL integration instance not available at {POSTGRES_TEST_URL}: {exc}")
 
@@ -66,7 +67,16 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
 async def test_postgres_migration_contract(pg_session: AsyncSession) -> None:
     """Run the real Alembic path and validate P3 contracts plus P5 Google storage."""
     assert await pg_session.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")) == 1
-    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+    assert (
+        await pg_session.scalar(
+            text(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = 'approval_requests' AND column_name = 'token_hash'"
+            )
+        )
+    ) == 1
     assert (
         await pg_session.scalar(text("SELECT to_regclass('google_integrations')"))
         == "google_integrations"

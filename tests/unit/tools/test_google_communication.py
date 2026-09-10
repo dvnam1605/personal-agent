@@ -8,6 +8,7 @@ import pytest
 from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError
 from app.domain.models import ToolContext, ToolInput
+from app.services.approvals import generate_approval_token
 from app.services.communication import CommunicationService
 from app.tools import GoogleCommunicationTools, build_communication_tool_registry
 from app.tools.google_communication import COMMUNICATION_TOOL_DEFINITIONS
@@ -186,9 +187,18 @@ async def test_execute_dispatches_every_declared_tool() -> None:
     ]
 
     for tool_name, arguments, expected_call in cases:
+        definition = next(d for d in COMMUNICATION_TOOL_DEFINITIONS if d.name == tool_name)
+        approval = None
+        if definition.is_mutation:
+            approval = generate_approval_token(
+                approval_id=f"comm-{tool_name}",
+                tool_name=tool_name,
+                run_id="run-1",
+                arguments=dict(arguments),
+            )
         result = await tools.execute(
             ToolInput(tool_name=tool_name, arguments=dict(arguments)),
-            _context(approval_token="test-approved"),
+            _context(approval_token=approval),
         )
         assert result.success is True, f"{tool_name} failed: {result.error}"
         assert result.output == f"ok:{expected_call}"
@@ -207,6 +217,29 @@ async def test_communication_mutation_fails_without_approval_token() -> None:
     )
     assert result.success is False
     assert "requires human approval verification" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_communication_mutation_fails_with_spoofed_or_expired_token() -> None:
+    tools, _ = _tools()
+    # 1. Arbitrary spoofed token fails closed (H1)
+    res_spoofed = await tools.execute(
+        ToolInput(tool_name="gmail.send_draft", arguments={"draft_id": "d1"}),
+        _context(approval_token="test-approved"),
+    )
+    assert res_spoofed.success is False
+    assert "rejected: approval token is invalid, expired, or unverified" in (
+        res_spoofed.error or ""
+    )
+
+    # 2. Token for wrong tool fails closed
+    wrong_tok = generate_approval_token(approval_id="c-wrong", tool_name="gmail.delete_draft")
+    res_wrong = await tools.execute(
+        ToolInput(tool_name="gmail.send_draft", arguments={"draft_id": "d1"}),
+        _context(approval_token=wrong_tok),
+    )
+    assert res_wrong.success is False
+    assert "rejected: approval token is invalid, expired, or unverified" in (res_wrong.error or "")
 
 
 @pytest.mark.asyncio

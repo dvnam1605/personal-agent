@@ -114,7 +114,7 @@ class PromptAnswerSynthesizer:
         if generate is not None:
             self._generate = generate
         else:
-            self._generate = self._build_default_generate() or _stub_generate
+            self._generate = self._build_default_generate() or _unconfigured_generate
 
     @staticmethod
     def _build_default_generate() -> GenerateCallback | None:
@@ -127,7 +127,8 @@ class PromptAnswerSynthesizer:
             import httpx
 
             async def _openai_generate(system: str, user: str) -> str:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                timeout = settings.timeouts.llm_request_seconds
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={"Authorization": f"Bearer {api_key}"},
@@ -145,7 +146,8 @@ class PromptAnswerSynthesizer:
                     return str(data["choices"][0]["message"]["content"])
 
             return _openai_generate
-        except Exception:
+        except (ImportError, OSError, TimeoutError, TypeError, ValueError, KeyError):
+            logger.exception("synthesis_default_generate_unavailable")
             return None
 
     async def synthesize(
@@ -194,10 +196,10 @@ class PromptAnswerSynthesizer:
 GenerateCallback = Callable[[str, str], Awaitable[str]]
 
 
-async def _stub_generate(system: str, user: str) -> str:
-    """Placeholder that returns a no-answer — callers must inject a real LLM."""
+async def _unconfigured_generate(system: str, user: str) -> str:
+    """Fallback when no LLM key or generate callback is configured."""
     logger.warning(
-        "synthesis_stub_generate_invoked",
+        "synthesis_unconfigured_generate_invoked",
         extra={"hint": "inject a real LLM generate callback in production"},
     )
     return (

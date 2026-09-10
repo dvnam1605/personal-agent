@@ -317,3 +317,36 @@ class TestParallelExecution:
         await service.retrieve(make_query())
 
         assert events.index("sparse:start") < events.index("dense:end"), events
+
+
+class TestSqlProvenance:
+    def test_chunk_anchor_metadata_drive_uri_differs_from_title(self) -> None:
+        """M4: Drive row where uri != title must preserve title as filename."""
+        from app.services.retrieval.sql import chunk_anchor_metadata
+
+        row = {
+            "document_title": "Quarterly_Financial_Report_2026.docx",
+            "source_type": "google_drive",
+            "uri": "https://drive.google.com/file/d/1A2B3C4D5E/view",
+            "title": "Quarterly_Financial_Report_2026.docx",
+            "filename": "Quarterly_Financial_Report_2026.docx",
+            "document_version_id": "doc-ver-123",
+            "version_number": 1,
+            "node_type": "section",
+            "heading_path": '["Financials", "Q2"]',
+            "chunk_index": 0,
+            "page_start": 1,
+            "page_end": 2,
+            "citation_label": "SEC_1",
+        }
+        meta = chunk_anchor_metadata(row)
+        assert meta["filename"] == "Quarterly_Financial_Report_2026.docx"
+        assert meta["document_title"] == "Quarterly_Financial_Report_2026.docx"
+        assert meta["uri"] == "https://drive.google.com/file/d/1A2B3C4D5E/view"
+        assert meta["heading_path"] == ["Financials", "Q2"]
+
+        # When filename key is absent from row, preferred_filename prioritizes title over uri
+        row_no_filename = dict(row)
+        del row_no_filename["filename"]
+        meta2 = chunk_anchor_metadata(row_no_filename)
+        assert meta2["filename"] == "Quarterly_Financial_Report_2026.docx"

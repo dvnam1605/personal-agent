@@ -22,6 +22,11 @@ from app.integrations.google_drive import (
     DRIVE_READONLY_SCOPE,
     DRIVE_SCOPE,
 )
+from app.services.approvals import (
+    STALE_CHECK_VERSION_TOOLS,
+    expected_target_fingerprint_from_arguments,
+    require_mutation_approval,
+)
 from app.services.drive import DriveService
 from app.tools.registry import ToolRegistry
 
@@ -60,6 +65,14 @@ _DRIVE_WRITE = [DRIVE_SCOPE]
 _STRING = {"type": "string"}
 _BOOLEAN = {"type": "boolean"}
 _INTEGER = {"type": "integer"}
+_EXPECTED_VERSION = {
+    "type": "string",
+    "description": (
+        "DriveFile.version from the last metadata read. Required for stale-target "
+        "protection on move/rename/delete/permissions. Omitting it is rejected "
+        "(fail-closed). Also sent to Google as If-Match when it is an ETag."
+    ),
+}
 
 
 DRIVE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
@@ -184,6 +197,7 @@ DRIVE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "destination_folder_id": _STRING,
                 "source_folder_id": _STRING,
                 "supports_all_drives": _BOOLEAN,
+                "expected_version": _EXPECTED_VERSION,
             },
             "required": ["file_id", "destination_folder_id"],
         },
@@ -202,6 +216,7 @@ DRIVE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "file_id": _STRING,
                 "new_name": _STRING,
                 "supports_all_drives": _BOOLEAN,
+                "expected_version": _EXPECTED_VERSION,
             },
             "required": ["file_id", "new_name"],
         },
@@ -220,6 +235,7 @@ DRIVE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "file_id": _STRING,
                 "permanent": _BOOLEAN,
                 "supports_all_drives": _BOOLEAN,
+                "expected_version": _EXPECTED_VERSION,
             },
             "required": ["file_id"],
         },
@@ -256,6 +272,7 @@ DRIVE_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "email_message": _STRING,
                 "transfer_ownership": _BOOLEAN,
                 "supports_all_drives": _BOOLEAN,
+                "expected_version": _EXPECTED_VERSION,
             },
             "required": ["file_id"],
         },
@@ -322,19 +339,24 @@ class GoogleDriveTools:
                     "Drive tool is not registered.",
                     started=started,
                 )
+            if_match: str | None = None
             if definition.is_mutation:
                 if context.read_only_view:
                     raise PermissionDeniedError("Read-only tool views cannot execute mutations.")
-                approval_token = (
-                    context.approval_token
-                    or tool_input.arguments.get("approval_token")
-                    or tool_input.arguments.get("approval_id")
+                current_fp, if_match = await self._live_precondition(tool_input)
+                await require_mutation_approval(
+                    tool_name=tool_input.tool_name,
+                    context_token=context.approval_token,
+                    arguments=tool_input.arguments,
+                    run_id=context.run_id,
+                    user_id=context.user_id,
+                    delegation=context.delegation,
+                    consume=True,
+                    current_target_fingerprint=current_fp,
                 )
-                if not approval_token:
-                    raise PermissionDeniedError(
-                        f"Mutation tool '{tool_input.tool_name}' requires human approval verification (missing approval_token or approval_id)."
-                    )
-            output = await self._dispatch(tool_input.tool_name, tool_input.arguments)
+            output = await self._dispatch(
+                tool_input.tool_name, tool_input.arguments, if_match=if_match
+            )
             return ToolResult(
                 tool_name=tool_input.tool_name,
                 success=True,
@@ -343,7 +365,7 @@ class GoogleDriveTools:
             )
         except AppError as exc:
             return self._failure(tool_input.tool_name, exc.message, started=started)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - unexpected failures become ToolResult
             logger.exception(
                 "Drive tool execution failed with unexpected exception",
                 tool_name=tool_input.tool_name,
@@ -351,17 +373,37 @@ class GoogleDriveTools:
             )
             return self._failure(
                 tool_input.tool_name,
-                f"Drive tool execution failed: {type(exc).__name__}: {str(exc)[:200]}",
+                f"Drive tool execution failed: {type(exc).__name__}",
                 started=started,
             )
         finally:
             self.service.drive.finish_operation()
 
+    async def _live_precondition(self, tool_input: ToolInput) -> tuple[str | None, str | None]:
+        """Fetch version for stale-check and etag for Google If-Match (M3)."""
+        if tool_input.tool_name not in STALE_CHECK_VERSION_TOOLS:
+            return None, None
+        if expected_target_fingerprint_from_arguments(tool_input.arguments) is None:
+            return None, None
+        file_id = str(tool_input.arguments.get("file_id") or "")
+        if not file_id:
+            return None, None
+        try:
+            meta = await self.service.get_metadata(
+                file_id,
+                supports_all_drives=bool(tool_input.arguments.get("supports_all_drives", True)),
+            )
+            return meta.version, meta.etag
+        except (AppError, OSError, TimeoutError, TypeError, ValueError):
+            return None, None
+
     async def invoke(self, tool_input: ToolInput, context: ToolContext) -> ToolResult:
         """Alias used by generic tool runtimes."""
         return await self.execute(tool_input, context)
 
-    async def _dispatch(self, name: str, args: dict[str, Any]) -> Any:
+    async def _dispatch(
+        self, name: str, args: dict[str, Any], *, if_match: str | None = None
+    ) -> Any:
         supports_all_drives = bool(args.get("supports_all_drives", True))
 
         if name == "drive.search_files":
@@ -443,6 +485,7 @@ class GoogleDriveTools:
                 destination_folder_id=dest,
                 source_folder_id=args.get("source_folder_id"),
                 supports_all_drives=supports_all_drives,
+                if_match=if_match,
             )
         if name == "drive.rename_file":
             file_id = str(args.get("file_id") or "")
@@ -453,6 +496,7 @@ class GoogleDriveTools:
                 file_id=file_id,
                 new_name=new_name,
                 supports_all_drives=supports_all_drives,
+                if_match=if_match,
             )
         if name == "drive.delete_file":
             file_id = str(args.get("file_id") or "")
@@ -462,6 +506,7 @@ class GoogleDriveTools:
                 file_id=file_id,
                 permanent=bool(args.get("permanent", False)),
                 supports_all_drives=supports_all_drives,
+                if_match=if_match,
             )
         if name == "drive.update_permissions":
             file_id = str(args.get("file_id") or "")
@@ -479,6 +524,7 @@ class GoogleDriveTools:
                 email_message=args.get("email_message"),
                 transfer_ownership=bool(args.get("transfer_ownership", False)),
                 supports_all_drives=supports_all_drives,
+                if_match=if_match,
             )
         raise ValidationError("Drive tool is not registered.")
 

@@ -42,19 +42,29 @@ def test_alembic_upgrade_head_creates_hardened_schema(
             row[1] for row in connection.execute("PRAGMA table_info(audit_outbox)").fetchall()
         }
         version = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        document_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+        }
+        job_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(ingestion_jobs)").fetchall()
+        }
+        approval_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(approval_requests)").fetchall()
+        }
+        question_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(user_questions)").fetchall()
+        }
 
     assert "audit_outbox" in tables
     assert "google_integrations" in tables
     assert "ingestion_jobs" in tables
-    document_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()
-    }
-    job_columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(ingestion_jobs)").fetchall()
-    }
+    assert "user_questions" in tables
     assert {"state_version", "telemetry_degraded"}.issubset(run_columns)
     assert {"claimed_by", "claimed_at", "next_attempt_at"}.issubset(outbox_columns)
     assert "fingerprint" in document_columns
+    assert "token_hash" in approval_columns
+    assert "execution_token" not in approval_columns
+    assert "version" in question_columns
     assert {
         "status",
         "payload",
@@ -66,7 +76,7 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         "claimed_by",
         "claimed_at",
     }.issubset(job_columns)
-    assert version == "0008"
+    assert version == "0009"
 
 
 @pytest.mark.asyncio
@@ -102,6 +112,7 @@ async def test_all_p5_tables_created() -> None:
         "skills",
         "workflow_runs",
         "google_integrations",
+        "user_questions",
     }
 
     assert expected_tables.issubset(table_names), f"Missing tables: {expected_tables - table_names}"

@@ -2,9 +2,13 @@
 
 from collections.abc import Iterable
 
+import structlog
+
 from app.agents import AgentRegistry
 from app.domain.models import AgentDefinition, ToolDefinition
 from app.tools import ToolRegistry, ToolRegistryView, capability_matches
+
+logger = structlog.get_logger(__name__)
 
 
 class CapabilityGate:
@@ -35,12 +39,36 @@ class CapabilityGate:
         exposed: list[ToolDefinition] = []
         for tool in self._tool_registry.list():
             if read_only and tool.is_mutation:
+                logger.info(
+                    "capability_gate_rejected",
+                    agent=agent_name,
+                    tool=tool.name,
+                    reason="read_only_strips_mutation",
+                )
                 continue
             if not self._category_allowed(tool, category_patterns):
+                logger.info(
+                    "capability_gate_rejected",
+                    agent=agent_name,
+                    tool=tool.name,
+                    reason="category_not_declared",
+                )
                 continue
             if not self._declared_capability_allowed(tool, agent):
+                logger.info(
+                    "capability_gate_rejected",
+                    agent=agent_name,
+                    tool=tool.name,
+                    reason="capability_not_declared",
+                )
                 continue
             if requested_patterns and not self._matches_any(tool, requested_patterns):
+                logger.info(
+                    "capability_gate_rejected",
+                    agent=agent_name,
+                    tool=tool.name,
+                    reason="request_capability_mismatch",
+                )
                 continue
             exposed.append(tool)
 

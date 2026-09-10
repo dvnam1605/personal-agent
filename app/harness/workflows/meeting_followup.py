@@ -15,6 +15,7 @@ from langgraph.graph import END, StateGraph
 
 from app.domain.enums import RunStatus
 from app.harness.workflow_channels import WorkflowState
+from app.services.approvals import verify_approval_token_sync
 
 
 def build_meeting_followup_graph(
@@ -32,7 +33,9 @@ def build_meeting_followup_graph(
         ctx: dict[str, Any] | None = None
         if calendar_fetcher is not None:
             try:
-                ctx = calendar_fetcher({"query": query, "user_id": state.get("user_id", ""), **params})
+                ctx = calendar_fetcher(
+                    {"query": query, "user_id": state.get("user_id", ""), **params}
+                )
             except Exception as exc:  # noqa: BLE001
                 return {
                     "errors": [f"Calendar fetch failed: {exc}"],
@@ -115,9 +118,33 @@ def build_meeting_followup_graph(
         messages = state.get("attendee_messages", [])
         attendees = meeting_ctx.get("attendees", [])
         token = state.get("parameters", {}).get("approval_token")
+        run_id = state.get("run_id")
+        user_id = state.get("user_id")
 
-        if not token:
-            # Fail-closed: Without approval_token, NEVER call draft_creator; draft requires approval
+        # Peek-only at workflow boundary (consume=False).
+        # The single-use token will be consumed exclusively at the tool execution gate
+        # (e.g. draft_creator calling require_mutation_approval) to prevent double-consumption.
+        token_valid = False
+        if token:
+            params = state.get("parameters", {})
+            draft_args = params.get("arguments") if isinstance(params, dict) else None
+            if isinstance(draft_args, dict):
+                from app.services.approvals import canonical_proposal_hash
+
+                expected_proposal_hash = canonical_proposal_hash("gmail.create_draft", draft_args)
+                token_valid = bool(
+                    verify_approval_token_sync(
+                        token,
+                        "gmail.create_draft",
+                        consume=False,
+                        expected_run_id=run_id,
+                        expected_user_id=user_id if isinstance(user_id, str) else None,
+                        expected_proposal_hash=expected_proposal_hash,
+                    )
+                )
+
+        if not token_valid:
+            # Fail-closed: Without valid approval_token, NEVER call draft_creator
             draft_id = None
             content = (
                 f"Proposed Draft Follow-up:\n"

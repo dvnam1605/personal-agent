@@ -154,6 +154,49 @@ class TestDelegationScope:
         assert result.success is False
 
 
+class TestNeedsMoreContextSurfacesToExecutor:
+    async def test_executor_lifts_missing_context(self) -> None:
+        from app.domain.enums import SpecialistStatus, StopReason
+        from app.domain.models import SpecialistReport, SpecialistTrace
+        from app.harness.supervisor.executor import build_delegation_task_executor
+
+        outcome = SpecialistOutcome(
+            agent_name="Child",
+            report=SpecialistReport(
+                status=SpecialistStatus.NEEDS_MORE_CONTEXT,
+                summary="need email",
+                missing_context=["attendee_email"],
+            ),
+            trace=SpecialistTrace(stop_reason=StopReason.SUCCESS),
+            delegation_depth=1,
+        )
+        service = _service(CapturingChild(outcome))
+        result = await service.delegate(_request())
+        assert result.status == SpecialistStatus.NEEDS_MORE_CONTEXT.value
+        assert result.missing_context == ["attendee_email"]
+        assert result.success is False
+
+        payload: dict[str, Any] = {
+            "task_id": "t1",
+            "task_name": "lookup",
+            "assigned_agent": "Child",
+            "description": "find attendee",
+            "input_data": {},
+            "query": "q",
+            "user_id": "u1",
+            "run_id": "r1",
+            "depth": 1,
+            "tool_restriction": None,
+            "context_data": {},
+        }
+        # New child each call — reuse capturing child by wrapping a fresh service
+        service2 = _service(CapturingChild(outcome))
+        execute = build_delegation_task_executor(service2, parent_agent="Parent")
+        out = await execute(payload)  # type: ignore[arg-type]
+        assert out["task_results"]["t1"]["status"] == SpecialistStatus.NEEDS_MORE_CONTEXT.value
+        assert "attendee_email" in out["missing_context"]
+
+
 class TestDelegatedNeverPinEndToEnd:
     async def test_mutation_rejected_without_executing(self) -> None:
         agents = AgentRegistry([fakes.make_agent("Parent"), fakes.make_agent("Child")])
@@ -180,3 +223,28 @@ class TestDelegatedNeverPinEndToEnd:
         assert result.needs_approval is True
         assert executor.calls == []
         assert child.tasks[0].permit_mutations is False
+
+
+class TestDelegationSanitization:
+    def test_nested_tokens_and_goal_are_stripped(self) -> None:
+        child = CapturingChild(_ok_outcome())
+        service = _service(child)
+        task = service.build_child_task(
+            _request(
+                goal="Send using Bearer abc.def.ghi.token please",
+                context_data={
+                    "approval_token": "appr_leak",
+                    "nested": {"refresh_token": "leak", "ok": 1},
+                    "approval-token": "also-leak",
+                },
+            )
+        )
+        assert "approval_token" not in task.context_data
+        assert "approval-token" not in task.context_data
+        assert "refresh_token" not in task.context_data.get("nested", {})
+        assert task.context_data["nested"]["ok"] == 1
+        camel = service.build_child_task(_request(context_data={"accessToken": "leak", "ok": True}))
+        assert "accessToken" not in camel.context_data
+        assert camel.context_data["ok"] is True
+        assert "Bearer abc.def.ghi.token" not in task.goal
+        assert "[REDACTED_SECRET]" in task.goal

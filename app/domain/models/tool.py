@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.enums import ActionClass, ActionRiskLevel
+from app.domain.models.agent import DelegationContext
 
 
 class ToolDefinition(BaseModel):
@@ -170,6 +171,10 @@ class ToolContext(BaseModel):
     approval_token: str | None = Field(
         default=None,
         description="Validated approval token or approval_id authorizing high-risk mutation.",
+    )
+    delegation: DelegationContext | None = Field(
+        default=None,
+        description="Pinned delegation scope; approval_policy=NEVER must reject mutations.",
     )
 
 

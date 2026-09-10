@@ -95,6 +95,7 @@ async def test_approval_request_create_decide_and_resume(db_session: AsyncSessio
     assert resumed.status == RunStatus.RUNNING
     assert resumed.approvals[0].action_id == action.id
     assert resumed.continuation_context["approved_request_id"] == request.id
+    assert "approval_token" not in resumed.continuation_context
 
 
 @pytest.mark.asyncio

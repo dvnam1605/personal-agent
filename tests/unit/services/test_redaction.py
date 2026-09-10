@@ -7,8 +7,8 @@ from app.services.audit import create_sanitized_state_snapshot, mask_email, sani
 
 def test_mask_email() -> None:
     """Verify email masking preserves first letter and domain."""
-    assert mask_email("alice@example.com") == "a***@example.com"
-    assert mask_email("nam.nguyen@company.org") == "n***@company.org"
+    assert mask_email("alice@example.com") == "a***@[REDACTED]"
+    assert mask_email("nam.nguyen@company.org") == "n***@[REDACTED]"
     assert mask_email("no email here") == "no email here"
 
 
@@ -66,9 +66,9 @@ def test_sanitize_payload_email_and_truncation() -> None:
     }
     sanitized = sanitize_payload(payload, max_string_len=100)
 
-    assert "s***@google.com" in sanitized["message"]
+    assert "s***@[REDACTED]" in sanitized["message"]
     assert sanitized["long_field"] == ("A" * 100) + "... [TRUNCATED]"
-    assert sanitized["nested"]["items"][0]["email"] == "n***@test.com"
+    assert sanitized["nested"]["items"][0]["email"] == "n***@[REDACTED]"
     assert sanitized["nested"]["items"][0]["comment"] == ("B" * 100) + "... [TRUNCATED]"
 
 

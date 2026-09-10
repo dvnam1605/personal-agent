@@ -16,12 +16,12 @@ class ExecutionBudget(BaseModel):
         description="Maximum allowed primary/generative LLM invocations.",
     )
     max_tool_calls: int = Field(
-        default=10,
+        default=8,
         ge=0,
         description="Maximum allowed tool executions across the run.",
     )
     max_react_steps: int = Field(
-        default=5,
+        default=6,
         ge=0,
         description="Maximum reasoning/action iterations in a ReAct loop.",
     )

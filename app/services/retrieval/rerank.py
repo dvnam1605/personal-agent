@@ -15,7 +15,9 @@ settings-driven stack.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.core.config import settings as app_settings
@@ -86,6 +88,7 @@ class ViRankerReranker:
         *,
         threshold: float = 0.0,
         model_name: str | None = None,
+        allow_network_download: bool = False,
     ) -> None:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -100,8 +103,11 @@ class ViRankerReranker:
         self._max_length = max_length
         self._device = device
         self._threshold = threshold
+        self._allow_network_download = allow_network_download
         self._tokenizer: Any = None
         self._model: Any = None
+        self._torch: Any = None
+        self._load_lock = threading.Lock()
 
     @property
     def display_name(self) -> str:
@@ -126,22 +132,33 @@ class ViRankerReranker:
             "model_path_or_name": path_or_name,
             "model_name": model_name,
             "threshold": settings_to_use.threshold,
+            "allow_network_download": getattr(settings_to_use, "allow_network_download", False),
             **overrides,
         }
         return cls(**kwargs)
 
     def _ensure_loaded(self) -> None:
-        if self._model is None:
+        if self._model is not None:
+            return
+        with self._load_lock:
+            if self._model is not None:
+                return
             import torch
             from huggingface_hub import snapshot_download
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+            self._torch = torch
             if self._device is None:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
             try:
                 path = snapshot_download(self._model_path_or_name, local_files_only=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - huggingface_hub raises a wide error set
+                if not self._allow_network_download:
+                    raise RuntimeError(
+                        f"Local snapshot for reranker '{self._model_path_or_name}' not found and "
+                        "network download is disabled (allow_network_download=False)."
+                    ) from exc
                 # Offline-first: local snapshot missing or unreadable. Falling
                 # back to a network download changes provenance and hangs on
                 # air-gapped hosts — log loudly so it never happens silently.
@@ -165,33 +182,41 @@ class ViRankerReranker:
         if not candidates or top_k <= 0:
             return []
 
-        import torch
-
-        self._ensure_loaded()
+        await asyncio.to_thread(self._ensure_loaded)
         assert self._tokenizer is not None and self._model is not None
+        torch = self._torch
+        if torch is None:
+            import torch as torch_mod
+
+            self._torch = torch_mod
+            torch = torch_mod
 
         # Build pairs: (query, candidate content)
         pairs = [[query, c.content_raw] for c in candidates]
-        scores: list[float] = []
 
-        with torch.no_grad():
-            for i in range(0, len(pairs), self._batch_size):
-                batch_pairs = pairs[i : i + self._batch_size]
-                inputs = self._tokenizer(
-                    batch_pairs,
-                    padding=True,
-                    truncation=True,
-                    max_length=self._max_length,
-                    return_tensors="pt",
-                )
-                if self._device != "cpu":
-                    inputs = {k: v.to(self._device) for k, v in inputs.items()}
-                logits = self._model(**inputs).logits.view(-1).float()
-                # Apply sigmoid to convert cross-encoder logits into normalized [0, 1] scores
-                batch_scores = torch.sigmoid(logits).cpu().tolist()
-                if isinstance(batch_scores, float):
-                    batch_scores = [batch_scores]
-                scores.extend(batch_scores)
+        def _compute_scores() -> list[float]:
+            batch_scores_all: list[float] = []
+            with torch.no_grad():
+                for i in range(0, len(pairs), self._batch_size):
+                    batch_pairs = pairs[i : i + self._batch_size]
+                    inputs = self._tokenizer(
+                        batch_pairs,
+                        padding=True,
+                        truncation=True,
+                        max_length=self._max_length,
+                        return_tensors="pt",
+                    )
+                    if self._device != "cpu":
+                        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+                    logits = self._model(**inputs).logits.view(-1).float()
+                    # Apply sigmoid to convert cross-encoder logits into normalized [0, 1] scores
+                    batch_scores = torch.sigmoid(logits).cpu().tolist()
+                    if isinstance(batch_scores, float):
+                        batch_scores = [batch_scores]
+                    batch_scores_all.extend(batch_scores)
+            return batch_scores_all
+
+        scores: list[float] = await asyncio.to_thread(_compute_scores)
 
         # Pair each candidate with its neural score and original rank
         scored_candidates = [

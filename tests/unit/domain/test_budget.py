@@ -16,8 +16,8 @@ def test_budget_defaults_and_validation() -> None:
     """Verify default limits and non-negative constraints."""
     budget = ExecutionBudget()
     assert budget.max_llm_calls == 5
-    assert budget.max_tool_calls == 10
-    assert budget.max_react_steps == 5
+    assert budget.max_tool_calls == 8
+    assert budget.max_react_steps == 6
     assert budget.max_supervisor_iterations == 3
     assert budget.timeout_seconds == 30.0
     assert budget.max_total_tokens == 16000

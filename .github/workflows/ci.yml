@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: |
+          uv run ruff check app tests
+          uv run ruff format --check app tests
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Alembic upgrade head (sqlite)
+        run: |
+          uv run python -c "
+          from pathlib import Path
+          from alembic.config import Config
+          from alembic import command
+          from app.core.config import settings
+          db = Path('ci-alembic.sqlite').resolve()
+          settings.database.url = f'sqlite+aiosqlite:///{db.as_posix()}'
+          cfg = Config('alembic.ini')
+          cfg.attributes['configure_logger'] = False
+          command.upgrade(cfg, 'head')
+          print('alembic head ok')
+          "
+
+      - name: Pytest with coverage gate
+        run: uv run pytest --tb=short --cov --cov-report=term-missing

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from app.domain.errors import ExternalServiceError
@@ -32,10 +32,13 @@ from app.domain.models.drive import (
 from app.integrations.google_common import (
     GoogleResourceAdapter,
     RetryPolicy,
+    if_match_headers,
     require_list,
     require_object,
 )
-from app.services.google_auth import GoogleApiClient
+
+if TYPE_CHECKING:
+    from app.services.google_auth import GoogleApiClient
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
@@ -46,7 +49,7 @@ TEXT_DECODE_MAX_BYTES = 1024 * 1024  # 1 MB
 
 DRIVE_FILE_FIELDS = (
     "id,name,mimeType,description,starred,trashed,parents,properties,appProperties,"
-    "spaces,version,webContentLink,webViewLink,iconLink,hasThumbnail,thumbnailLink,"
+    "spaces,version,etag,webContentLink,webViewLink,iconLink,hasThumbnail,thumbnailLink,"
     "createdTime,modifiedTime,viewedByMeTime,sharedWithMeTime,size,quotaBytesUsed,"
     "headRevisionId,md5Checksum,sha1Checksum,sha256Checksum,originalFilename,"
     "fileExtension,exportLinks,shared,ownedByMe"
@@ -142,6 +145,7 @@ def _file_from_payload(payload: object) -> DriveFile:
         app_properties=_dict_value("appProperties"),
         spaces=spaces,
         version=str(data["version"]).strip() if data.get("version") is not None else None,
+        etag=str(data["etag"]).strip() if isinstance(data.get("etag"), str) else None,
         web_content_link=(
             str(data["webContentLink"]).strip() if data.get("webContentLink") is not None else None
         ),
@@ -578,6 +582,7 @@ class DriveAdapter(GoogleResourceAdapter):
         *,
         source_folder_id: str | None = None,
         supports_all_drives: bool = True,
+        if_match: str | None = None,
     ) -> DriveFile:
         """Move a file to a new parent folder."""
         normalized_file_id = _validate_identifier(file_id, "file_id")
@@ -605,6 +610,7 @@ class DriveAdapter(GoogleResourceAdapter):
             "PATCH",
             f"/drive/v3/files/{quote(normalized_file_id)}",
             params=params,
+            headers=if_match_headers(if_match),
             operation="Google Drive file move",
             retryable=False,
         )
@@ -616,6 +622,7 @@ class DriveAdapter(GoogleResourceAdapter):
         new_name: str,
         *,
         supports_all_drives: bool = True,
+        if_match: str | None = None,
     ) -> DriveFile:
         """Rename a file or folder."""
         normalized_file_id = _validate_identifier(file_id, "file_id")
@@ -632,6 +639,7 @@ class DriveAdapter(GoogleResourceAdapter):
             f"/drive/v3/files/{quote(normalized_file_id)}",
             params=params,
             json={"name": normalized_name},
+            headers=if_match_headers(if_match),
             operation="Google Drive file rename",
             retryable=False,
         )
@@ -643,16 +651,19 @@ class DriveAdapter(GoogleResourceAdapter):
         *,
         permanent: bool = False,
         supports_all_drives: bool = True,
+        if_match: str | None = None,
     ) -> DriveMutationResult:
         """Trash or permanently delete a file or folder."""
         normalized_file_id = _validate_identifier(file_id, "file_id")
         params = {"supportsAllDrives": supports_all_drives}
+        precondition = if_match_headers(if_match)
 
         if permanent:
             await self._request_json(
                 "DELETE",
                 f"/drive/v3/files/{quote(normalized_file_id)}",
                 params=params,
+                headers=precondition,
                 allow_empty=True,
                 operation="Google Drive file permanent deletion",
                 retryable=False,
@@ -670,6 +681,7 @@ class DriveAdapter(GoogleResourceAdapter):
             f"/drive/v3/files/{quote(normalized_file_id)}",
             params=params,
             json={"trashed": True},
+            headers=precondition,
             operation="Google Drive file trash",
             retryable=False,
         )
@@ -694,6 +706,7 @@ class DriveAdapter(GoogleResourceAdapter):
         email_message: str | None = None,
         transfer_ownership: bool = False,
         supports_all_drives: bool = True,
+        if_match: str | None = None,
     ) -> DrivePermissionResult:
         """Create, update, or remove a sharing permission on a file or folder."""
         normalized_file_id = _validate_identifier(file_id, "file_id")
@@ -708,6 +721,7 @@ class DriveAdapter(GoogleResourceAdapter):
                 "DELETE",
                 f"/drive/v3/files/{quote(normalized_file_id)}/permissions/{quote(normalized_perm_id)}",
                 params={"supportsAllDrives": supports_all_drives},
+                headers=if_match_headers(if_match),
                 allow_empty=True,
                 operation="Google Drive permission removal",
                 retryable=False,
@@ -732,6 +746,7 @@ class DriveAdapter(GoogleResourceAdapter):
                 f"/drive/v3/files/{quote(normalized_file_id)}/permissions/{quote(normalized_perm_id)}",
                 params=params,
                 json=body,
+                headers=if_match_headers(if_match),
                 operation="Google Drive permission update",
                 retryable=False,
             )
@@ -775,6 +790,7 @@ class DriveAdapter(GoogleResourceAdapter):
             f"/drive/v3/files/{quote(normalized_file_id)}/permissions",
             params=params,
             json=body,
+            headers=if_match_headers(if_match),
             operation="Google Drive permission creation",
             retryable=False,
         )

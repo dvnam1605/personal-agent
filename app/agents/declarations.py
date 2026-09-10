@@ -37,8 +37,8 @@ CALENDAR_AGENT = AgentDefinition(
         "free-slot calculation over Google Calendar."
     ),
     domain=Domain.CALENDAR,
-    capabilities=["calendar.*"],
-    allowed_tool_categories=["calendar"],
+    capabilities=["calendar.*", "contacts.resolve_person"],
+    allowed_tool_categories=["calendar", "contacts"],
     default_execution_mode=ExecutionMode.BOUNDED_REACT,
     delegation_allowed=True,
     max_child_depth=3,

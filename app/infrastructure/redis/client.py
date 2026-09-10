@@ -1,15 +1,26 @@
 """Async Redis client manager with environment-namespaced keys, TTLs, and graceful degradation."""
 
-import json
 from collections.abc import Mapping
-from typing import Any
 
+import orjson
 import redis.asyncio as aioredis
 import structlog
+from redis.exceptions import RedisError
 
-from app.core.config import settings
+from app.core.config import Environment, settings
+from app.core.jsonutil import dumps_utf8
+from app.core.jsonutil import loads as json_loads
 
 logger = structlog.get_logger(__name__)
+
+_REDIS_IO_ERRORS = (
+    RedisError,
+    OSError,
+    TimeoutError,
+    TypeError,
+    ValueError,
+    orjson.JSONDecodeError,
+)
 
 
 class RedisManager:
@@ -62,55 +73,64 @@ class RedisManager:
             res = await client.ping()
             self._is_connected = bool(res)
             return self._is_connected
-        except Exception as e:
+        except _REDIS_IO_ERRORS as e:
             logger.warning("redis_health_check_failed", error=str(e))
             self._is_connected = False
             return False
 
-    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+    async def get_session(self, session_id: str) -> dict[str, object] | None:
         """Fetch versioned session state envelope from Redis."""
         try:
             client = await self.get_client()
             raw = await client.get(self.session_key(session_id))
             if not raw:
                 return None
-            data = json.loads(raw)
+            data = json_loads(raw)
             if isinstance(data, dict) and "data" in data:
-                return data["data"]
-            return data
-        except Exception as e:
-            logger.warning("redis_get_session_fallback", session_id=session_id, error=str(e))
+                inner = data["data"]
+                return inner if isinstance(inner, dict) else None
+            return data if isinstance(data, dict) else None
+        except _REDIS_IO_ERRORS as e:
+            logger.error("redis_get_session_failed", session_id=session_id, error=str(e))
+            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
+                raise RuntimeError("Redis session store is unavailable") from e
             return None
 
-    async def set_session(self, session_id: str, data: dict[str, Any], ttl: int = 86400) -> bool:
+    async def set_session(self, session_id: str, data: dict[str, object], ttl: int = 86400) -> bool:
         """Store versioned session state envelope with TTL (default 24h)."""
         try:
             client = await self.get_client()
             envelope = {"version": 1, "data": data}
-            await client.set(self.session_key(session_id), json.dumps(envelope), ex=ttl)
+            await client.set(self.session_key(session_id), dumps_utf8(envelope), ex=ttl)
             return True
-        except Exception as e:
-            logger.warning("redis_set_session_fallback", session_id=session_id, error=str(e))
+        except _REDIS_IO_ERRORS as e:
+            logger.error("redis_set_session_failed", session_id=session_id, error=str(e))
+            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
+                raise RuntimeError("Redis session store is unavailable") from e
             return False
 
-    async def get_cache(self, key: str) -> Any | None:
-        """Fetch cached JSON payload (fails open)."""
+    async def get_cache(self, key: str) -> object | None:
+        """Fetch cached JSON payload. Production/staging fail closed (M4)."""
         try:
             client = await self.get_client()
             raw = await client.get(self.cache_key(key))
-            return json.loads(raw) if raw else None
-        except Exception as e:
-            logger.warning("redis_get_cache_fallback", key=key, error=str(e))
+            return json_loads(raw) if raw else None
+        except _REDIS_IO_ERRORS as e:
+            logger.error("redis_get_cache_failed", key=key, error=str(e))
+            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
+                raise RuntimeError("Redis cache is unavailable") from e
             return None
 
-    async def set_cache(self, key: str, value: Any, ttl: int = 3600) -> bool:
-        """Store cached JSON payload with TTL (default 1h)."""
+    async def set_cache(self, key: str, value: object, ttl: int = 3600) -> bool:
+        """Store cached JSON payload with TTL (default 1h). Production/staging fail closed (M4)."""
         try:
             client = await self.get_client()
-            await client.set(self.cache_key(key), json.dumps(value), ex=ttl)
+            await client.set(self.cache_key(key), dumps_utf8(value), ex=ttl)
             return True
-        except Exception as e:
-            logger.warning("redis_set_cache_fallback", key=key, error=str(e))
+        except _REDIS_IO_ERRORS as e:
+            logger.error("redis_set_cache_failed", key=key, error=str(e))
+            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
+                raise RuntimeError("Redis cache is unavailable") from e
             return False
 
     async def reserve(
@@ -161,7 +181,7 @@ class RedisManager:
             client = await self.get_client()
             await client.delete(key)
             return True
-        except Exception as e:
+        except _REDIS_IO_ERRORS as e:
             logger.warning("redis_delete_fallback", key=key, error=str(e))
             return False
 

@@ -69,12 +69,32 @@ class SourceDocument(BaseModel):
         return value
 
 
-class FingerprintInputs(BaseModel):
-    """Every input that must change the fingerprint of an ingestible source.
+def _default_parent_target() -> int:
+    from app.core.config import get_settings
 
-    Pipeline component versions are injected by configuration so a chunker or
-    parser upgrade reindexes affected documents.
-    """
+    return get_settings().chunking.parent_target_tokens
+
+
+def _default_child_target() -> int:
+    from app.core.config import get_settings
+
+    return get_settings().chunking.child_target_tokens
+
+
+def _default_parent_hard_max() -> int:
+    from app.core.config import get_settings
+
+    return get_settings().chunking.parent_hard_max_tokens
+
+
+def _default_child_hard_max() -> int:
+    from app.core.config import get_settings
+
+    return get_settings().chunking.child_hard_max_tokens
+
+
+class FingerprintInputs(BaseModel):
+    """Every input that influences parsed/chunked/embedded identity."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -87,6 +107,10 @@ class FingerprintInputs(BaseModel):
     child_chunker_version: str = "unknown"
     embedding_model: str = "unknown"
     embedding_dimensions: int = 1024
+    parent_target_tokens: int = Field(default_factory=_default_parent_target)
+    child_target_tokens: int = Field(default_factory=_default_child_target)
+    parent_hard_max_tokens: int = Field(default_factory=_default_parent_hard_max)
+    child_hard_max_tokens: int = Field(default_factory=_default_child_hard_max)
     ocr_source_checksum: str | None = None
     ocr_engine: str | None = None
     ocr_engine_version: str | None = None

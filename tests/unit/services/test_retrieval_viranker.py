@@ -15,6 +15,7 @@ from app.services.retrieval.factory import build_reranker, build_retrieval_pipel
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.services.retrieval.rerank import IdentityReranker, ViRankerReranker
 from app.services.retrieval.sufficiency import DEFAULT_MIN_SCORE_THRESHOLD
+from tests.fixtures.retrieval_benchmark_dataset import BENCHMARK_CORPUS, BENCHMARK_QUERIES
 
 
 def make_chunk(cid: str, score: float = 0.5) -> RetrievedChunk:
@@ -94,10 +95,14 @@ def _install_fake_viranker(
 ) -> ViRankerReranker:
     tokenizer = _FakeTokenizer()
     model = _QueueLogitsModel(scores)
+    pytest.importorskip("torch")
 
     def _load(self: ViRankerReranker) -> None:
+        import torch
+
         self._tokenizer = tokenizer  # type: ignore[assignment]
         self._model = model  # type: ignore[assignment]
+        self._torch = torch
         self._device = "cpu"
 
     monkeypatch.setattr(ViRankerReranker, "_ensure_loaded", _load)
@@ -235,7 +240,7 @@ class TestPipelineRerankerInjection:
         # A reversing reranker must degrade recall vs the fusion order: this
         # proves the HYBRID_RERANK slot actually consults the injected
         # reranker instead of silently keeping Identity order.
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         injected = await runner.evaluate_pipeline_configuration(
             "Hybrid RRF + Injected Reranker",
             search_mode=SearchModeAblationConfig.HYBRID_RERANK,
@@ -247,3 +252,22 @@ class TestPipelineRerankerInjection:
         )
         assert injected.total_queries == len(runner.queries)
         assert injected.mean_recall_at_10 < baseline.mean_recall_at_10
+
+    async def test_viranker_network_download_disabled_fails_loud_on_miss(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M5: When allow_network_download is False and local snapshot is missing, fail loud."""
+        from unittest.mock import MagicMock
+
+        mock_download = MagicMock(side_effect=FileNotFoundError("Local snapshot miss"))
+        monkeypatch.setattr("huggingface_hub.snapshot_download", mock_download)
+
+        reranker = ViRankerReranker(
+            model_path_or_name="nonexistent/model",
+            allow_network_download=False,
+        )
+        with pytest.raises(RuntimeError, match="network download is disabled"):
+            await reranker.rerank("query", [make_chunk("c1")], top_k=1)
+        # Verify network download was never attempted
+        assert mock_download.call_count == 1
+        assert mock_download.call_args.kwargs.get("local_files_only") is True

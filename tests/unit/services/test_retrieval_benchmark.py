@@ -5,9 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.models.retrieval import ExpansionPolicy
-from app.services.retrieval.benchmark_dataset import (
-    BENCHMARK_CORPUS,
-    BENCHMARK_QUERIES,
+from app.services.retrieval.benchmark_types import (
     BenchmarkQueryCategory,
 )
 from app.services.retrieval.evaluation import (
@@ -18,6 +16,10 @@ from app.services.retrieval.evaluation import (
     calculate_mrr,
     calculate_ndcg_at_k,
     calculate_recall_at_k,
+)
+from tests.fixtures.retrieval_benchmark_dataset import (
+    BENCHMARK_CORPUS,
+    BENCHMARK_QUERIES,
 )
 
 # ===========================================================================
@@ -147,9 +149,13 @@ class TestIRMetrics:
 class TestAblationRunner:
     """Executes ablation experiments and validates metrics generation."""
 
+    def test_requires_explicit_query_list(self) -> None:
+        with pytest.raises(TypeError, match="query sequence"):
+            AblationRunner(BENCHMARK_CORPUS, None)  # type: ignore[arg-type]
+
     @pytest.mark.asyncio
     async def test_single_level_baseline(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         report = await runner.evaluate_single_level_baseline()
 
         assert isinstance(report, AblationReport)
@@ -162,7 +168,7 @@ class TestAblationRunner:
 
     @pytest.mark.asyncio
     async def test_parent_expansion_ablation(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         report = await runner.evaluate_pipeline_configuration(
             "Parent-Child (PARENT)",
             expansion_override=ExpansionPolicy.PARENT,
@@ -175,7 +181,7 @@ class TestAblationRunner:
 
     @pytest.mark.asyncio
     async def test_neighbors_expansion_ablation(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         report = await runner.evaluate_pipeline_configuration(
             "Parent-Child (NEIGHBORS)",
             expansion_override=ExpansionPolicy.NEIGHBORS,
@@ -186,7 +192,7 @@ class TestAblationRunner:
 
     @pytest.mark.asyncio
     async def test_search_mode_ablations_comparison(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         dense_rep = await runner.evaluate_pipeline_configuration(
             "Dense Only", search_mode=SearchModeAblationConfig.DENSE_ONLY
         )
@@ -204,7 +210,7 @@ class TestAblationRunner:
 
     @pytest.mark.asyncio
     async def test_run_all_ablations_smoke(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         reports = await runner.run_all_ablations()
 
         assert "single_level" in reports
@@ -224,7 +230,7 @@ class TestAblationRunner:
 
     @pytest.mark.asyncio
     async def test_latency_tracing_breakdown(self) -> None:
-        runner = AblationRunner()
+        runner = AblationRunner(BENCHMARK_CORPUS, BENCHMARK_QUERIES)
         report = await runner.evaluate_pipeline_configuration(
             "Hybrid RRF + Reranker", search_mode=SearchModeAblationConfig.HYBRID_RERANK
         )

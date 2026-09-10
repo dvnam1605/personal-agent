@@ -1,6 +1,8 @@
 """Core security and cryptographic helpers."""
 
+import os
 import secrets
+import subprocess
 from pathlib import Path
 
 import structlog
@@ -9,6 +11,39 @@ from cryptography.fernet import Fernet, InvalidToken
 from app.core.config import PROJECT_ROOT
 
 logger = structlog.get_logger(__name__)
+
+
+def _restrict_windows_key_acl(key_path: Path) -> None:
+    """Restrict a Fernet key file to the current user on Windows (M6)."""
+    user = (os.environ.get("USERNAME") or "").strip()
+    if not user:
+        logger.warning(
+            "token_encryption_key_windows_acl_skipped",
+            path=str(key_path),
+            hint="USERNAME is unset; restrict the key file with icacls",
+        )
+        return
+    try:
+        completed = subprocess.run(
+            ["icacls", str(key_path), "/inheritance:r", "/grant:r", f"{user}:R"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning(
+            "token_encryption_key_icacls_failed",
+            path=str(key_path),
+            error=str(exc),
+        )
+        return
+    if completed.returncode != 0:
+        logger.warning(
+            "token_encryption_key_icacls_failed",
+            path=str(key_path),
+            error=(completed.stderr or completed.stdout or "").strip() or str(completed.returncode),
+        )
 
 
 def generate_secure_token(nbytes: int = 32) -> str:
@@ -62,6 +97,14 @@ class FernetTokenCipher:
         try:
             key = key_path.read_bytes().strip() if key_path.exists() else b""
             if not key:
+                from app.core.config import Environment, get_settings
+
+                app_env = get_settings().environment
+                if app_env in (Environment.PRODUCTION, Environment.STAGING):
+                    raise TokenEncryptionError(
+                        f"Token encryption key file '{key_path}' is missing or empty in {app_env.value}. "
+                        "Refusing to auto-generate a new key because existing encrypted tokens would become unrecoverable."
+                    )
                 generated_key = Fernet.generate_key()
                 try:
                     with key_path.open("xb") as handle:
@@ -73,17 +116,22 @@ class FernetTokenCipher:
                     )
                 except FileExistsError:
                     key = key_path.read_bytes().strip()
-            try:
-                key_path.chmod(0o600)
-            except OSError as chmod_err:
-                logger.warning(
-                    "token_encryption_key_chmod_failed",
-                    path=str(key_path),
-                    error=str(chmod_err),
-                )
+            if os.name != "nt":
+                try:
+                    key_path.chmod(0o600)
+                except OSError as chmod_err:
+                    logger.warning(
+                        "token_encryption_key_chmod_failed",
+                        path=str(key_path),
+                        error=str(chmod_err),
+                    )
+            else:
+                _restrict_windows_key_acl(key_path)
             if not key:
                 raise TokenEncryptionError("Token encryption key file is empty.")
             return cls(key)
+        except TokenEncryptionError:
+            raise
         except (OSError, ValueError, TypeError) as exc:
             raise TokenEncryptionError("Unable to load the token encryption key.") from exc
 

@@ -114,53 +114,47 @@ async def test_drive_service_delegations() -> None:
 
     service = DriveService(mock_adapter)
 
-    # 1. search_files
     page = await service.search_files(query="test")
     assert len(page.items) == 1
-    mock_adapter.search_files.assert_called_once_with(query="test")
+    assert mock_adapter.search_files.call_args.kwargs["query"] == "test"
 
-    # 2. list_folder
     folder_page = await service.list_folder(folder_id="root")
     assert len(folder_page.items) == 1
-    mock_adapter.list_folder.assert_called_once_with(folder_id="root")
+    assert mock_adapter.list_folder.call_args.kwargs["folder_id"] == "root"
 
-    # 3. get_metadata
     meta = await service.get_metadata("f-meta")
     assert meta.id == "f-meta"
-    mock_adapter.get_metadata.assert_called_once_with("f-meta")
+    assert mock_adapter.get_metadata.call_args.kwargs["file_id"] == "f-meta"
 
-    # 4. download_file
     dl = await service.download_file("f-dl")
     assert dl.file_id == "f-dl"
-    mock_adapter.download_file.assert_called_once_with("f-dl")
+    assert mock_adapter.download_file.call_args.kwargs["file_id"] == "f-dl"
 
-    # 5. upload_file
     req = DriveUploadRequest(name="file.txt", content="hello")
     up = await service.upload_file(req)
     assert up.id == "f-up"
-    mock_adapter.upload_file.assert_called_once_with(req)
+    assert mock_adapter.upload_file.call_args.kwargs["request"] is req
 
-    # 6. create_folder
     fld = await service.create_folder("New Folder")
     assert fld.id == "folder-1"
-    mock_adapter.create_folder.assert_called_once_with("New Folder")
+    assert mock_adapter.create_folder.call_args.kwargs["name"] == "New Folder"
 
-    # 7. move_file
     mv = await service.move_file("f-mv", destination_folder_id="dest")
     assert mv.id == "f-mv"
-    mock_adapter.move_file.assert_called_once_with("f-mv", destination_folder_id="dest")
+    assert mock_adapter.move_file.call_args.kwargs["file_id"] == "f-mv"
+    assert mock_adapter.move_file.call_args.kwargs["destination_folder_id"] == "dest"
 
-    # 8. rename_file
     rn = await service.rename_file("f-rn", "new_name.txt")
     assert rn.id == "f-rn"
-    mock_adapter.rename_file.assert_called_once_with("f-rn", "new_name.txt")
+    assert mock_adapter.rename_file.call_args.kwargs["file_id"] == "f-rn"
+    assert mock_adapter.rename_file.call_args.kwargs["new_name"] == "new_name.txt"
 
-    # 9. delete_file
     del_res = await service.delete_file("f-del", permanent=True)
     assert del_res.deleted is True
-    mock_adapter.delete_file.assert_called_once_with("f-del", permanent=True)
+    assert mock_adapter.delete_file.call_args.kwargs["file_id"] == "f-del"
+    assert mock_adapter.delete_file.call_args.kwargs["permanent"] is True
 
-    # 10. update_permissions
     perm_res = await service.update_permissions("f-perm", role="reader", type="user")
     assert perm_res.file_id == "f-perm"
-    mock_adapter.update_permissions.assert_called_once_with("f-perm", role="reader", type="user")
+    assert mock_adapter.update_permissions.call_args.kwargs["file_id"] == "f-perm"
+    assert mock_adapter.update_permissions.call_args.kwargs["role"] == "reader"

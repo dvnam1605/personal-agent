@@ -8,6 +8,7 @@ All three tools are strictly read-only.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Protocol, runtime_checkable
 
@@ -25,6 +26,8 @@ from app.domain.models.retrieval import Evidence, RetrievalQuery
 from app.services.retrieval.injection_boundary import sanitize_evidence_for_prompt
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 RETRIEVAL_TOP_K_DEFAULT = 5
 RETRIEVAL_TOP_K_MAX = 20
@@ -224,7 +227,10 @@ class RetrievalTools:
             )
         except AppError as exc:
             return self._failure(tool_input.tool_name, exc.message, started=started)
-        except Exception:
+        except Exception:  # noqa: BLE001 - unexpected failures become ToolResult
+            logger.exception(
+                "Retrieval tool execution failed", extra={"tool_name": tool_input.tool_name}
+            )
             return self._failure(
                 tool_input.tool_name, "Retrieval tool execution failed.", started=started
             )
@@ -328,7 +334,8 @@ class WebSearchTools:
             )
         except AppError as exc:
             return self._failure(tool_input.tool_name, exc.message, started=started)
-        except Exception:
+        except Exception:  # noqa: BLE001 - unexpected failures become ToolResult
+            logger.exception("Web tool execution failed", extra={"tool_name": tool_input.tool_name})
             return self._failure(
                 tool_input.tool_name, "Web tool execution failed.", started=started
             )

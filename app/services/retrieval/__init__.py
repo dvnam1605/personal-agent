@@ -11,15 +11,6 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.domain.models.sufficiency import SufficiencyStatus, SufficiencyVerdict
-from app.services.retrieval.benchmark_dataset import (
-    BENCHMARK_CORPUS,
-    BENCHMARK_QUERIES,
-    BenchmarkChunk,
-    BenchmarkCorpus,
-    BenchmarkDocument,
-    BenchmarkQuery,
-    BenchmarkQueryCategory,
-)
 from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
 from app.services.retrieval.dense import DenseRetrievalService
 from app.services.retrieval.diversity import (
@@ -123,16 +114,9 @@ __all__ = [
     "extract_cited_ids",
     "resolve_embedding_snapshot_path",
     "sanitize_evidence_for_prompt",
-    # P10D evaluation & benchmarks
-    "BENCHMARK_CORPUS",
-    "BENCHMARK_QUERIES",
+    # P10D evaluation metrics (corpus lives in tests/fixtures/retrieval_benchmark_dataset.py)
     "AblationReport",
     "AblationRunner",
-    "BenchmarkChunk",
-    "BenchmarkCorpus",
-    "BenchmarkDocument",
-    "BenchmarkQuery",
-    "BenchmarkQueryCategory",
     "ChunkingAblationConfig",
     "PipelineTimings",
     "QueryEvaluationResult",

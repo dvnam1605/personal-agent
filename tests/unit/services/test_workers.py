@@ -119,4 +119,5 @@ async def test_retention_worker_runs_authorized_purge(
 
     worker = RetentionWorker(session_factory, retention_days=1, interval_seconds=0.01)
     deleted = await worker.run_once()
-    assert deleted["assistant_runs"] == 1
+    assert deleted["assistant_runs"] == 0
+    assert deleted["messages"] == 0

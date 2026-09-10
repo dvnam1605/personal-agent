@@ -6,11 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.domain.enums import ActionRiskLevel
+from app.domain.enums import ActionRiskLevel, ApprovalOutcome
 
 
 class ProposedAction(BaseModel):
-    """A proposed mutation action requiring policy validation or human confirmation."""
+    """A proposed mutation action requiring policy validation or human confirmation (spec P18-02)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -25,6 +25,14 @@ class ProposedAction(BaseModel):
     description: str = Field(
         ...,
         description="Human-readable summary of what this action will perform.",
+    )
+    target: str | None = Field(
+        default=None,
+        description="Target resource identifier or recipient (e.g. 'alice@example.com', 'event_123').",
+    )
+    important_arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        description="High-salience subset of arguments displayed to human approver.",
     )
     tool_name: str | None = Field(
         default=None,
@@ -42,22 +50,28 @@ class ProposedAction(BaseModel):
         default=True,
         description="Whether this action mandates explicit human confirmation.",
     )
+    expires_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp when the proposed action expires if not decided.",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="UTC timestamp when the action was proposed.",
     )
 
-    @field_validator("created_at", mode="after")
+    @field_validator("created_at", "expires_at", mode="after")
     @classmethod
-    def ensure_utc_aware(cls, v: datetime) -> datetime:
+    def ensure_utc_aware(cls, v: datetime | None) -> datetime | None:
         """Enforce UTC-aware timestamp."""
+        if v is None:
+            return None
         if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
             raise ValueError("Timestamp must be UTC-aware (e.g. datetime.now(UTC)).")
         return v
 
 
 class ActionApproval(BaseModel):
-    """Recorded human confirmation decision for a proposed action."""
+    """Recorded human confirmation decision for a proposed action (spec P18-01)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -68,6 +82,10 @@ class ActionApproval(BaseModel):
     approved: bool = Field(
         ...,
         description="Whether the action was approved or rejected.",
+    )
+    outcome: ApprovalOutcome = Field(
+        default=ApprovalOutcome.ALLOWED_ONCE,
+        description="Closed fail-closed outcome classification (allowed-once, rejected, cancelled, unavailable).",
     )
     approver_id: str = Field(
         ...,

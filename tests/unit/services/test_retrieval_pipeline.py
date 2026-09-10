@@ -150,6 +150,8 @@ class TestSQLTemplates:
         )
         assert "c.id IN (c.id IN (" not in parent_sql
         assert "AND c.id IN ('" in parent_sql
+        assert "d.title AS filename" in parent_sql
+        assert "d.id AS document_version_id" in parent_sql
 
         sibling_sql = SIBLING_FETCH_TEMPLATE.format(
             sibling_scope=sibling_scope_sql(pids),
@@ -157,6 +159,8 @@ class TestSQLTemplates:
         )
         assert "c.parent_id IN (c.parent_id IN (" not in sibling_sql
         assert "AND c.parent_id IN ('" in sibling_sql
+        assert "d.title AS filename" in sibling_sql
+        assert "d.id AS document_version_id" in sibling_sql
 
 
 class TestRerank:
@@ -219,6 +223,9 @@ def _sibling_row(
         "page_end": 3,
         "citation_label": f"[{cid}]",
         "document_title": "Van ban mau",
+        "uri": "drive://van-ban-mau.pdf",
+        "filename": "van-ban-mau.pdf",
+        "document_version_id": f"{doc}-v1",
         "content_raw": content or f"noi dung {cid}",
     }
 
@@ -315,6 +322,8 @@ class TestNeighborExpansion:
         # Primary chunk and anchors belong to c3 (the hit), not c2 or c4
         assert unit.primary_chunk_id == "c3"
         assert unit.anchors.get("citation_label") == "[c3]"
+        assert unit.filename == "van-ban-mau.pdf"
+        assert unit.document_version_id == "doc-1-v1"
 
     async def test_multiple_hits_merge_into_single_group(self) -> None:
         pid = str(uuid.uuid4())

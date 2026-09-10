@@ -86,8 +86,8 @@ class LocalEmbeddingService:
                     res = batch_callback()
                     if inspect.isawaitable(res):
                         await res
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001 - callback isolation must not abort embedding
+                    logger.debug("embedding_batch_callback_failed", exc_info=True)
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:

@@ -266,11 +266,12 @@ class AuditOutboxService:
                 entry.claimed_by = None
                 entry.claimed_at = None
                 delivered += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - per-entry delivery isolation
                 # A concurrent/previous projection is a successful idempotent delivery.
                 try:
                     already_projected = await AuditOutboxService._projection_exists(session, entry)
-                except Exception:
+                except Exception:  # noqa: BLE001 - existence check must not mask delivery
+                    logger.exception("audit_projection_exists_check_failed")
                     already_projected = False
                 if already_projected:
                     entry.status = "delivered"
@@ -328,7 +329,7 @@ class AuditOutboxWorker:
                 )
                 await session.commit()
                 return delivered
-            except Exception:
+            except Exception:  # noqa: BLE001 - worker iteration isolation
                 await session.rollback()
                 logger.exception("audit_outbox_worker_iteration_failed")
                 return 0

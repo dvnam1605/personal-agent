@@ -7,6 +7,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.core.security import FernetTokenCipher
+from app.domain.errors import ValidationError
 from app.domain.models.spill import SpillPolicyConfig
 from app.domain.models.tool import ToolExecutionMetadata, ToolResult
 from app.services.spill import LocalFileSpillStore, SpillPolicy
@@ -63,9 +64,9 @@ def test_spill_store_backward_compatibility_unencrypted(
     target_path = store._resolve_locator_path(ref.locator)
     target_path.write_text(legacy_text, encoding="utf-8")
 
-    # Reading should return the raw content when decryption fails
-    content = store.read_text(ref.locator)
-    assert content == legacy_text
+    # Legacy plaintext must not be returned when a cipher is configured (L1).
+    with pytest.raises(ValidationError, match="Unable to decrypt"):
+        store.read_text(ref.locator)
 
 
 def test_spill_policy_with_encrypted_store(temp_spill_dir: Path, cipher: FernetTokenCipher) -> None:
@@ -94,3 +95,14 @@ def test_spill_policy_with_encrypted_store(temp_spill_dir: Path, cipher: FernetT
     assert len(spills) == 1
     loaded = store.read_text(spills[0].locator)
     assert loaded == long_output
+
+
+def test_spill_decrypt_failure_is_fail_closed(
+    temp_spill_dir: Path, cipher: FernetTokenCipher
+) -> None:
+    store = LocalFileSpillStore(temp_spill_dir, cipher=cipher)
+    ref = store.save_text("session-enc-test", "secret-spill", tool_name="test_tool")
+    target_path = store._resolve_locator_path(ref.locator)
+    target_path.write_text("not-a-fernet-token", encoding="utf-8")
+    with pytest.raises(ValidationError, match="Unable to decrypt"):
+        store.read_text(ref.locator)

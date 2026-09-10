@@ -73,7 +73,6 @@ def test_build_local_source_document_rejects_dry_run_and_missing_device(tmp_path
     assert "ocr_sidecar" not in doc_no_device.metadata
 
 
-
 def test_fingerprint_changes_when_ocr_sidecar_changes() -> None:
     base_inputs = FingerprintInputs(
         source_id="doc-1",

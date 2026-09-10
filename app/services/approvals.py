@@ -1,7 +1,5 @@
 """Durable human-approval lifecycle and run continuation service."""
 
-import hashlib
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -10,18 +8,41 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sanitization import sanitize_payload, sanitize_string
-from app.domain.enums import RunStatus
+from app.domain.enums import ActionRiskLevel, ApprovalOutcome, RunStatus
 from app.domain.models import ActionApproval, AssistantState, ProposedAction
-from app.infrastructure.db.models import ApprovalRequest
+from app.infrastructure.db.models import ApprovalRequest, AssistantRun
+from app.services.approval_tokens import (
+    APPROVAL_TOKEN_PREFIX,
+    STALE_CHECK_ETAG_TOOLS,
+    STALE_CHECK_FINGERPRINT_TOOLS,
+    STALE_CHECK_VERSION_TOOLS,
+    ConsumedTokenStore,
+    _decode_approval_payload,
+    _get_signing_key,
+    _is_relaxed_token_env,
+    approval_id_without_token,
+    approval_token_bound_tool,
+    canonical_proposal_hash,
+    current_target_fingerprint_from_arguments,
+    execution_token_for_request,
+    expected_target_fingerprint_from_arguments,
+    generate_approval_token,
+    is_signed_approval_token,
+    require_mutation_approval,
+    resolve_approval_token,
+    verify_approval_token,
+    verify_approval_token_sync,
+)
 from app.services.run_persistence import RunPersistenceService
 
-APPROVAL_STATUSES = {"pending", "approved", "rejected", "expired", "cancelled"}
+APPROVAL_STATUSES = {"pending", "approved", "rejected", "expired", "cancelled", "unavailable"}
 APPROVAL_TRANSITIONS = {
-    "pending": {"approved", "rejected", "expired", "cancelled"},
+    "pending": {"approved", "rejected", "expired", "cancelled", "unavailable"},
     "approved": set(),
     "rejected": set(),
     "expired": set(),
     "cancelled": set(),
+    "unavailable": set(),
 }
 
 
@@ -43,31 +64,55 @@ def _validate_approval_transition(current_status: str, next_status: str) -> None
 
 
 def _proposal_fields(action: ProposedAction | ApprovalRequest) -> dict[str, Any]:
-    if isinstance(action, ProposedAction):
-        return {
-            "action_type": action.action_type,
-            "description": action.description,
-            "tool_name": action.tool_name,
-            "parameters": sanitize_payload(action.parameters),
-            "risk_level": action.risk_level.value,
-        }
+    target = getattr(action, "target", None)
+    raw_important = getattr(action, "important_arguments", None)
+    important_args = dict(raw_important) if isinstance(raw_important, dict) else {}
+    if isinstance(action, ProposedAction) and getattr(action, "id", None):
+        important_args.setdefault("action_id", action.id)
+    risk_val = (
+        action.risk_level.value
+        if isinstance(action.risk_level, ActionRiskLevel)
+        else str(action.risk_level)
+    )
     return {
         "action_type": action.action_type,
         "description": action.description,
+        "target": target,
+        "important_arguments": important_args,
         "tool_name": action.tool_name,
-        "parameters": sanitize_payload(action.parameters),
-        "risk_level": action.risk_level,
+        "parameters": getattr(action, "parameters", None) or {},
+        "risk_level": risk_val,
     }
 
 
+def _persisted_json(value: Any) -> dict[str, Any]:
+    """Match ApprovalRequest ORM sanitization so DB hashes are stable (H2)."""
+    sanitized = sanitize_payload(
+        value if isinstance(value, dict) else {},
+        max_string_len=1000,
+        max_depth=8,
+        max_items=100,
+        max_payload_bytes=32_768,
+    )
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
 def _proposal_hash(action: ProposedAction | ApprovalRequest) -> str:
-    encoded = json.dumps(
-        _proposal_fields(action),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    from app.services.approval_tokens import _sha256_canonical
+
+    fields = _proposal_fields(action)
+    persisted = {
+        "action_type": sanitize_string(str(fields["action_type"]), 64)[:64],
+        "description": sanitize_string(str(fields["description"]), 2_000),
+        "target": (sanitize_string(str(fields["target"]), 2_000) if fields.get("target") else None),
+        "important_arguments": _persisted_json(fields.get("important_arguments")),
+        "tool_name": (
+            sanitize_string(str(fields["tool_name"]), 64)[:64] if fields.get("tool_name") else None
+        ),
+        "parameters": _persisted_json(fields.get("parameters")),
+        "risk_level": fields["risk_level"],
+    }
+    return _sha256_canonical(persisted)
 
 
 class ApprovalRequestService:
@@ -108,22 +153,29 @@ class ApprovalRequestService:
         if existing is None:
             clean_parameters = sanitize_payload(
                 action.parameters,
-                max_string_len=1_000,
+                max_string_len=10_000,
                 max_depth=8,
                 max_items=100,
-                max_payload_bytes=16_384,
+                max_payload_bytes=65_536,
+            )
+            important_args = dict(action.important_arguments)
+            important_args.setdefault("action_id", action.id)
+            expires_at = (
+                action.expires_at
+                if action.expires_at is not None
+                else datetime.now(UTC) + timedelta(seconds=expires_in_seconds)
             )
             approval = ApprovalRequest(
                 run_id=run_id,
                 action_type=sanitize_string(action.action_type, 64)[:64],
                 description=sanitize_string(action.description, 2_000),
-                target=None,
-                important_arguments={"action_id": action.id},
+                target=sanitize_string(action.target, 2_000) if action.target else None,
+                important_arguments=important_args,
                 tool_name=sanitize_string(action.tool_name, 64)[:64] if action.tool_name else None,
                 parameters=clean_parameters,
                 risk_level=action.risk_level.value,
                 status="pending",
-                expires_at=datetime.now(UTC) + timedelta(seconds=expires_in_seconds),
+                expires_at=expires_at,
                 proposal_hash=proposal_hash,
             )
             try:
@@ -174,6 +226,23 @@ class ApprovalRequestService:
         )
 
     @staticmethod
+    async def get_pending_requests(
+        session: AsyncSession,
+        run_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[ApprovalRequest]:
+        """Fetch pending approval requests optionally filtered by run_id and user_id (spec P18-04, M4)."""
+        stmt = select(ApprovalRequest).where(ApprovalRequest.status == "pending")
+        if run_id:
+            stmt = stmt.where(ApprovalRequest.run_id == run_id)
+        if user_id:
+            stmt = stmt.join(AssistantRun, ApprovalRequest.run_id == AssistantRun.id).where(
+                AssistantRun.user_id == user_id
+            )
+        stmt = stmt.order_by(ApprovalRequest.created_at).limit(100)
+        return list((await session.execute(stmt)).scalars())
+
+    @staticmethod
     async def validate_request(
         session: AsyncSession,
         approval_id: str,
@@ -206,7 +275,9 @@ class ApprovalRequestService:
             request.decided_at = current_time
             await session.flush()
             raise ValueError(f"Approval request expired: {request.id}")
-        if request.proposal_hash and request.proposal_hash != _proposal_hash(request):
+        if not request.proposal_hash:
+            raise ValueError(f"Approval proposal is missing an integrity hash: {request.id}")
+        if request.proposal_hash != _proposal_hash(request):
             raise ValueError(f"Approval proposal has been modified: {request.id}")
 
     @staticmethod
@@ -217,11 +288,11 @@ class ApprovalRequestService:
         approver_id: str,
         reason: str | None = None,
         now: datetime | None = None,
+        target_status: str | None = None,
     ) -> ApprovalRequest:
         """Record one validated human decision with idempotent same-decision retries."""
         if not approver_id.strip():
             raise ValueError("approver_id is required")
-        # Single locked fetch keeps expiry/decision atomic with the row lock.
         request = await session.scalar(
             select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update()
         )
@@ -229,11 +300,15 @@ class ApprovalRequestService:
             raise ValueError(f"Approval request not found: {approval_id}")
         current_time = _utc(now) or datetime.now(UTC)
         await ApprovalRequestService._validate_loaded_request(session, request, now=current_time)
+
+        next_status = (
+            target_status if target_status is not None else ("approved" if approved else "rejected")
+        )
         if request.status != "pending":
-            if request.status == ("approved" if approved else "rejected"):
+            if request.status == next_status:
                 return request
             raise ValueError(f"Approval request is already {request.status}")
-        next_status = "approved" if approved else "rejected"
+
         _validate_approval_transition(request.status, next_status)
         request.status = next_status
         request.approved = approved
@@ -242,6 +317,39 @@ class ApprovalRequestService:
         request.decided_at = current_time
         await session.flush()
         return request
+
+    @staticmethod
+    async def decide_with_outcome(
+        session: AsyncSession,
+        approval_id: str,
+        outcome: ApprovalOutcome | str,
+        approver_id: str,
+        reason: str | None = None,
+        now: datetime | None = None,
+    ) -> ApprovalRequest:
+        """Record a human decision under the closed fail-closed outcome model (spec P18-01)."""
+        normalized_outcome = (
+            outcome
+            if isinstance(outcome, ApprovalOutcome)
+            else ApprovalOutcome(str(outcome).lower())
+        )
+        approved = normalized_outcome == ApprovalOutcome.ALLOWED_ONCE
+        status_map = {
+            ApprovalOutcome.ALLOWED_ONCE: "approved",
+            ApprovalOutcome.REJECTED: "rejected",
+            ApprovalOutcome.CANCELLED: "cancelled",
+            ApprovalOutcome.UNAVAILABLE: "unavailable",
+        }
+        next_status = status_map[normalized_outcome]
+        return await ApprovalRequestService.decide(
+            session,
+            approval_id=approval_id,
+            approved=approved,
+            approver_id=approver_id,
+            reason=reason,
+            now=now,
+            target_status=next_status,
+        )
 
     @staticmethod
     async def expire_pending(
@@ -307,6 +415,8 @@ class ApprovalRequestService:
             approvals.append(approval)
         continuation_context = dict(state.continuation_context)
         continuation_context["approved_request_id"] = request.id
+        # Never persist the plaintext HMAC token into durable run state.
+        continuation_context.pop("approval_token", None)
         resumed_state = state.model_copy(
             update={
                 "status": RunStatus.RUNNING,
@@ -344,3 +454,30 @@ class ApprovalRequestService:
 
 
 ApprovalService = ApprovalRequestService
+
+__all__ = [
+    "APPROVAL_STATUSES",
+    "APPROVAL_TRANSITIONS",
+    "APPROVAL_TOKEN_PREFIX",
+    "ApprovalRequestService",
+    "ApprovalService",
+    "ConsumedTokenStore",
+    "approval_id_without_token",
+    "approval_token_bound_tool",
+    "STALE_CHECK_ETAG_TOOLS",
+    "STALE_CHECK_FINGERPRINT_TOOLS",
+    "STALE_CHECK_VERSION_TOOLS",
+    "canonical_proposal_hash",
+    "current_target_fingerprint_from_arguments",
+    "execution_token_for_request",
+    "expected_target_fingerprint_from_arguments",
+    "generate_approval_token",
+    "is_signed_approval_token",
+    "require_mutation_approval",
+    "resolve_approval_token",
+    "verify_approval_token",
+    "verify_approval_token_sync",
+    "_decode_approval_payload",
+    "_get_signing_key",
+    "_is_relaxed_token_env",
+]

@@ -33,7 +33,8 @@ def test_first_party_registry_declares_both_domain_agents() -> None:
     assert communication.delegation_allowed is True
 
     assert calendar.domain is Domain.CALENDAR
-    assert calendar.allowed_tool_categories == ["calendar"]
+    assert calendar.allowed_tool_categories == ["calendar", "contacts"]
+    assert "contacts.resolve_person" in calendar.capabilities
     assert calendar.default_execution_mode is ExecutionMode.BOUNDED_REACT
     assert calendar.delegation_allowed is True
 
@@ -54,10 +55,17 @@ def test_calendar_agent_sees_only_calendar() -> None:
     view = _gate().for_agent(CALENDAR_AGENT_NAME)
 
     assert len(view.tool_names) > 0
-    assert all(name.startswith("calendar.") for name in view.tool_names)
+    assert all(
+        name.startswith("calendar.") or name == "contacts.resolve_person"
+        for name in view.tool_names
+    )
     assert "calendar.find_free_slots" in view.tool_names
     assert "calendar.create_event" in view.tool_names
+    assert "contacts.resolve_person" in view.tool_names
     assert not any(name.startswith("gmail.") for name in view.tool_names)
+    assert [name for name in view.tool_names if name.startswith("contacts.")] == [
+        "contacts.resolve_person"
+    ]
 
 
 def test_read_only_views_hide_every_mutation_tool() -> None:

@@ -754,7 +754,7 @@ class GoogleOAuthService:
             refresh_token = self._decrypt(integration.refresh_token_encrypted)
             try:
                 await self.client.revoke_token(refresh_token)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - Google revoke is fail-open by contract
                 logger.warning(
                     "google_refresh_token_revoke_failed_fail_open",
                     extra={"error": str(exc), "user_id": user_id},
@@ -763,7 +763,7 @@ class GoogleOAuthService:
             access_token = self._decrypt(integration.access_token_encrypted)
             try:
                 await self.client.revoke_token(access_token)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - Google revoke is fail-open by contract
                 logger.warning(
                     "google_access_token_revoke_failed_fail_open",
                     extra={"error": str(exc), "user_id": user_id},

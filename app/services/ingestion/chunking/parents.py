@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.config import ChunkingSettings
+from app.core.config import settings as app_settings
 from app.domain.models.chunks import ChunkLevel, ParentChunkDraft
 from app.domain.models.parsed_document import (
     HeadingNode,
@@ -75,7 +76,7 @@ class SectionParentChunker:
         settings: ChunkingSettings | None = None,
     ) -> None:
         self._context = context
-        self._settings = settings or ChunkingSettings()
+        self._settings = settings if settings is not None else app_settings.chunking
         self._admin_meta: dict[str, object] = {}
 
     def build_parents(self, document: ParsedDocument) -> list[ParentChunkDraft]:

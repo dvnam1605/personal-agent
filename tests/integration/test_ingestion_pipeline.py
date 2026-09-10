@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from alembic.config import Config
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
@@ -45,7 +46,7 @@ async def pg_session_maker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     try:
         async with admin_engine.connect():
             pass
-    except Exception as exc:
+    except (OSError, TimeoutError, SQLAlchemyError) as exc:
         await admin_engine.dispose()
         pytest.skip(f"PostgreSQL integration instance not available at {POSTGRES_TEST_URL}: {exc}")
 

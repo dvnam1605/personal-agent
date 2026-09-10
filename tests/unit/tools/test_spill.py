@@ -10,7 +10,7 @@ from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationEr
 from app.domain.models import ToolExecutionMetadata, ToolResult
 from app.domain.models.spill import SpillPolicyConfig
 from app.services.spill import InMemorySpillStore, LocalFileSpillStore, SpillPolicy
-from app.tools.spill import (
+from app.tools.spill_tools import (
     SpillInspectionTools,
     build_spill_tool_registry,
 )

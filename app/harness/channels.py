@@ -11,8 +11,14 @@ import copy
 import operator
 from typing import Annotated, Any, TypedDict
 
+from app.core.sanitization import strip_sensitive_keys
 from app.domain.models.budget import BudgetUsage
 from app.domain.models.state import AssistantState
+from app.services.approvals import (
+    approval_token_bound_tool,
+    canonical_proposal_hash,
+    verify_approval_token_sync,
+)
 
 
 class _RequiredChannels(TypedDict):
@@ -53,10 +59,40 @@ def state_to_channels(
     ``SpecialistGraphBuilder._resolve_activation``. Keep the two consistent.
     """
     sanitized_task = copy.deepcopy(task_json)
-    if sanitized_task.get("permit_mutations"):
-        ctx = sanitized_task.get("context_data") or {}
-        if not ctx.get("approval_token") and not sanitized_task.get("approval_token"):
-            sanitized_task["permit_mutations"] = False
+    ctx = sanitized_task.get("context_data") or {}
+    token = sanitized_task.get("approval_token") or ctx.get("approval_token")
+
+    # Defense in depth: peek crypto against run/user/tool/proposal (do not consume).
+    valid_token: str | None = None
+    if token and isinstance(token, str):
+        bound_tool = approval_token_bound_tool(token)
+        raw_args = ctx.get("arguments") if isinstance(ctx, dict) else None
+        if not isinstance(raw_args, dict):
+            task_args = sanitized_task.get("arguments")
+            raw_args = task_args if isinstance(task_args, dict) else None
+        expected_hash = (
+            canonical_proposal_hash(bound_tool, raw_args)
+            if bound_tool and isinstance(raw_args, dict)
+            else None
+        )
+        if verify_approval_token_sync(
+            token,
+            tool_name=bound_tool,
+            consume=False,
+            expected_run_id=state.run_id,
+            expected_user_id=state.user_id,
+            expected_proposal_hash=expected_hash,
+        ):
+            valid_token = token
+
+    if not valid_token:
+        sanitized_task["permit_mutations"] = False
+        sanitized_task["approval_token"] = None
+    elif sanitized_task.get("permit_mutations"):
+        sanitized_task["approval_token"] = valid_token
+
+    # H2: Strip sensitive keys from context_data so bearer secrets never leak into LLM prompts/logs
+    sanitized_task["context_data"] = strip_sensitive_keys(ctx)
 
     return SpecialistChannels(
         run_id=state.run_id,

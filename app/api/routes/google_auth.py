@@ -24,12 +24,12 @@ router = APIRouter(prefix="/auth/google", tags=["Google Authentication"])
 def build_default_google_oauth_service() -> GoogleOAuthService:
     """Select the OAuth state backend matching the deployment environment.
 
-    Development/testing keep the process-local store; staging/production share
-    single-use state through Redis so multi-worker deployments and restarts
-    cannot break or replay the authorization-code flow.
+    TESTING keeps the process-local store. Development, staging, and production
+    share single-use state through Redis so multi-worker deploys cannot drop
+    the authorization-code callback (L2).
     """
     state_store: OAuthStateStore
-    if settings.environment in (Environment.DEVELOPMENT, Environment.TESTING):
+    if settings.environment is Environment.TESTING:
         state_store = InMemoryOAuthStateStore(ttl_seconds=settings.google.oauth_state_ttl_seconds)
     else:
         state_store = RedisOAuthStateStore(

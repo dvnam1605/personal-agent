@@ -14,12 +14,37 @@ from fastapi.responses import JSONResponse
 from app.api.routes import api_router
 from app.api.routes.google_auth import router as google_auth_router
 from app.api.routes.health import router as health_router
-from app.core.config import settings
+from app.core.config import Environment, settings
 from app.core.logging import get_logger, setup_logging
 from app.domain.errors import AppError
+from app.harness.checkpointer import (
+    close_checkpointer_lifespan,
+    configure_checkpointer_lifespan,
+)
 from app.infrastructure.db.session import get_session_factory
 from app.services.audit import AuditOutboxWorker
 from app.services.retention import RetentionWorker
+
+
+async def _configure_consumed_token_store(logger: structlog.stdlib.BoundLogger) -> None:
+    """Wire Redis SET NX for single-use approval tokens (H6). TESTING stays in-memory."""
+    from app.infrastructure.redis.client import redis_manager
+    from app.services.consumed_store import RedisConsumedTokenStore, configure_default_store
+
+    if settings.environment is Environment.TESTING:
+        return
+    healthy = await redis_manager.health_check()
+    if healthy:
+        client = await redis_manager.get_client()
+        configure_default_store(RedisConsumedTokenStore(client))
+        logger.info("consumed_token_store.redis")
+        return
+    if settings.environment not in (Environment.DEVELOPMENT, Environment.TESTING):
+        raise RuntimeError(
+            "Redis is required for the single-use approval token store in "
+            f"{settings.environment.value}. In-memory consume is not cross-worker safe."
+        )
+    logger.warning("consumed_token_store.in_memory_fallback")
 
 
 @asynccontextmanager
@@ -49,11 +74,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "authenticated endpoints will reject all requests."
             ),
         )
+    await _configure_consumed_token_store(logger)
+    checkpointer_cm = await configure_checkpointer_lifespan(logger)
     try:
         yield
     finally:
         stop_event.set()
         await asyncio.gather(*worker_tasks, return_exceptions=True)
+        await close_checkpointer_lifespan(checkpointer_cm, logger)
+        try:
+            from app.harness.runtime import get_default_context_runtime
+
+            await get_default_context_runtime().consolidation_worker.drain()
+        except Exception as exc:  # noqa: BLE001 - shutdown drain must not block exit
+            logger.debug("consolidation_worker_drain_failed", error=str(exc))
         logger.info("application.shutdown")
 
 
@@ -64,18 +98,25 @@ def create_app() -> FastAPI:
         version=settings.app_version,
         debug=settings.debug,
         lifespan=lifespan,
-        docs_url=f"{settings.api_prefix}/docs",
-        openapi_url=f"{settings.api_prefix}/openapi.json",
+        docs_url=f"{settings.api_prefix}/docs" if settings.docs_enabled else None,
+        redoc_url=f"{settings.api_prefix}/redoc" if settings.docs_enabled else None,
+        openapi_url=f"{settings.api_prefix}/openapi.json" if settings.docs_enabled else None,
     )
 
     # CORS configuration — explicit origin allowlist; credentials stay disabled
-    # because authentication is header-based, never cookie-based.
+    # because authentication is header-based, never cookie-based (M10).
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.security.cors_allowed_origins,
         allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-API-Key",
+            "X-User-ID",
+            "X-Request-ID",
+        ],
     )
 
     # Contextual Request ID and Latency Middleware
@@ -104,7 +145,7 @@ def create_app() -> FastAPI:
                 latency_ms=round(latency_ms, 2),
             )
             return response
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - log then re-raise unhandled request errors
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.error(
                 "http.request.failed",
@@ -151,6 +192,11 @@ def create_app() -> FastAPI:
     app.include_router(
         google_auth_router, prefix=""
     )  # OAuth callback matches local Google client JSON
+    from app.api.routes.approvals import router as approvals_router
+    from app.api.routes.questions import router as questions_router
+
+    app.include_router(approvals_router, prefix="")
+    app.include_router(questions_router, prefix="")
     app.include_router(api_router, prefix=settings.api_prefix)
 
     return app

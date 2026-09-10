@@ -1,6 +1,7 @@
 """Unit tests for TracingManager and LangSmith span failure isolation."""
 
 import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -46,3 +47,23 @@ async def test_tracing_manager_error_capture() -> None:
     assert span.status == "error"
     assert span.error == "Simulated tool error"
     assert span.duration_ms >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_tracing_emits_langsmith_run_when_api_key_configured() -> None:
+    """L1: enabled tracing with an API key flushes through langsmith.Client."""
+    mock_client = MagicMock()
+    with (
+        patch("app.core.config.settings.langsmith.api_key", "lsv2_test_key"),
+        patch("langsmith.Client", return_value=mock_client) as client_cls,
+    ):
+        mgr = TracingManager(tracing_enabled=True)
+        async with mgr.trace_span("llm_call", span_type="llm", run_id="run_ls"):
+            pass
+
+    client_cls.assert_called_once()
+    mock_client.create_run.assert_called_once()
+    kwargs = mock_client.create_run.call_args.kwargs
+    assert kwargs["name"] == "llm_call"
+    assert kwargs["run_type"] == "llm"
+    assert kwargs["extra"] == {"assistant_run_id": "run_ls"}

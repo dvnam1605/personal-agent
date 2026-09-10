@@ -6,11 +6,12 @@ module keeps the static agent declaration, delegation scope, and the
 ``DelegationResult`` returned by the delegation entry point.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.enums import Domain, ExecutionMode, TaskStatus
+from app.domain.models.budget import BudgetUsage
 from app.domain.models.evidence import EvidenceItem
 
 
@@ -120,6 +121,14 @@ class DelegationContext(BaseModel):
         default=False,
         description="Whether the child is restricted strictly to read-only tools.",
     )
+    approval_policy: Literal["NEVER", "ALWAYS", "POLICY"] = Field(
+        default="NEVER",
+        description="Delegation policy pinning (§17.1): child specialists cannot self-approve (default NEVER).",
+    )
+    sandbox_scope: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Frozen sandbox scope boundary captured before first await (§17.1).",
+    )
     policy_context: dict[str, Any] = Field(
         default_factory=dict,
         description="Inherited or scoped policy constraints.",
@@ -185,6 +194,14 @@ class DelegationResult(BaseModel):
         default=None,
         description="Summary produced by the delegated specialist.",
     )
+    status: str = Field(
+        default="failed",
+        description="Specialist report status (success, blocked, needs_more_context, needs_approval).",
+    )
+    missing_context: list[str] = Field(
+        default_factory=list,
+        description="What the specialist still needs when status is needs_more_context.",
+    )
     needs_approval: bool = Field(
         default=False,
         description="Whether delegated execution paused awaiting user/policy approval.",
@@ -193,4 +210,8 @@ class DelegationResult(BaseModel):
         default=0,
         ge=0,
         description="Delegation depth at which this result was produced.",
+    )
+    usage: BudgetUsage = Field(
+        default_factory=BudgetUsage,
+        description="Specialist budget usage captured even when the child times out (M5).",
     )

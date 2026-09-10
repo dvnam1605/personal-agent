@@ -23,6 +23,8 @@ WorkflowStatus = Literal[
     "insufficient_calendar_context",
     "searching_parallel",
     "draft_created",
+    "no_meeting_found",
+    "dossier_synthesized",
     "error",
 ]
 
@@ -53,6 +55,9 @@ class WorkflowState(_RequiredWorkflowChannels, total=False):
     branch_errors: Annotated[list[str], operator.add]
     briefing: str | None
     citations: list[dict[str, Any]]
+
+    # WF-05 Meeting Prep Graph channels
+    dossier: dict[str, Any] | None
 
     # Universal outcome channels
     output: dict[str, Any]

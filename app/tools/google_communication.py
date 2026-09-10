@@ -1,5 +1,6 @@
 """Deterministic Gmail/Contacts tool declarations and execution wrappers."""
 
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -14,8 +15,11 @@ from app.domain.models import (
 )
 from app.integrations.google_contacts import CONTACTS_READONLY_SCOPE
 from app.integrations.google_gmail import GMAIL_MODIFY_SCOPE
+from app.services.approvals import require_mutation_approval
 from app.services.communication import CommunicationService
 from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -376,15 +380,15 @@ class GoogleCommunicationTools:
             if definition.is_mutation:
                 if context.read_only_view:
                     raise PermissionDeniedError("Read-only tool views cannot execute mutations.")
-                approval_token = (
-                    context.approval_token
-                    or tool_input.arguments.get("approval_token")
-                    or tool_input.arguments.get("approval_id")
+                await require_mutation_approval(
+                    tool_name=tool_input.tool_name,
+                    context_token=context.approval_token,
+                    arguments=tool_input.arguments,
+                    run_id=context.run_id,
+                    user_id=context.user_id,
+                    delegation=context.delegation,
+                    consume=True,
                 )
-                if not approval_token:
-                    raise PermissionDeniedError(
-                        f"Mutation tool '{tool_input.tool_name}' requires human approval verification (missing approval_token or approval_id)."
-                    )
             output = await self._dispatch(tool_input.tool_name, tool_input.arguments)
             return ToolResult(
                 tool_name=tool_input.tool_name,
@@ -398,7 +402,10 @@ class GoogleCommunicationTools:
                 exc.message,
                 started=started,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - unexpected failures become ToolResult
+            logger.exception(
+                "Communication tool execution failed", extra={"tool_name": tool_input.tool_name}
+            )
             return self._failure(
                 tool_input.tool_name,
                 "Communication tool execution failed.",

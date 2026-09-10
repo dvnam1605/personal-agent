@@ -150,9 +150,13 @@ class GoogleOAuthSettings(BaseModel):
             if updates:
                 for field_name, value in updates.items():
                     setattr(self, field_name, value)
-        except (OSError, ValueError, TypeError):
-            # Defer the actionable configuration error until an OAuth operation is requested.
-            pass
+        except (OSError, ValueError, TypeError) as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "google_client_secrets_file_unreadable: %s",
+                type(exc).__name__,
+            )
         return self
 
 
@@ -195,6 +199,13 @@ class RerankerSettings(BaseModel):
             "reranker at this path is used instead of downloading from the hub."
         ),
     )
+    allow_network_download: bool = Field(
+        default=False,
+        description=(
+            "Air-gapped safety: when False (default), the reranker never contacts the HuggingFace "
+            "hub at runtime if the local snapshot is missing, failing loud instead of hanging."
+        ),
+    )
 
 
 class ParsingSettings(BaseModel):
@@ -226,24 +237,54 @@ class ChunkingSettings(BaseModel):
 
     parent_target_tokens: int = Field(
         default=1600,
+        ge=1,
         description="Target size for PARENT chunks (benchmark start ~1200-2000)",
     )
     parent_hard_max_tokens: int = Field(
         default=2400,
+        ge=1,
         description="Hard maximum for PARENT chunks before the split ladder kicks in",
     )
     child_target_tokens: int = Field(
         default=500,
+        ge=1,
         description="Target size for CHILD chunks (benchmark start ~350-650)",
     )
     child_hard_max_tokens: int = Field(
         default=800,
+        ge=1,
         description="Hard maximum for CHILD chunks; never exceeded by construction",
     )
     merge_small_nodes_below_tokens: int = Field(
         default=40,
+        ge=0,
         description="Adjacent tiny paragraphs/lists may merge within one parent",
     )
+
+    @model_validator(mode="after")
+    def validate_hard_bounds(self) -> "ChunkingSettings":
+        """Reject hard maxima below their corresponding targets."""
+        if self.child_hard_max_tokens < self.child_target_tokens:
+            raise ValueError(
+                "child_hard_max_tokens must be >= child_target_tokens "
+                f"({self.child_hard_max_tokens} < {self.child_target_tokens})."
+            )
+        if self.parent_hard_max_tokens < self.parent_target_tokens:
+            raise ValueError(
+                "parent_hard_max_tokens must be >= parent_target_tokens "
+                f"({self.parent_hard_max_tokens} < {self.parent_target_tokens})."
+            )
+        if self.merge_small_nodes_below_tokens > self.child_hard_max_tokens:
+            raise ValueError(
+                "merge_small_nodes_below_tokens must be <= child_hard_max_tokens "
+                f"({self.merge_small_nodes_below_tokens} > {self.child_hard_max_tokens})."
+            )
+        if self.merge_small_nodes_below_tokens > self.parent_hard_max_tokens:
+            raise ValueError(
+                "merge_small_nodes_below_tokens must be <= parent_hard_max_tokens "
+                f"({self.merge_small_nodes_below_tokens} > {self.parent_hard_max_tokens})."
+            )
+        return self
 
 
 class ReActBudgetSettings(BaseModel):
@@ -259,6 +300,16 @@ class SupervisorBudgetSettings(BaseModel):
     max_iterations: int = Field(default=5, description="Max task execution iterations")
     max_replans: int = Field(default=2, description="Max allowed replanning attempts")
     max_parallel_tasks: int = Field(default=4, description="Max parallel sub-tasks")
+    timeout_seconds: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Wall-clock timeout for a Supervisor DAG run (aligned with ExecutionBudget).",
+    )
+    cost_per_task_usd: float = Field(
+        default=0.02,
+        ge=0.0,
+        description="Estimated USD cost per planned specialist task for DAG budget checks.",
+    )
 
 
 class RouteBudget(BaseModel):
@@ -309,6 +360,23 @@ class SecuritySettings(BaseModel):
             "Unset keys fail closed outside development/testing."
         ),
     )
+    api_key_user_id: str | None = Field(
+        default=None,
+        description=(
+            "User id bound to the shared API key. Required in staging/production so "
+            "X-User-ID cannot impersonate another tenant (H3)."
+        ),
+    )
+    approval_signing_key: str | None = Field(
+        default=None,
+        repr=False,
+        exclude=True,
+        description=(
+            "Dedicated HMAC-SHA256 key for signing approval tokens (≥32 bytes). "
+            "Must be set in staging/production; dev/test falls back to a "
+            "deterministic test-only key with a log warning."
+        ),
+    )
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:8000",
@@ -317,6 +385,15 @@ class SecuritySettings(BaseModel):
         description="Explicit CORS origin allowlist; never use '*' together with credentials.",
     )
 
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def reject_wildcard_cors(cls, value: list[str]) -> list[str]:
+        """M10: never allow a wildcard origin, even with credentials disabled."""
+        cleaned = [origin.strip() for origin in value if origin and origin.strip()]
+        if any(origin == "*" for origin in cleaned):
+            raise ValueError("CORS allowlist must not include '*'.")
+        return cleaned
+
 
 class Settings(BaseSettings):
     """Main Application Settings."""
@@ -324,6 +401,13 @@ class Settings(BaseSettings):
     app_name: str = "Personal AI Assistant"
     app_version: str = "0.1.0"
     environment: Environment = Environment.DEVELOPMENT
+    deploy_target: str | None = Field(
+        default=None,
+        description=(
+            "Independent deployment target: local | staging | production. "
+            "If staging/production, ENVIRONMENT must not be development/testing (H5)."
+        ),
+    )
     debug: bool = False
     api_prefix: str = "/api/v1"
     host: str = "0.0.0.0"
@@ -340,6 +424,10 @@ class Settings(BaseSettings):
     google_redirect_uri: str | None = Field(default=None, repr=False, exclude=True)
     google_token_encryption_key: str | None = Field(default=None, repr=False, exclude=True)
     google_token_encryption_key_file: str | None = Field(default=None, repr=False, exclude=True)
+    # Backward-compatible flat LLM env vars (M6)
+    openai_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    anthropic_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    gemini_api_key: str | None = Field(default=None, repr=False, exclude=True)
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
@@ -355,6 +443,13 @@ class Settings(BaseSettings):
     def auth_enforced(self) -> bool:
         """Whether requests must present a valid API key to be served."""
         return self.environment not in (Environment.DEVELOPMENT, Environment.TESTING)
+
+    @property
+    def docs_enabled(self) -> bool:
+        """API docs (/docs, /openapi.json) are enabled in development/testing, or when debug is True (M10)."""
+        if self.environment in (Environment.DEVELOPMENT, Environment.TESTING):
+            return True
+        return bool(self.debug)
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -377,7 +472,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def merge_flat_google_settings(self) -> "Settings":
-        """Merge legacy flat GOOGLE_* dotenv values into the typed nested settings."""
+        """Merge legacy flat GOOGLE_* and flat LLM dotenv values into the typed nested settings."""
         updates: dict[str, str] = {}
         flat_values = {
             "client_id": self.google_client_id,
@@ -397,6 +492,98 @@ class Settings(BaseSettings):
             }
             merged.update(updates)
             self.google = GoogleOAuthSettings.model_validate(merged)
+
+        # Merge flat LLM settings (M6)
+        llm_updates: dict[str, str] = {}
+        openai_key = (self.openai_api_key or "").strip()
+        anthropic_key = (self.anthropic_api_key or "").strip()
+        gemini_key = (self.gemini_api_key or "").strip()
+        if openai_key and not self.llm.openai_api_key:
+            llm_updates["openai_api_key"] = openai_key
+        if anthropic_key and not self.llm.anthropic_api_key:
+            llm_updates["anthropic_api_key"] = anthropic_key
+        if gemini_key and not self.llm.gemini_api_key:
+            llm_updates["gemini_api_key"] = gemini_key
+        if llm_updates:
+            merged_llm = {
+                field_name: getattr(self.llm, field_name)
+                for field_name in LLMProviderSettings.model_fields
+            }
+            merged_llm.update(llm_updates)
+            self.llm = LLMProviderSettings.model_validate(merged_llm)
+        return self
+
+    @model_validator(mode="after")
+    def validate_deploy_target_and_local_urls(self) -> "Settings":
+        """Refuse fail-open: remote URLs cannot run as development; deploy_target pins env (H5)."""
+        target = (self.deploy_target or "").strip().lower() or None
+        if target is not None and target not in {"local", "staging", "production"}:
+            raise ValueError("DEPLOY_TARGET must be one of: local, staging, production.")
+        if target in {"staging", "production"} and self.environment in (
+            Environment.DEVELOPMENT,
+            Environment.TESTING,
+        ):
+            raise ValueError(
+                f"DEPLOY_TARGET={target} is incompatible with ENVIRONMENT={self.environment.value}. "
+                "Set ENVIRONMENT to staging or production."
+            )
+        if self.environment in (Environment.DEVELOPMENT, Environment.TESTING):
+            db_url = self.database.url.lower()
+            local_markers = ("localhost", "127.0.0.1", ":5434", "sqlite", ":memory:")
+            if not any(marker in db_url for marker in local_markers):
+                raise ValueError(
+                    f"ENVIRONMENT={self.environment.value} but DATABASE__URL is not local. "
+                    "Refusing to run with production-like data stores while security is relaxed. "
+                    "Set ENVIRONMENT=production or point DATABASE__URL at localhost."
+                )
+        if self.environment in (Environment.PRODUCTION, Environment.STAGING):
+            bound = (self.security.api_key_user_id or "").strip()
+            if self.security.api_key and not bound:
+                raise ValueError(
+                    "SECURITY__API_KEY_USER_ID must be set in staging/production so the "
+                    "shared API key cannot impersonate arbitrary X-User-ID values (H3)."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_credentials(self) -> "Settings":
+        """Reject default development database/redis credentials in production/staging (H6)."""
+        if self.environment in (Environment.PRODUCTION, Environment.STAGING):
+            db_url = self.database.url.lower()
+            if "postgres:postgres@" in db_url or "localhost:5434" in db_url:
+                raise ValueError(
+                    f"Default database credentials/host ('postgres:postgres@...:5434') "
+                    f"are forbidden in {self.environment.value}. Set a secure DATABASE__URL."
+                )
+            from urllib.parse import urlparse
+
+            redis = urlparse(self.redis.url)
+            if not redis.password:
+                raise ValueError(
+                    f"Redis URL must include a password in {self.environment.value}. "
+                    "Set REDIS__URL with credentials."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_approval_signing_key(self) -> "Settings":
+        """Eager HMAC key check so a missing key fails at process start, not first token."""
+        key = self.security.approval_signing_key
+        raw = key.encode("utf-8") if key else b""
+        if self.environment not in (Environment.DEVELOPMENT, Environment.TESTING):
+            if len(raw) < 32:
+                raise ValueError(
+                    "SECURITY__APPROVAL_SIGNING_KEY must be set to at least 32 bytes "
+                    "in staging/production. Forgetting this env lets tokens be forged."
+                )
+            return self
+        if len(raw) < 32:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "approval_signing_key_using_test_default",
+                extra={"environment": self.environment.value},
+            )
         return self
 
     model_config = SettingsConfigDict(
@@ -414,4 +601,3 @@ settings = Settings()
 def get_settings() -> Settings:
     """Return the global Settings singleton instance."""
     return settings
-

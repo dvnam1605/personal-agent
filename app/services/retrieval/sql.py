@@ -66,6 +66,8 @@ ANCHOR_SELECT_COLUMNS = """\
        d.title AS document_title,
        d.source_type AS source_type,
        d.uri AS uri,
+       d.title AS filename,
+       d.id AS document_version_id,
        d.version_number AS version_number,
        c.node_type AS node_type,
        c.heading_path AS heading_path,
@@ -74,6 +76,21 @@ ANCHOR_SELECT_COLUMNS = """\
        c.page_end AS page_end,
        c.citation_label AS citation_label\
 """
+
+
+def preferred_filename(*sources: dict[str, Any]) -> str | None:
+    """Prefer a human filename (title) over a storage URI."""
+    for src in sources:
+        if not src:
+            continue
+        for key in ("filename", "document_title", "title"):
+            value = src.get(key)
+            if value not in (None, ""):
+                return str(value)
+        uri = src.get("uri")
+        if uri not in (None, ""):
+            return str(uri)
+    return None
 
 
 def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
@@ -87,6 +104,8 @@ def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
         "document_title": row.get("document_title"),
         "source_type": row.get("source_type"),
         "uri": row.get("uri"),
+        "filename": preferred_filename(row),
+        "document_version_id": row.get("document_version_id") or row.get("document_id"),
         "version_number": row.get("version_number"),
         "node_type": row.get("node_type"),
         "heading_path": coerce_heading_list(row.get("heading_path")),
@@ -123,6 +142,8 @@ SELECT c.id AS chunk_id,
        d.title AS document_title,
        d.source_type AS source_type,
        d.uri AS uri,
+       d.title AS filename,
+       d.id AS document_version_id,
        d.version_number AS version_number
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
@@ -145,6 +166,8 @@ SELECT c.id AS chunk_id,
        d.title AS document_title,
        d.source_type AS source_type,
        d.uri AS uri,
+       d.title AS filename,
+       d.id AS document_version_id,
        d.version_number AS version_number,
        c.content_raw AS content_raw
 FROM document_chunks c

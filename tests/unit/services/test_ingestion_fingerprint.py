@@ -75,6 +75,17 @@ class TestFingerprintSensitivity:
         ).fingerprint
         assert changed != base
 
+    def test_chunking_settings_change_changes_fingerprint(self) -> None:
+        base = compute_fingerprint(_inputs()).fingerprint
+        changed = compute_fingerprint(_inputs(parent_target_tokens=1800)).fingerprint
+        assert changed != base
+        changed = compute_fingerprint(_inputs(child_target_tokens=400)).fingerprint
+        assert changed != compute_fingerprint(_inputs()).fingerprint
+        changed = compute_fingerprint(_inputs(parent_hard_max_tokens=2000)).fingerprint
+        assert changed != compute_fingerprint(_inputs()).fingerprint
+        changed = compute_fingerprint(_inputs(child_hard_max_tokens=600)).fingerprint
+        assert changed != compute_fingerprint(_inputs()).fingerprint
+
     def test_source_id_change_changes_fingerprint(self) -> None:
         base = compute_fingerprint(_inputs()).fingerprint
         assert compute_fingerprint(_inputs(source_id="src-2")).fingerprint != base
@@ -85,3 +96,24 @@ class TestFingerprintSensitivity:
             _inputs(checksum=None, modified_at=None, size_bytes=None)
         ).fingerprint
         assert with_value != without_value
+
+
+def test_legacy_v1_fingerprint_matches_for_skip_compat() -> None:
+    from app.services.ingestion.fingerprint import (
+        compute_legacy_fingerprint_v1,
+        fingerprint_matches_stored,
+    )
+
+    inputs = _inputs()
+    v1 = compute_legacy_fingerprint_v1(inputs)
+    current = compute_fingerprint(inputs).fingerprint
+    assert v1 != current
+    unchanged, is_legacy = fingerprint_matches_stored(v1, inputs)
+    assert unchanged is True
+    assert is_legacy is True
+    unchanged, is_legacy = fingerprint_matches_stored(current, inputs)
+    assert unchanged is True
+    assert is_legacy is False
+    unchanged, is_legacy = fingerprint_matches_stored(None, inputs)
+    assert unchanged is False
+    assert is_legacy is False

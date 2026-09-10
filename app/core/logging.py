@@ -2,16 +2,18 @@
 
 import logging
 import sys
-from typing import Any
 
 import structlog
 from structlog.types import EventDict, WrappedLogger
 
 from app.core.config import settings
+from app.core.sanitization import EMBEDDED_SECRET_PATTERNS
 
 # Sensitive keys to redact from logs
 SENSITIVE_KEYS = {
     "password",
+    "passwd",
+    "pwd",
     "token",
     "access_token",
     "refresh_token",
@@ -20,6 +22,10 @@ SENSITIVE_KEYS = {
     "client_secret",
     "authorization",
     "cookie",
+    "credential",
+    "jwt",
+    "otp",
+    "sessionid",
 }
 
 
@@ -27,10 +33,19 @@ def _is_sensitive(key: str) -> bool:
     return any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS)
 
 
-def _censor_value(key: str, value: Any) -> Any:
+def _redact_embedded_secrets(value: str) -> str:
+    redacted = value
+    for pattern in EMBEDDED_SECRET_PATTERNS:
+        redacted = pattern.sub("[REDACTED_SECRET]", redacted)
+    return redacted
+
+
+def _censor_value(key: str, value: object) -> object:
     """Recursively redact sensitive keys inside dicts, lists, and tuples."""
     if _is_sensitive(key):
         return "[REDACTED]"
+    if isinstance(value, str):
+        return _redact_embedded_secrets(value)
     if isinstance(value, dict):
         return {k: _censor_value(k, v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):

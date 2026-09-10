@@ -268,7 +268,8 @@ async def test_prompt_injection_in_document_treated_as_text() -> None:
 async def test_repeat_guard_halts_runaway_research_loop() -> None:
     """Identical failing follow-up searches trip the circuit breaker."""
     task = web_task("giá cà phê hôm nay")
-    assert task.budget.max_react_steps == 4
+    assert task.budget.max_react_steps == 6
+    assert task.budget.max_tool_calls == 8
     assert task.budget.max_prompt_tokens == 4000
 
     same_call = ("retrieval.retrieve", {"query": "giá cà phê"})

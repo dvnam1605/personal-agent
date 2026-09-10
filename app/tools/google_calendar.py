@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterable
 from datetime import date, datetime
@@ -23,8 +24,15 @@ from app.domain.models import (
     parse_calendar_value,
 )
 from app.integrations.google_calendar import CALENDAR_READONLY_SCOPE, CALENDAR_SCOPE
+from app.services.approvals import (
+    STALE_CHECK_ETAG_TOOLS,
+    expected_target_fingerprint_from_arguments,
+    require_mutation_approval,
+)
 from app.services.calendar import CalendarService
 from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +65,14 @@ def _tool(
 _CALENDAR_READ = [CALENDAR_READONLY_SCOPE]
 _CALENDAR_WRITE = [CALENDAR_SCOPE]
 _STRING = {"type": "string"}
+_EXPECTED_ETAG = {
+    "type": "string",
+    "description": (
+        "ETag from the last read of this event. Required for stale-target protection "
+        "on update/delete/attendee mutations. Omitting it is rejected (fail-closed) "
+        "and the same ETag is sent to Google as If-Match."
+    ),
+}
 _DATETIME = {"type": "string", "format": "date-time"}
 _DATE_OR_DATETIME = {"type": "string", "description": "ISO date or timezone-aware RFC3339 datetime"}
 _ATTENDEES = {"type": "array", "items": {"type": "object"}}
@@ -191,6 +207,7 @@ CALENDAR_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "location": _STRING,
                 "attendees": _ATTENDEES,
                 "send_updates": {"type": "string", "enum": ["all", "externalOnly", "none"]},
+                "expected_etag": _EXPECTED_ETAG,
             },
             "required": ["event_id"],
         },
@@ -209,6 +226,7 @@ CALENDAR_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "event_id": _STRING,
                 "calendar_id": _STRING,
                 "send_updates": {"type": "string", "enum": ["all", "externalOnly", "none"]},
+                "expected_etag": _EXPECTED_ETAG,
             },
             "required": ["event_id"],
         },
@@ -229,6 +247,7 @@ CALENDAR_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "email": _STRING,
                 "display_name": _STRING,
                 "send_updates": {"type": "string", "enum": ["all", "externalOnly", "none"]},
+                "expected_etag": _EXPECTED_ETAG,
             },
             "required": ["event_id", "email"],
         },
@@ -248,6 +267,7 @@ CALENDAR_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "calendar_id": _STRING,
                 "email": _STRING,
                 "send_updates": {"type": "string", "enum": ["all", "externalOnly", "none"]},
+                "expected_etag": _EXPECTED_ETAG,
             },
             "required": ["event_id", "email"],
         },
@@ -368,15 +388,17 @@ class GoogleCalendarTools:
             if definition.is_mutation:
                 if context.read_only_view:
                     raise PermissionDeniedError("Read-only tool views cannot execute mutations.")
-                approval_token = (
-                    context.approval_token
-                    or tool_input.arguments.get("approval_token")
-                    or tool_input.arguments.get("approval_id")
+                current_fp = await self._live_etag_if_expected(tool_input)
+                await require_mutation_approval(
+                    tool_name=tool_input.tool_name,
+                    context_token=context.approval_token,
+                    arguments=tool_input.arguments,
+                    run_id=context.run_id,
+                    user_id=context.user_id,
+                    delegation=context.delegation,
+                    consume=True,
+                    current_target_fingerprint=current_fp,
                 )
-                if not approval_token:
-                    raise PermissionDeniedError(
-                        f"Mutation tool '{tool_input.tool_name}' requires human approval verification (missing approval_token or approval_id)."
-                    )
             output = await self._dispatch(tool_input.tool_name, tool_input.arguments)
             return ToolResult(
                 tool_name=tool_input.tool_name,
@@ -386,7 +408,10 @@ class GoogleCalendarTools:
             )
         except AppError as exc:
             return self._failure(tool_input.tool_name, exc.message, started=started)
-        except Exception:
+        except Exception:  # noqa: BLE001 - unexpected failures become ToolResult
+            logger.exception(
+                "Calendar tool execution failed", extra={"tool_name": tool_input.tool_name}
+            )
             return self._failure(
                 tool_input.tool_name,
                 "Calendar tool execution failed.",
@@ -394,6 +419,23 @@ class GoogleCalendarTools:
             )
         finally:
             self.service.calendar.finish_operation()
+
+    async def _live_etag_if_expected(self, tool_input: ToolInput) -> str | None:
+        """Fetch current Calendar ETag for stale-check (M3, H3)."""
+        if tool_input.tool_name not in STALE_CHECK_ETAG_TOOLS:
+            return None
+        if expected_target_fingerprint_from_arguments(tool_input.arguments) is None:
+            return None
+        event_id = str(tool_input.arguments.get("event_id") or "")
+        if not event_id:
+            return None
+        try:
+            current = await self.service.get_event(
+                event_id, str(tool_input.arguments.get("calendar_id") or "primary")
+            )
+            return current.etag
+        except (AppError, OSError, TimeoutError, TypeError, ValueError):
+            return None
 
     async def invoke(self, tool_input: ToolInput, context: ToolContext) -> ToolResult:
         """Alias used by generic tool runtimes."""
@@ -497,12 +539,14 @@ class GoogleCalendarTools:
                 _event_update(args),
                 str(args.get("calendar_id") or "primary"),
                 send_updates=str(args.get("send_updates") or "all"),
+                if_match=args.get("expected_etag"),
             )
         if name == "calendar.delete_event":
             return await self.service.delete_event(
                 args.get("event_id", ""),
                 str(args.get("calendar_id") or "primary"),
                 send_updates=str(args.get("send_updates") or "all"),
+                if_match=args.get("expected_etag"),
             )
         if name == "calendar.add_attendee":
             try:
@@ -517,6 +561,7 @@ class GoogleCalendarTools:
                 attendee,
                 str(args.get("calendar_id") or "primary"),
                 send_updates=str(args.get("send_updates") or "all"),
+                if_match=args.get("expected_etag"),
             )
         if name == "calendar.remove_attendee":
             return await self.service.remove_attendee(
@@ -524,6 +569,7 @@ class GoogleCalendarTools:
                 args.get("email", ""),
                 str(args.get("calendar_id") or "primary"),
                 send_updates=str(args.get("send_updates") or "all"),
+                if_match=args.get("expected_etag"),
             )
         raise ValidationError("Calendar tool is not registered.")
 

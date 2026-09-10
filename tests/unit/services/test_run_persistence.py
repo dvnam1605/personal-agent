@@ -331,7 +331,7 @@ async def test_waiting_checkpoint_round_trips_full_continuation_context(
         {"recipient": "alice@example.com"},
     )
     assert resumed.status == RunStatus.RUNNING
-    assert resumed.continuation_context["last_input"] == {"recipient": "a***@example.com"}
+    assert resumed.continuation_context["last_input"] == {"recipient": "a***@[REDACTED]"}
 
 
 @pytest.mark.asyncio

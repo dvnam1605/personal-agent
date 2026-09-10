@@ -162,6 +162,10 @@ async def test_audit_records_and_executions(async_session: AsyncSession) -> None
     assert outbox_evt.status == "pending"
     assert llm_exec.estimated_cost_usd == Decimal("0.000400")
 
+    with pytest.raises(PermissionError, match="append-only"):
+        audit_evt.severity = "ERROR"
+        await async_session.flush()
+
 
 @pytest.mark.asyncio
 async def test_future_phase_tables_structure(async_session: AsyncSession) -> None:

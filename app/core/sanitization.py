@@ -10,7 +10,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 SECRET_KEY_PATTERN = re.compile(
-    r"(?i)(token|secret|password|api[_-]?key|authorization|cookie|session|bearer|private[_-]?key)"
+    r"(?i)(token|secret|password|passwd|pwd|api[_-]?key|authorization|cookie|"
+    r"session|bearer|private[_-]?key|credential|jwt|otp)"
 )
 EMAIL_PATTERN = re.compile(r"\b([a-zA-Z0-9_.+-])[a-zA-Z0-9_.+-]*@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b")
 CHAIN_OF_THOUGHT_KEYS = {
@@ -38,6 +39,7 @@ EMBEDDED_SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
     re.compile(r"\bya29\.[0-9A-Za-z_-]{20,}\b"),
+    re.compile(r"\bappr_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
     re.compile(
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
         re.IGNORECASE | re.DOTALL,
@@ -50,8 +52,8 @@ DEFAULT_MAX_PAYLOAD_BYTES = 32_768
 
 
 def mask_email(value: str) -> str:
-    """Mask email addresses while retaining the first character and domain."""
-    return EMAIL_PATTERN.sub(r"\1***@\2", value)
+    """Mask local-part and domain so addresses cannot be re-identified from logs (L3)."""
+    return EMAIL_PATTERN.sub(r"\1***@[REDACTED]", value)
 
 
 def sanitize_string(value: str, max_string_len: int = 500) -> str:
@@ -63,6 +65,52 @@ def sanitize_string(value: str, max_string_len: int = 500) -> str:
     if len(sanitized) > max_string_len:
         return sanitized[:max_string_len] + "... [TRUNCATED]"
     return sanitized
+
+
+# Exact keys stripped from delegated / multi-turn context (normalized: camelCase
+# split, lower, '-' -> '_'). Do not use the broad SECRET_KEY_PATTERN here: it
+# would drop legitimate fields such as total_tokens. Keep this set explicit.
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])([A-Z])")
+SENSITIVE_CONTEXT_KEYS = frozenset(
+    {
+        "approval_token",
+        "approval_id",
+        "approvaltoken",
+        "token",
+        "access_token",
+        "refresh_token",
+        "api_key",
+        "secret",
+        "secret_key",
+        "password",
+        "passwd",
+        "authorization",
+        "bearer",
+    }
+)
+
+
+def _normalize_context_key(key: str) -> str:
+    split = _CAMEL_BOUNDARY.sub(r"_\1", key.strip())
+    return split.lower().replace("-", "_")
+
+
+def is_sensitive_context_key(key: str) -> bool:
+    """Return True if *key* is a credential field that must not cross delegation."""
+    return _normalize_context_key(key) in SENSITIVE_CONTEXT_KEYS
+
+
+def strip_sensitive_keys(data: Any) -> Any:
+    """Recursively remove credential keys from nested dicts/lists."""
+    if isinstance(data, dict):
+        return {
+            key: strip_sensitive_keys(value)
+            for key, value in data.items()
+            if not is_sensitive_context_key(str(key))
+        }
+    if isinstance(data, list):
+        return [strip_sensitive_keys(item) for item in data]
+    return data
 
 
 class _SanitizationBudget:

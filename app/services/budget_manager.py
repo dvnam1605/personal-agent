@@ -288,7 +288,7 @@ class BudgetManager:
                 limits,
                 max(1, int(self.remaining_seconds()) + 60),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Redis/Lua failures deny the reservation
             logger.error("distributed_budget_store_unavailable", error=str(exc))
             raise BudgetExceededError(
                 message="Distributed budget store unavailable; denying new call.",

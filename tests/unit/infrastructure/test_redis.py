@@ -52,6 +52,19 @@ async def test_redis_fallback_when_unavailable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_redis_cache_fail_closed_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import Environment, settings
+
+    monkeypatch.setattr(settings, "environment", Environment.PRODUCTION)
+    offline_mgr = RedisManager(url="redis://127.0.0.1:59999/0")
+    with pytest.raises(RuntimeError, match="Redis cache is unavailable"):
+        await offline_mgr.get_cache("key_1")
+    with pytest.raises(RuntimeError, match="Redis cache is unavailable"):
+        await offline_mgr.set_cache("key_1", {"data": 123})
+    await offline_mgr.close()
+
+
+@pytest.mark.asyncio
 async def test_redis_budget_reservation_uses_atomic_ttl_script() -> None:
     """Verify the budget reservation call carries a positive TTL and all resource limits."""
 

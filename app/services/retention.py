@@ -10,11 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.infrastructure.db.models import (
     ApprovalRequest,
     AssistantRun,
-    AuditEvent,
     AuditOutbox,
-    LLMExecution,
     Message,
-    ToolExecution,
     WorkflowRun,
 )
 from app.services.approvals import ApprovalRequestService
@@ -63,10 +60,6 @@ class RetentionService:
                 )
             ).scalars()
         )
-        protected_run_ids = select(AuditOutbox.run_id).where(
-            AuditOutbox.status.in_(UNRESOLVED_OUTBOX_STATUSES),
-            AuditOutbox.run_id.is_not(None),
-        )
 
         deleted: dict[str, int] = {}
         deleted["audit_outbox"] = _row_count(
@@ -88,30 +81,10 @@ class RetentionService:
                 )
             )
         )
-        deleted["tool_executions"] = _row_count(
-            await session.execute(
-                delete(ToolExecution).where(
-                    ToolExecution.executed_at < cutoff,
-                    ~ToolExecution.run_id.in_(protected_run_ids),
-                )
-            )
-        )
-        deleted["llm_executions"] = _row_count(
-            await session.execute(
-                delete(LLMExecution).where(
-                    LLMExecution.executed_at < cutoff,
-                    ~LLMExecution.run_id.in_(protected_run_ids),
-                )
-            )
-        )
-        deleted["audit_events"] = _row_count(
-            await session.execute(
-                delete(AuditEvent).where(
-                    AuditEvent.created_at < cutoff,
-                    AuditEvent.run_id.is_(None) | ~AuditEvent.run_id.in_(protected_run_ids),
-                )
-            )
-        )
+        # tool_executions, llm_executions, and audit_events are append-only (M7).
+        deleted["tool_executions"] = 0
+        deleted["llm_executions"] = 0
+        deleted["audit_events"] = 0
 
         if expired_run_ids:
             deleted["messages"] = _row_count(
@@ -127,11 +100,8 @@ class RetentionService:
                     delete(ApprovalRequest).where(ApprovalRequest.run_id.in_(expired_run_ids))
                 )
             )
-            deleted["assistant_runs"] = _row_count(
-                await session.execute(
-                    delete(AssistantRun).where(AssistantRun.id.in_(expired_run_ids))
-                )
-            )
+            # Keep assistant_runs: they parent append-only tool/llm/audit rows (M7).
+            deleted["assistant_runs"] = 0
         else:
             deleted.update(messages=0, workflow_runs=0, approval_requests=0, assistant_runs=0)
 
@@ -167,7 +137,7 @@ class RetentionWorker:
                 deleted["expired_approval_requests"] = expired_approvals
                 await session.commit()
                 return deleted
-            except Exception:
+            except Exception:  # noqa: BLE001 - worker iteration isolation
                 await session.rollback()
                 logger.exception("retention_worker_iteration_failed")
                 return {}

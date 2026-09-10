@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import TaskStatus
+from app.domain.enums import Domain, TaskStatus
 from app.domain.models.agent import TaskResult
 
 
@@ -25,7 +25,11 @@ class TaskDependency(BaseModel):
     )
     condition: str | None = Field(
         default=None,
-        description="Optional conditional expression key evaluated in context to trigger task execution.",
+        description=(
+            "Optional condition key evaluated against execution context. "
+            "Can be a predecessor task ID (checked for non-failure status in task_results) "
+            "or an evaluation key present in context. Note that Supervisor DAG passes task_results as context."
+        ),
     )
 
 
@@ -112,8 +116,7 @@ class ExecutionPlan(BaseModel):
         description="List of planned execution tasks.",
     )
 
-    @model_validator(mode="after")
-    def validate_task_graph(self) -> "ExecutionPlan":
+    def check_graph_invariants(self) -> None:
         """Validate unique task IDs, dependency ownership, existence of referenced dependencies, and absence of cycles."""
         task_ids = {task.id for task in self.tasks}
         if len(task_ids) != len(self.tasks):
@@ -122,18 +125,23 @@ class ExecutionPlan(BaseModel):
         # Ensure task_id in each TaskDependency matches task.id and verifies target existence
         for task in self.tasks:
             for dep in task.dependencies:
-                if dep.task_id != task.id:
+                dep_task_id = dep.task_id
+                dep_target = dep.depends_on_task_id
+                if dep_task_id != task.id:
                     raise ValueError(
-                        f"TaskDependency.task_id '{dep.task_id}' does not match owning task id '{task.id}'."
+                        f"TaskDependency.task_id '{dep_task_id}' does not match owning task id '{task.id}'."
                     )
-                if dep.depends_on_task_id not in task_ids:
+                if dep_target not in task_ids:
                     raise ValueError(
-                        f"Task '{task.id}' depends on non-existent task '{dep.depends_on_task_id}'."
+                        f"Task '{task.id}' depends on non-existent task '{dep_target}'."
                     )
-                if dep.depends_on_task_id == task.id:
+                if dep_target == task.id:
                     raise ValueError(f"Task '{task.id}' cannot depend on itself.")
 
-        # Detect dependency cycles using Kahn's algorithm
+        self._kahn_order()
+
+    def _kahn_order(self) -> list[str]:
+        """Return task ids in topological order or raise on a cycle."""
         in_degree = {task.id: len(task.dependencies) for task in self.tasks}
         adj: dict[str, list[str]] = {task.id: [] for task in self.tasks}
         for task in self.tasks:
@@ -141,28 +149,48 @@ class ExecutionPlan(BaseModel):
                 adj[dep.depends_on_task_id].append(task.id)
 
         queue: deque[str] = deque(tid for tid, deg in in_degree.items() if deg == 0)
-        visited_count = 0
-
+        ordered: list[str] = []
         while queue:
             current = queue.popleft()
-            visited_count += 1
+            ordered.append(current)
             for neighbor in adj[current]:
                 in_degree[neighbor] -= 1
                 if in_degree[neighbor] == 0:
                     queue.append(neighbor)
 
-        if visited_count != len(self.tasks):
+        if len(ordered) != len(self.tasks):
             raise ValueError("Dependency cycle detected in ExecutionPlan.")
+        return ordered
 
+    @model_validator(mode="after")
+    def validate_task_graph(self) -> "ExecutionPlan":
+        """Run graph invariant validations upon initialization."""
+        self.check_graph_invariants()
         return self
 
-    def get_ready_tasks(self, context: dict[str, Any] | None = None) -> list[ExecutionTask]:
-        """Return tasks that are PENDING and whose dependencies have all COMPLETED with satisfied conditions."""
-        completed_task_ids = {t.id for t in self.tasks if t.status == TaskStatus.COMPLETED}
+    def get_ready_tasks(
+        self,
+        context: dict[str, Any] | None = None,
+        *,
+        completed_ids: set[str] | None = None,
+    ) -> list[ExecutionTask]:
+        """Return tasks whose dependencies are satisfied.
+
+        *completed_ids* lets callers avoid mutating shared ``task.status``
+        during parallel Send dispatch. When omitted, completion is read from
+        ``task.status == COMPLETED``.
+        """
+        completed_task_ids = (
+            completed_ids
+            if completed_ids is not None
+            else {t.id for t in self.tasks if t.status == TaskStatus.COMPLETED}
+        )
         ready: list[ExecutionTask] = []
 
         for task in self.tasks:
-            if task.status != TaskStatus.PENDING:
+            if task.id in completed_task_ids:
+                continue
+            if completed_ids is None and task.status != TaskStatus.PENDING:
                 continue
 
             all_deps_satisfied = True
@@ -171,15 +199,18 @@ class ExecutionPlan(BaseModel):
                     all_deps_satisfied = False
                     break
 
-                # If dependency specifies a gating condition
                 if dep.condition is not None:
-                    # Missing or None context cannot satisfy condition
                     if context is None or dep.condition not in context:
                         all_deps_satisfied = False
                         break
 
                     cond_val = context[dep.condition]
-                    if not bool(cond_val):
+                    if isinstance(cond_val, dict):
+                        status = str(cond_val.get("status") or "").lower()
+                        if status in ("failed", "error", "blocked", "timed_out"):
+                            all_deps_satisfied = False
+                            break
+                    elif not bool(cond_val):
                         all_deps_satisfied = False
                         break
 
@@ -191,21 +222,91 @@ class ExecutionPlan(BaseModel):
     def topological_order(self) -> list[ExecutionTask]:
         """Return tasks in a valid topological dependency execution order."""
         task_map = {t.id: t for t in self.tasks}
-        in_degree = {t.id: len(t.dependencies) for t in self.tasks}
-        adj: dict[str, list[str]] = {t.id: [] for t in self.tasks}
-        for t in self.tasks:
-            for dep in t.dependencies:
-                adj[dep.depends_on_task_id].append(t.id)
+        return [task_map[tid] for tid in self._kahn_order()]
 
-        queue = [tid for tid, deg in in_degree.items() if deg == 0]
-        ordered: list[ExecutionTask] = []
+    def calculate_task_depths(self) -> dict[str, int]:
+        """Calculate the 1-indexed dependency depth for every task in the plan."""
+        if not self.tasks:
+            return {}
+        depths: dict[str, int] = {}
+        for task in self.topological_order():
+            dep_depths = [depths.get(dep.depends_on_task_id, 0) for dep in task.dependencies]
+            depths[task.id] = 1 + max(dep_depths, default=0)
+        return depths
 
-        while queue:
-            current_id = queue.pop(0)
-            ordered.append(task_map[current_id])
-            for neighbor in adj[current_id]:
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
+    def calculate_max_depth(self) -> int:
+        """Calculate the maximum dependency depth across all task chains."""
+        depths = self.calculate_task_depths()
+        return max(depths.values(), default=0)
 
-        return ordered
+
+class CapabilityRequest(BaseModel):
+    """Structured signal emitted when a specialist needs cross-domain assistance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    required_domain: Domain = Field(
+        ...,
+        description="Domain of the capability needed to proceed.",
+    )
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description="Justification for why external domain capability is required.",
+    )
+    query_hint: str = Field(
+        ...,
+        min_length=1,
+        description="Search query or instruction hint for the requested capability.",
+    )
+
+
+class NeedMoreContext(BaseModel):
+    """Signal when a task cannot proceed due to missing factual or domain information."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description="Why the current context is insufficient.",
+    )
+    what_is_needed: str = Field(
+        ...,
+        min_length=1,
+        description="Precise description of information or document needed.",
+    )
+    target_capability: str | None = Field(
+        default=None,
+        description="Suggested capability name to obtain the missing information.",
+    )
+
+
+class PlanValidationResult(BaseModel):
+    """Outcome of deterministic DAG validation for an ExecutionPlan."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    is_valid: bool = Field(
+        ...,
+        description="Whether the execution plan satisfies all structural, capability, and budget constraints.",
+    )
+    errors: list[str] = Field(
+        default_factory=list,
+        description="List of validation errors found if is_valid is False.",
+    )
+    max_depth: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum dependency chain depth in the task DAG.",
+    )
+    task_count: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of tasks in the plan.",
+    )
+    estimated_cost: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Estimated token cost or budget impact.",
+    )

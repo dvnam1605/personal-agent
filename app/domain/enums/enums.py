@@ -71,6 +71,8 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     BLOCKED = "blocked"
+    NEEDS_MORE_CONTEXT = "needs_more_context"
+    NEEDS_APPROVAL = "needs_approval"
 
 
 class ActionRiskLevel(StrEnum):
@@ -131,3 +133,50 @@ class EvidenceType(StrEnum):
     FILE_METADATA = "file_metadata"
     WEB_SEARCH_RESULT = "web_search_result"
     SYSTEM_FACT = "system_fact"
+
+
+class MemoryType(StrEnum):
+    """Classification of memory items (spec P17)."""
+
+    CONVERSATION = "conversation"
+    WORKING = "working"
+    ENTITY = "entity"
+    PREFERENCE = "preference"
+    EPISODIC = "episodic"
+
+
+class EntityType(StrEnum):
+    """Classification of recognized and resolved entities (spec P17-01)."""
+
+    PERSON = "PERSON"
+    DOCUMENT = "DOCUMENT"
+    EMAIL = "EMAIL"
+    THREAD = "THREAD"
+    EVENT = "EVENT"
+    TOPIC = "TOPIC"
+    PROJECT = "PROJECT"
+    ORGANIZATION = "ORGANIZATION"
+
+
+class CompactionStage(StrEnum):
+    """Stages of token-pressure context compaction (spec P17-08)."""
+
+    NONE = "none"
+    STAGE_1_TOOL_PRUNING = "stage_1_tool_pruning"
+    STAGE_2_SUMMARIZATION = "stage_2_summarization"
+
+
+class ApprovalOutcome(StrEnum):
+    """Closed and fail-closed approval decision outcomes (spec P18-01)."""
+
+    ALLOWED_ONCE = "allowed-once"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    UNAVAILABLE = "unavailable"
+
+
+class ApprovalPolicy(StrEnum):
+    """Per-session approval policy governing interactive vs unattended execution (spec P18-01)."""
+
+    ASK = "ask"
+    NEVER = "never"

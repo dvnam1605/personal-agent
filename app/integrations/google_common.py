@@ -1,10 +1,12 @@
 """Shared deterministic HTTP behavior for Google resource adapters."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -16,7 +18,9 @@ from app.domain.errors import (
     RateLimitError,
     ValidationError,
 )
-from app.services.google_auth import GoogleApiClient
+
+if TYPE_CHECKING:
+    from app.services.google_auth import GoogleApiClient
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -369,4 +373,16 @@ def require_list(payload: Any, key: str, operation: str) -> list[Any]:
     return values
 
 
-__all__ = ["GoogleResourceAdapter", "RetryPolicy", "require_list", "require_object"]
+def if_match_headers(etag: str | None) -> dict[str, str]:
+    """Google If-Match precondition header; empty when no fingerprint is available."""
+    token = (etag or "").strip()
+    return {"If-Match": token} if token else {}
+
+
+__all__ = [
+    "GoogleResourceAdapter",
+    "RetryPolicy",
+    "if_match_headers",
+    "require_list",
+    "require_object",
+]

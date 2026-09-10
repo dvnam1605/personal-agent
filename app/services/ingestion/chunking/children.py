@@ -14,6 +14,7 @@ import re
 from typing import TYPE_CHECKING
 
 from app.core.config import ChunkingSettings
+from app.core.config import settings as app_settings
 from app.domain.models.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
 from app.services.ingestion.chunking.identity import (
     CHILD_CHUNKER_VERSION,
@@ -205,7 +206,7 @@ class SentenceChildChunker:
         settings: ChunkingSettings | None = None,
     ) -> None:
         self._context = context
-        self._settings = settings or ChunkingSettings()
+        self._settings = settings if settings is not None else app_settings.chunking
 
     def build_children(self, parent: ParentChunkDraft) -> list[ChildChunkDraft]:
         segments = [
