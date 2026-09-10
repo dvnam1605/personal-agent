@@ -1,10 +1,10 @@
 # Phase P20 Review Pack: End-to-End Evaluation, Security Hardening & v1.0 Release
 
 > Phase: **P20 — END-TO-END EVALUATION, SECURITY HARDENING & V1.0 RELEASE**  
-> Status: **COMPLETE — ALL 15 CANONICAL WORKFLOWS VERIFIED (100%), SECURITY & PRIVACY HARDENED (100%), AUTOMATED EVALUATION HARNESS COMPLETE, SUBSTRATE §18A.5 VERIFIED (0 VIOLATIONS ACROSS 121 FILES), V1 RELEASE NOTES PUBLISHED**  
+> Status: **APPROVED & CLOSED 2026-09-10 — ALL 15 CANONICAL WORKFLOWS VERIFIED (100%), SECURITY & PRIVACY HARDENED, AUTOMATED EVALUATION HARNESS UNDER `tests/evaluation/`, SUBSTRATE §18A.5 VERIFIED, V1 RELEASE NOTES PUBLISHED**  
 > Scope: **per `plan/phases/P20_end_to_end_evaluation_security_hardening_v1_release.md` and `plan/MASTER_PLAN.md §20`**  
 > Gate in: **`APPROVED P19`** recorded from user on 2026-09-09.  
-> Gate out: **`WAITING FOR USER REVIEW — V1 RELEASE`** (`APPROVED P20`).
+> Gate out: **`APPROVED P20`** received from user 2026-09-10 ("approved p20"). V1.0 closed.
 
 ---
 
@@ -118,6 +118,6 @@ uv run python -m tests.evaluation.evaluation_harness
 
 ## 7. Gate Status & Conclusion
 
-- **P20 Gate Status:** `WAITING FOR USER REVIEW — V1 RELEASE`
+- **P20 Gate Status:** `APPROVED P20` (received from user 2026-09-10). Phase 20 and the V4 v1.0 roadmap are closed.
 - All 4 components of Phase 20 are complete and verified.
-- To finalize the v1.0 release and close the development roadmap, user approval (`APPROVED P20`) is required.
+- Operator leftover (not in git): rotate live provider keys in local `.env`.

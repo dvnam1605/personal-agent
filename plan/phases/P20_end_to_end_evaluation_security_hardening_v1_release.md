@@ -1,5 +1,5 @@
-> Active phase file for P20. Read `../MASTER_PLAN.md` first.
-> Do not implement any other phase until the user sends `APPROVED P20`.
+> Closed phase file for P20. Read `../MASTER_PLAN.md` first.
+> **APPROVED P20** recorded 2026-09-10. V1.0 is closed; do not start a new phase unless the user names it.
 
 # P20 — END-TO-END EVALUATION + SECURITY HARDENING + V1 RELEASE
 

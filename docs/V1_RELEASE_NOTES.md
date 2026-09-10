@@ -1,8 +1,8 @@
 # Personal AI Assistant v1.0 — Production Release Notes
 
 **Version:** `1.0.0`  
-**Release Date:** 2026-09-09  
-**Status:** General Availability (GA)  
+**Release Date:** 2026-09-10  
+**Status:** General Availability (GA) — **`APPROVED P20`** 2026-09-10  
 **Architecture Classification:** Governed Multi-Agent Substrate (§18A.5 Compliant)
 
 ---

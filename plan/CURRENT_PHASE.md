@@ -1,8 +1,9 @@
 # CURRENT PHASE
 
-Current phase: **P20 WAITING FOR USER REVIEW — V1 RELEASE (End-to-End Evaluation, Security Hardening & v1.0 Release).**
-P9 family (P9A..P9E), P10 family (P10A..P10D), P11, P12, P13, P14, P15, P16, P17, P18, and P19
-are approved and CLOSED as of 2026-09-09 (see ledger).
+Current phase: **V1.0 CLOSED — P20 APPROVED (End-to-End Evaluation, Security Hardening & v1.0 Release).**
+P9 family (P9A..P9E), P10 family (P10A..P10D), P11, P12, P13, P14, P15, P16, P17, P18, P19,
+and P20 are approved and CLOSED as of 2026-09-10 (see ledger). There is no P21 in
+`MASTER_PLAN.md`; leftover work is v1.1 (long graph functions, local secret rotation).
 
 Read:
 1. `MASTER_PLAN.md`
@@ -10,7 +11,7 @@ Read:
 3. `reviews/P20_v1_release_report.md` (P20 Review Pack - V1 Release Report)
 4. `docs/V1_RELEASE_NOTES.md` (v1.0 Production Release Notes)
 
-Gate status: **P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 CLOSED · P16 CLOSED · P17 CLOSED · P18 CLOSED · P19 CLOSED · P20 WAITING FOR USER REVIEW — V1 RELEASE**
+Gate status: **P10 FAMILY CLOSED · P11 CLOSED · P12 CLOSED · P13 CLOSED · P14 CLOSED · P15 CLOSED · P16 CLOSED · P17 CLOSED · P18 CLOSED · P19 CLOSED · P20 CLOSED — V1 RELEASE APPROVED**
 
 ## Gate ledger (single source of truth)
 
@@ -91,7 +92,14 @@ APPROVED P19   received from user 2026-09-09 ("approved p19") against
                  Meeting Prep Graph WF-05, H1-H2, M1-M4 remediated, calibrated benchmark,
                  fail-closed 0 fabrication, 35 unit tests green, 0 ruff/pyright errors).
                  Unblocks Phase 20.
-NEXT GATE      `WAITING FOR USER REVIEW — V1 RELEASE` (`APPROVED P20`) — closes Phase 20 based on phases/P20_end_to_end_evaluation_security_hardening_v1_release.md.
+APPROVED P20   received from user 2026-09-10 ("approved p20") against
+                 reviews/P20_v1_release_report.md and docs/V1_RELEASE_NOTES.md —
+                 closes Phase 20 (15 canonical workflows, security hardening, eval
+                 harness under tests/, CI with ruff/pyright/gitleaks/alembic/coverage).
+                 Closes the V4 implementation roadmap. Local `.env` provider keys
+                 remain untracked and must be rotated by the operator (H1 leftover).
+NEXT GATE      none in MASTER_PLAN. v1.1 is optional (supervisor/triage graph splits,
+                 live secret rotation, web browsing / ingestion scale / multi-user).
 ```
 
 Invariant note (MASTER_PLAN "no phase skipping"): the P9A gap is treated as a
@@ -177,7 +185,11 @@ P10       split approved (see P10 spec header); ownership entry requirement
                   **APPROVED & CLOSED 2026-09-09.** Review Pack at
                   reviews/P18_review_pack.md.
             P19   Workflow Hardening + Meeting Prep Graph (WF-05) —
-                  IN PROGRESS. Spec: phases/P19_workflow_hardening_meeting_prep_graph.md.
+                  **APPROVED & CLOSED 2026-09-09.** Review Pack at
+                  reviews/P19_review_pack.md.
+            P20   End-to-End Evaluation + Security Hardening + V1 Release —
+                  **APPROVED & CLOSED 2026-09-10.** Review Pack at
+                  reviews/P20_v1_release_report.md. **V1.0 RELEASE APPROVED.**
 ```
 
 ---
