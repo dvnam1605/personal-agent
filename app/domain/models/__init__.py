@@ -1,22 +1,30 @@
 """Domain models module."""
 
-from app.domain.models.action import (
+from app.domain.models.approvals.action import (
     ActionApproval,
     ProposedAction,
 )
-from app.domain.models.agent import (
-    AgentDefinition,
-    DelegationContext,
-    DelegationResult,
-    TaskResult,
+from app.domain.models.approvals.question import (
+    AskUserQuestionRequest,
+    UserQuestionAnswer,
+    UserQuestionItem,
+    UserQuestionOption,
+    UserQuestionResponse,
 )
-from app.domain.models.budget import (
-    BudgetUsage,
-    BudgetViolation,
-    ExecutionBudget,
-    evaluate_budget_violations,
+from app.domain.models.context import ContextSlice
+from app.domain.models.context.compaction import (
+    CompactionCheckpoint,
+    CompactionTokenPressure,
 )
-from app.domain.models.calendar import (
+from app.domain.models.context.entity import (
+    EntityRecord,
+    EntityResolutionResult,
+)
+from app.domain.models.context.memory import (
+    MemoryGateDecision,
+    MemoryItem,
+)
+from app.domain.models.google.calendar import (
     CalendarAttendee,
     CalendarBusyCalendar,
     CalendarBusyInterval,
@@ -32,7 +40,7 @@ from app.domain.models.calendar import (
     parse_calendar_value,
     validate_timezone_name,
 )
-from app.domain.models.communication import (
+from app.domain.models.google.communication import (
     Contact,
     ContactEmail,
     ContactPage,
@@ -53,12 +61,7 @@ from app.domain.models.communication import (
     GmailThreadSummary,
     Page,
 )
-from app.domain.models.compaction import (
-    CompactionCheckpoint,
-    CompactionTokenPressure,
-)
-from app.domain.models.context import ContextSlice
-from app.domain.models.drive import (
+from app.domain.models.google.drive import (
     CANONICAL_ROLES,
     DEFAULT_EXPORT_MIME_TYPES,
     GOOGLE_DOC_MIMETYPE,
@@ -89,24 +92,66 @@ from app.domain.models.drive import (
     is_google_native_document,
     is_shortcut,
 )
-from app.domain.models.entity import (
-    EntityRecord,
-    EntityResolutionResult,
+from app.domain.models.platform.agent import (
+    AgentDefinition,
+    DelegationContext,
+    DelegationResult,
+    TaskResult,
 )
-from app.domain.models.evidence import (
+from app.domain.models.platform.budget import (
+    BudgetUsage,
+    BudgetViolation,
+    ExecutionBudget,
+    evaluate_budget_violations,
+)
+from app.domain.models.platform.spill import (
+    SpilledOutput,
+    SpillPolicyConfig,
+    SpillRef,
+)
+from app.domain.models.platform.state import AssistantState
+from app.domain.models.platform.tool import (
+    ToolContext,
+    ToolDefinition,
+    ToolExecutionMetadata,
+    ToolInput,
+    ToolRestriction,
+    ToolResult,
+)
+from app.domain.models.retrieval.evidence import (
     EvidenceItem,
     EvidenceSource,
 )
-from app.domain.models.meeting_dossier import (
+from app.domain.models.retrieval.web import (
+    WebSearchPage,
+    WebSearchResultItem,
+)
+from app.domain.models.routing.route import RouteDecision
+from app.domain.models.routing.skill import (
+    SkillCompletionCriteria,
+    SkillConstraints,
+    SkillDefinition,
+    SkillMetadata,
+    SkillStep,
+)
+from app.domain.models.routing.workflow import (
+    WorkflowDefinition,
+    WorkflowEdge,
+    WorkflowExecutionResult,
+    WorkflowNode,
+)
+from app.domain.models.supervisor import (
+    AgentCapabilityDescriptor,
+    CapabilityCatalog,
+    SubagentSessionState,
+    SupervisorResult,
+)
+from app.domain.models.supervisor.meeting_dossier import (
     MeetingAttendee,
     MeetingDocumentRef,
     MeetingDossier,
 )
-from app.domain.models.memory import (
-    MemoryGateDecision,
-    MemoryItem,
-)
-from app.domain.models.plan import (
+from app.domain.models.supervisor.plan import (
     CapabilityRequest,
     ExecutionPlan,
     ExecutionTask,
@@ -114,22 +159,7 @@ from app.domain.models.plan import (
     PlanValidationResult,
     TaskDependency,
 )
-from app.domain.models.question import (
-    AskUserQuestionRequest,
-    UserQuestionAnswer,
-    UserQuestionItem,
-    UserQuestionOption,
-    UserQuestionResponse,
-)
-from app.domain.models.route import RouteDecision
-from app.domain.models.skill import (
-    SkillCompletionCriteria,
-    SkillConstraints,
-    SkillDefinition,
-    SkillMetadata,
-    SkillStep,
-)
-from app.domain.models.specialist import (
+from app.domain.models.supervisor.specialist import (
     AssistantTurn,
     ChatMessage,
     DelegationRequest,
@@ -139,36 +169,6 @@ from app.domain.models.specialist import (
     SpecialistTask,
     SpecialistTrace,
     ToolCallRequest,
-)
-from app.domain.models.spill import (
-    SpilledOutput,
-    SpillPolicyConfig,
-    SpillRef,
-)
-from app.domain.models.state import AssistantState
-from app.domain.models.supervisor import (
-    AgentCapabilityDescriptor,
-    CapabilityCatalog,
-    SubagentSessionState,
-    SupervisorResult,
-)
-from app.domain.models.tool import (
-    ToolContext,
-    ToolDefinition,
-    ToolExecutionMetadata,
-    ToolInput,
-    ToolRestriction,
-    ToolResult,
-)
-from app.domain.models.web import (
-    WebSearchPage,
-    WebSearchResultItem,
-)
-from app.domain.models.workflow import (
-    WorkflowDefinition,
-    WorkflowEdge,
-    WorkflowExecutionResult,
-    WorkflowNode,
 )
 
 __all__ = [

@@ -18,7 +18,7 @@ from app.domain.models import (
 )
 from app.integrations.google_drive import DRIVE_READONLY_SCOPE, DRIVE_SCOPE
 from app.services.approvals import generate_approval_token
-from app.services.drive import DriveService
+from app.services.google.drive import DriveService
 from app.tools.google_drive import (
     GoogleDriveTools,
     build_drive_tool_registry,

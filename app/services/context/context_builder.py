@@ -7,10 +7,10 @@ from typing import Any
 from app.core.sanitization import sanitize_string
 from app.domain.enums import MemoryType
 from app.domain.models.context import ContextSlice
-from app.domain.models.entity import EntityRecord, EntityResolutionResult
-from app.domain.models.evidence import EvidenceItem
-from app.domain.models.memory import MemoryItem
-from app.domain.models.state import AssistantState
+from app.domain.models.context.entity import EntityRecord, EntityResolutionResult
+from app.domain.models.context.memory import MemoryItem
+from app.domain.models.platform.state import AssistantState
+from app.domain.models.retrieval.evidence import EvidenceItem
 from app.services.context.entity_resolver import EntityResolver
 from app.services.context.episodic_service import EpisodicMemoryService
 from app.services.context.memory_gate import MemoryGate

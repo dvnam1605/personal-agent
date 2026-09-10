@@ -16,7 +16,7 @@ from app.domain.errors import (
     ValidationError as DomainValidationError,
 )
 from app.integrations.google_common import GoogleResourceAdapter, RetryPolicy
-from app.services.google_auth import GoogleApiClient
+from app.services.google.auth import GoogleApiClient
 
 
 class FlakyTransport:

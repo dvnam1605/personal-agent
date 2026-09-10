@@ -12,8 +12,8 @@ from app.domain.models import ToolContext, ToolInput
 from app.integrations.google_common import RetryPolicy
 from app.integrations.google_contacts import ContactsAdapter
 from app.integrations.google_gmail import GmailAdapter, html_to_text
-from app.services.communication import CommunicationService
-from app.services.google_auth import GoogleApiClient
+from app.services.google.auth import GoogleApiClient
+from app.services.google.communication import CommunicationService
 from app.tools import GoogleCommunicationTools, build_communication_tool_registry
 
 

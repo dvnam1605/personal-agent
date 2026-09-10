@@ -140,7 +140,7 @@ def test_production_signing_key_never_falls_back_to_test_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.core.config import settings as app_settings
-    from app.services.approval_tokens import _TEST_SIGNING_KEY, _get_signing_key
+    from app.services.approvals.tokens import _TEST_SIGNING_KEY, _get_signing_key
 
     monkeypatch.setattr(app_settings, "environment", Environment.PRODUCTION)
     monkeypatch.setattr(app_settings.security, "approval_signing_key", None)

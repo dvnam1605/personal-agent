@@ -15,13 +15,16 @@ from app.agents.specialist.delegation import DelegationService
 from app.agents.specialist.react import SpecialistRunner
 from app.agents.specialist.report import REPORT_TOOL_NAME
 from app.core.config import settings
-from app.domain.models.budget import ExecutionBudget
-from app.domain.models.specialist import AssistantTurn, ToolCallRequest
-from app.domain.models.tool import ToolContext, ToolExecutionMetadata, ToolInput, ToolResult
+from app.domain.models.platform.budget import ExecutionBudget
+from app.domain.models.platform.tool import (
+    ToolContext,
+    ToolExecutionMetadata,
+    ToolInput,
+    ToolResult,
+)
+from app.domain.models.supervisor.specialist import AssistantTurn, ToolCallRequest
 from app.harness.graph import SpecialistGraphBuilder
 from app.harness.supervisor import SupervisorGraphBuilder, build_delegation_task_executor
-from app.services.budget_manager import BudgetManager
-from app.services.capability_gate import CapabilityGate
 from app.services.context.compaction import ContextCompactor
 from app.services.context.consolidation import BackgroundConsolidationWorker
 from app.services.context.context_builder import ContextBuilder
@@ -31,6 +34,8 @@ from app.services.context.episodic_service import EpisodicMemoryService
 from app.services.context.memory_gate import MemoryGate
 from app.services.context.memory_store import InMemoryMemoryStore
 from app.services.context.preference_service import PreferenceService
+from app.services.platform.budget_manager import BudgetManager
+from app.services.routing.capability_gate import CapabilityGate
 from app.services.supervisor import SupervisorPlanner, build_capability_catalog
 from app.tools.ask_user import ask_user_tool_definitions
 from app.tools.google_calendar import calendar_tool_definitions

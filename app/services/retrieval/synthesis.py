@@ -20,9 +20,9 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models.citation import Citation
 from app.domain.models.retrieval import EvidenceBundle
-from app.domain.models.sufficiency import SufficiencyStatus
+from app.domain.models.retrieval.citation import Citation
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 
 logger = logging.getLogger(__name__)
 

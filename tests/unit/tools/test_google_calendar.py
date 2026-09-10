@@ -11,8 +11,8 @@ from app.domain.models import ToolContext, ToolInput
 from app.integrations.google_calendar import CALENDAR_READONLY_SCOPE, CALENDAR_SCOPE
 from app.integrations.google_common import RetryPolicy
 from app.services.approvals import generate_approval_token
-from app.services.calendar import CalendarService
-from app.services.google_auth import GoogleApiClient
+from app.services.google.auth import GoogleApiClient
+from app.services.google.calendar import CalendarService
 from app.tools import GoogleCalendarTools, build_calendar_tool_registry
 
 
@@ -337,3 +337,18 @@ async def test_calendar_mutation_rejects_approval_id_uuid() -> None:
     )
     assert result.success is False
     assert "approval_id is a request UUID" in (result.error or "")
+
+
+def test_event_request_accepts_proposal_timezone_alias() -> None:
+    from app.tools.google_calendar import _event_request
+
+    request = _event_request(
+        {
+            "summary": "Họp",
+            "start": "2026-09-11T10:00:00+07:00",
+            "end": "2026-09-11T11:00:00+07:00",
+            "timezone": "Asia/Ho_Chi_Minh",
+        }
+    )
+    assert request.start.time_zone == "Asia/Ho_Chi_Minh"
+    assert request.end.time_zone == "Asia/Ho_Chi_Minh"

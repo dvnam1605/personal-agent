@@ -18,7 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from app.domain.models.documents import SourceDocument  # noqa: E402
+from app.domain.models.ingestion.documents import SourceDocument  # noqa: E402
 from app.services.ingestion.chunking.children import SentenceChildChunker  # noqa: E402
 from app.services.ingestion.chunking.parents import SectionParentChunker  # noqa: E402
 from app.services.ingestion.chunking.protocols import ChunkContext  # noqa: E402

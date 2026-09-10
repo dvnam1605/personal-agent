@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import ClassVar
 
-from app.domain.models.administrative_metadata import AdministrativeMetadata
+from app.domain.models.ingestion.administrative_metadata import AdministrativeMetadata
 
 
 class AdministrativeMetadataExtractor:

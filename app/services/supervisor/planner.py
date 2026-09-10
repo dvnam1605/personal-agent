@@ -12,10 +12,10 @@ import uuid
 from typing import Any, Protocol, runtime_checkable
 
 from app.domain.errors import ValidationError
-from app.domain.models.budget import ExecutionBudget
-from app.domain.models.plan import ExecutionPlan, ExecutionTask, TaskDependency
-from app.domain.models.specialist import AssistantTurn, ChatMessage
+from app.domain.models.platform.budget import ExecutionBudget
 from app.domain.models.supervisor import CapabilityCatalog
+from app.domain.models.supervisor.plan import ExecutionPlan, ExecutionTask, TaskDependency
+from app.domain.models.supervisor.specialist import AssistantTurn, ChatMessage
 
 logger = logging.getLogger(__name__)
 

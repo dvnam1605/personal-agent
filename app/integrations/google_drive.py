@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from app.domain.errors import ExternalServiceError
 from app.domain.errors import ValidationError as DomainValidationError
-from app.domain.models.drive import (
+from app.domain.models.google.drive import (
     GOOGLE_FOLDER_MIMETYPE,
     GOOGLE_NON_EXPORTABLE_MIME_TYPES,
     SUPPORTED_EXPORT_MIME_TYPES,
@@ -38,7 +38,7 @@ from app.integrations.google_common import (
 )
 
 if TYPE_CHECKING:
-    from app.services.google_auth import GoogleApiClient
+    from app.services.google.auth import GoogleApiClient
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"

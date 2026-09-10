@@ -14,7 +14,7 @@ from app.domain.errors import (
 from app.domain.errors import (
     ValidationError as DomainValidationError,
 )
-from app.domain.models.drive import (
+from app.domain.models.google.drive import (
     GOOGLE_DOC_MIMETYPE,
     GOOGLE_FOLDER_MIMETYPE,
     GOOGLE_FORM_MIMETYPE,
@@ -27,7 +27,7 @@ from app.integrations.google_drive import (
     _validate_identifier,
     _validate_page_size,
 )
-from app.services.google_auth import GoogleApiClient
+from app.services.google.auth import GoogleApiClient
 
 
 class FakeGoogleTransport:

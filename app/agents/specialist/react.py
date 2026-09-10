@@ -30,9 +30,10 @@ from app.agents.specialist.report import (
 from app.core.sanitization import sanitize_payload, strip_sensitive_keys
 from app.domain.enums import CompactionStage, ExecutionMode, SpecialistStatus, StopReason
 from app.domain.errors import NotFoundError, PermissionDeniedError
-from app.domain.models.agent import AgentDefinition
-from app.domain.models.budget import BudgetUsage, evaluate_budget_violations
-from app.domain.models.specialist import (
+from app.domain.models.platform.agent import AgentDefinition
+from app.domain.models.platform.budget import BudgetUsage, evaluate_budget_violations
+from app.domain.models.platform.tool import ToolContext, ToolDefinition, ToolInput, ToolResult
+from app.domain.models.supervisor.specialist import (
     AssistantTurn,
     ChatMessage,
     ReActTraceStep,
@@ -42,7 +43,6 @@ from app.domain.models.specialist import (
     SpecialistTrace,
     ToolCallRequest,
 )
-from app.domain.models.tool import ToolContext, ToolDefinition, ToolInput, ToolResult
 from app.services.approvals import (
     approval_token_bound_tool,
     canonical_proposal_hash,
@@ -383,7 +383,7 @@ class SpecialistRunner:
 
         if definition.is_mutation:
             from app.domain.models import ProposedAction
-            from app.services.policy_engine import PolicyEngine
+            from app.services.approvals.policy_engine import PolicyEngine
 
             proposed_action = ProposedAction(
                 action_type=definition.name,

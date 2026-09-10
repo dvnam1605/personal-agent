@@ -56,12 +56,13 @@ def mask_email(value: str) -> str:
     return EMAIL_PATTERN.sub(r"\1***@[REDACTED]", value)
 
 
-def sanitize_string(value: str, max_string_len: int = 500) -> str:
-    """Redact embedded credentials, mask email addresses, and cap string length."""
+def sanitize_string(value: str, max_string_len: int = 500, *, mask_emails: bool = True) -> str:
+    """Redact embedded credentials, optionally mask email addresses, and cap string length."""
     sanitized = value
     for pattern in EMBEDDED_SECRET_PATTERNS:
         sanitized = pattern.sub("[REDACTED_SECRET]", sanitized)
-    sanitized = mask_email(sanitized)
+    if mask_emails:
+        sanitized = mask_email(sanitized)
     if len(sanitized) > max_string_len:
         return sanitized[:max_string_len] + "... [TRUNCATED]"
     return sanitized
@@ -138,11 +139,13 @@ def sanitize_payload(
     max_depth: int = DEFAULT_MAX_DEPTH,
     max_items: int = DEFAULT_MAX_ITEMS,
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+    mask_emails: bool = True,
 ) -> Any:
     """Recursively sanitize JSON-like data with depth, collection, and size limits.
 
     ``allowed_keys`` applies to the outermost mapping. Callers that need a narrower
     nested schema should sanitize that nested mapping independently.
+    ``mask_emails=False`` keeps recipient addresses needed to execute an approved tool.
     """
     if max_depth < 0:
         raise ValueError("max_depth must be non-negative")
@@ -157,6 +160,7 @@ def sanitize_payload(
         max_depth=max_depth,
         max_items=max_items,
         budget=budget,
+        mask_emails=mask_emails,
     )
 
 
@@ -169,6 +173,7 @@ def _sanitize_value(
     max_depth: int,
     max_items: int,
     budget: _SanitizationBudget,
+    mask_emails: bool,
 ) -> Any:
     if depth > max_depth:
         return "[TRUNCATED_DEPTH]"
@@ -202,6 +207,7 @@ def _sanitize_value(
                 max_depth=max_depth,
                 max_items=max_items,
                 budget=budget,
+                mask_emails=mask_emails,
             )
             sanitized[key] = value_result
             if budget.remaining <= 0:
@@ -230,12 +236,13 @@ def _sanitize_value(
                     max_depth=max_depth,
                     max_items=max_items,
                     budget=budget,
+                    mask_emails=mask_emails,
                 )
             )
         return sanitized_list
 
     if isinstance(data, str):
-        value = sanitize_string(data, max_string_len)
+        value = sanitize_string(data, max_string_len, mask_emails=mask_emails)
         if budget.consume(value):
             return value
         return "[TRUNCATED_PAYLOAD]"
@@ -253,5 +260,5 @@ def _sanitize_value(
             return data
         return "[TRUNCATED_PAYLOAD]"
 
-    value = sanitize_string(str(data), max_string_len)
+    value = sanitize_string(str(data), max_string_len, mask_emails=mask_emails)
     return value if budget.consume(value) else "[TRUNCATED_PAYLOAD]"

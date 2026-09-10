@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from app.core.config import ChunkingSettings
 from app.core.config import settings as app_settings
-from app.domain.models.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
 from app.services.ingestion.chunking.identity import (
     CHILD_CHUNKER_VERSION,
     child_chunk_id,

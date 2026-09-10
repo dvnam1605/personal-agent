@@ -16,14 +16,14 @@ from uuid import uuid4
 import structlog
 
 from app.core.config import ChunkingSettings, get_settings
-from app.domain.models.chunks import ChunkLevel
-from app.domain.models.documents import FingerprintInputs, SourceDocument
 from app.domain.models.ingestion import (
     IngestionObservability,
     IngestionStatus,
     StoredFingerprintState,
 )
-from app.domain.models.parsed_document import ParseStatus
+from app.domain.models.ingestion.chunks import ChunkLevel
+from app.domain.models.ingestion.documents import FingerprintInputs, SourceDocument
+from app.domain.models.ingestion.parsed_document import ParseStatus
 from app.services.ingestion.chunking.children import SentenceChildChunker
 from app.services.ingestion.chunking.identity import (
     CHILD_CHUNKER_VERSION,

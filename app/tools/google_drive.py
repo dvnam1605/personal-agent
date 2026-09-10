@@ -27,7 +27,7 @@ from app.services.approvals import (
     expected_target_fingerprint_from_arguments,
     require_mutation_approval,
 )
-from app.services.drive import DriveService
+from app.services.google.drive import DriveService
 from app.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:

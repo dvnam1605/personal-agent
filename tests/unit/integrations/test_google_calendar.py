@@ -18,11 +18,11 @@ from app.domain.models import (
 )
 from app.integrations.google_calendar import CalendarAdapter
 from app.integrations.google_common import RetryPolicy
-from app.services.calendar import (
+from app.services.google.auth import GoogleApiClient
+from app.services.google.calendar import (
     busy_intervals_from_events,
     find_deterministic_free_slots,
 )
-from app.services.google_auth import GoogleApiClient
 
 
 class FakeGoogleTransport:

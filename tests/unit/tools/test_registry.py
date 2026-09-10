@@ -228,8 +228,8 @@ def test_tool_output_spill_triggers_above_threshold_and_preserves_locator() -> N
     from datetime import UTC, datetime
 
     from app.domain.models import ToolExecutionMetadata, ToolResult
-    from app.domain.models.spill import SpillPolicyConfig
-    from app.services.spill import InMemorySpillStore, SpillPolicy
+    from app.domain.models.platform.spill import SpillPolicyConfig
+    from app.services.platform.spill import InMemorySpillStore, SpillPolicy
 
     store = InMemorySpillStore()
     policy = SpillPolicy(store, SpillPolicyConfig(max_inline_bytes=256))

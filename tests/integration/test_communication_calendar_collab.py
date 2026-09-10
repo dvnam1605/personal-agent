@@ -14,7 +14,7 @@ from app.agents.specialist.calendar import build_event_proposal, slot_search_tas
 from app.agents.specialist.communication import latest_email_task
 from app.agents.specialist.react import SpecialistRunner
 from app.domain.enums import SpecialistStatus
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools import (
     CALENDAR_TOOL_DEFINITIONS,
     COMMUNICATION_TOOL_DEFINITIONS,

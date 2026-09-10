@@ -16,7 +16,7 @@ from app.domain.models.retrieval import (
     RetrievalMode,
     RetrievalQuery,
 )
-from app.domain.models.sufficiency import SufficiencyStatus, SufficiencyVerdict
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus, SufficiencyVerdict
 
 logger = logging.getLogger(__name__)
 

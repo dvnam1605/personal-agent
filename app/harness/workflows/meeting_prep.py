@@ -24,7 +24,7 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
-from app.domain.models.meeting_dossier import (
+from app.domain.models.supervisor.meeting_dossier import (
     MeetingAttendee,
     MeetingDocumentRef,
     MeetingDossier,

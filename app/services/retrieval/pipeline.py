@@ -21,7 +21,7 @@ from app.domain.models.retrieval import (
     RetrievalQuery,
     RetrievedChunk,
 )
-from app.domain.models.sufficiency import SufficiencyStatus, SufficiencyVerdict
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus, SufficiencyVerdict
 from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
 from app.services.retrieval.diversity import apply_diversity
 from app.services.retrieval.expansion import ExpansionService, resolve_expansion_policy

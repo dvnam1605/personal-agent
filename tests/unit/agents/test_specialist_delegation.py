@@ -18,7 +18,7 @@ from app.domain.models import (
     SpecialistTask,
     ToolRestriction,
 )
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry, ToolRegistryView
 from tests.unit.agents import _fakes as fakes
 from tests.unit.agents._fakes import DictExecutor, ScriptedChat

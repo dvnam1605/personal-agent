@@ -8,8 +8,8 @@ import pytest
 from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationError
 from app.domain.models import ToolExecutionMetadata, ToolResult
-from app.domain.models.spill import SpillPolicyConfig
-from app.services.spill import InMemorySpillStore, LocalFileSpillStore, SpillPolicy
+from app.domain.models.platform.spill import SpillPolicyConfig
+from app.services.platform.spill import InMemorySpillStore, LocalFileSpillStore, SpillPolicy
 from app.tools.spill_tools import (
     SpillInspectionTools,
     build_spill_tool_registry,

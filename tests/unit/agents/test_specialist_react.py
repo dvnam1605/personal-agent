@@ -9,7 +9,7 @@ from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ExecutionMode
 from app.domain.models import ExecutionBudget, SpecialistTask, ToolRestriction
 from app.services.approvals import generate_approval_token
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
 from tests.unit.agents._fakes import DictExecutor, ScriptedChat

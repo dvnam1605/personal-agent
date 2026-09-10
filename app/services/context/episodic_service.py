@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from app.domain.enums import MemoryType
-from app.domain.models.memory import MemoryItem
+from app.domain.models.context.memory import MemoryItem
 from app.services.context.memory_store import MemoryStore
 
 _TRIVIAL_CHATTER_PATTERNS = [

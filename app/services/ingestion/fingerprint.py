@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app.domain.models.documents import DocumentFingerprint, FingerprintInputs
+from app.domain.models.ingestion.documents import DocumentFingerprint, FingerprintInputs
 
 _FINGERPRINT_VERSION = "fp_v2"
 _FINGERPRINT_VERSION_V1 = "fp_v1"

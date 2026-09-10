@@ -22,14 +22,17 @@ from app.harness.checkpointer import (
     configure_checkpointer_lifespan,
 )
 from app.infrastructure.db.session import get_session_factory
-from app.services.audit import AuditOutboxWorker
-from app.services.retention import RetentionWorker
+from app.services.platform.audit import AuditOutboxWorker
+from app.services.platform.retention import RetentionWorker
 
 
 async def _configure_consumed_token_store(logger: structlog.stdlib.BoundLogger) -> None:
     """Wire Redis SET NX for single-use approval tokens (H6). TESTING stays in-memory."""
     from app.infrastructure.redis.client import redis_manager
-    from app.services.consumed_store import RedisConsumedTokenStore, configure_default_store
+    from app.services.approvals.consumed_store import (
+        RedisConsumedTokenStore,
+        configure_default_store,
+    )
 
     if settings.environment is Environment.TESTING:
         return
@@ -193,10 +196,12 @@ def create_app() -> FastAPI:
         google_auth_router, prefix=""
     )  # OAuth callback matches local Google client JSON
     from app.api.routes.approvals import router as approvals_router
+    from app.api.routes.query import router as query_router
     from app.api.routes.questions import router as questions_router
 
     app.include_router(approvals_router, prefix="")
     app.include_router(questions_router, prefix="")
+    app.include_router(query_router, prefix="")
     app.include_router(api_router, prefix=settings.api_prefix)
 
     return app

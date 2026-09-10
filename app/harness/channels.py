@@ -12,8 +12,8 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 from app.core.sanitization import strip_sensitive_keys
-from app.domain.models.budget import BudgetUsage
-from app.domain.models.state import AssistantState
+from app.domain.models.platform.budget import BudgetUsage
+from app.domain.models.platform.state import AssistantState
 from app.services.approvals import (
     approval_token_bound_tool,
     canonical_proposal_hash,

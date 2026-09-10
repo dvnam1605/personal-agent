@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.core.config import ParsingSettings
 from app.core.config import settings as app_settings
-from app.domain.models.documents import (
+from app.domain.models.ingestion.documents import (
     DetectedDocumentType,
     SourceDocument,
     TypeDetectionResult,
 )
-from app.domain.models.parsed_document import (
+from app.domain.models.ingestion.parsed_document import (
     ParsedDocument,
     ParseResult,
     ParseStatus,

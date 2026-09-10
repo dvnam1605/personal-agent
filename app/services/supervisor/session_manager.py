@@ -14,9 +14,9 @@ from typing import Any
 
 from app.core.sanitization import strip_sensitive_keys
 from app.domain.errors import NotFoundError, ValidationError
-from app.domain.models.specialist import ChatMessage
+from app.domain.models.platform.tool import ToolRestriction
 from app.domain.models.supervisor import SubagentSessionState
-from app.domain.models.tool import ToolRestriction
+from app.domain.models.supervisor.specialist import ChatMessage
 
 logger = logging.getLogger(__name__)
 

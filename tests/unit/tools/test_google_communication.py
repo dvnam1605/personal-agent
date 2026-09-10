@@ -9,7 +9,7 @@ from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError
 from app.domain.models import ToolContext, ToolInput
 from app.services.approvals import generate_approval_token
-from app.services.communication import CommunicationService
+from app.services.google.communication import CommunicationService
 from app.tools import GoogleCommunicationTools, build_communication_tool_registry
 from app.tools.google_communication import COMMUNICATION_TOOL_DEFINITIONS
 

@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.models.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
-from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import StoredFingerprintState
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
+from app.domain.models.ingestion.documents import SourceDocument
 from app.infrastructure.db.models import Document, DocumentChunk
 from app.services.ingestion.chunking.identity import child_chunk_id, parent_chunk_id
 

@@ -9,8 +9,8 @@ from typing import Any
 
 import structlog
 
-from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import IngestionStatus
+from app.domain.models.ingestion.documents import SourceDocument
 from app.services.ingestion.orchestrator import IngestionOrchestrator
 
 logger = structlog.get_logger(__name__)

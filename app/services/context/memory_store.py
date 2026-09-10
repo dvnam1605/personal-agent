@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.domain.enums import MemoryType
-from app.domain.models.memory import MemoryItem
+from app.domain.models.context.memory import MemoryItem
 
 
 class MemoryStore(Protocol):

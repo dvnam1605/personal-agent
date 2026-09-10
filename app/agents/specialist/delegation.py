@@ -16,14 +16,14 @@ from app.agents.registry import AgentRegistry
 from app.core.sanitization import sanitize_string, strip_sensitive_keys
 from app.domain.enums import SpecialistStatus
 from app.domain.errors import ConfigurationError, NotFoundError, PermissionDeniedError
-from app.domain.models.agent import AgentDefinition, DelegationContext, DelegationResult
-from app.domain.models.specialist import (
+from app.domain.models.platform.agent import AgentDefinition, DelegationContext, DelegationResult
+from app.domain.models.platform.tool import ToolRestriction
+from app.domain.models.supervisor.specialist import (
     DelegationRequest,
     SpecialistOutcome,
     SpecialistTask,
 )
-from app.domain.models.tool import ToolRestriction
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry, ToolRegistryView
 
 logger = logging.getLogger(__name__)

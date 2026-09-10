@@ -12,7 +12,7 @@ from app.domain.models import (
     ToolExecutionMetadata,
     ToolResult,
 )
-from app.domain.models.specialist import AssistantTurn, ChatMessage, ToolCallRequest
+from app.domain.models.supervisor.specialist import AssistantTurn, ChatMessage, ToolCallRequest
 
 
 def make_agent(

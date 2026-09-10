@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from app.domain.models.chunks import ChildChunkDraft, ParentChunkDraft
-from app.domain.models.parsed_document import ParsedDocument
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ParentChunkDraft
+from app.domain.models.ingestion.parsed_document import ParsedDocument
 
 
 @dataclass(frozen=True)

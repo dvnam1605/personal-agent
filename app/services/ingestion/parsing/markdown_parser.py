@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import re
 
-from app.domain.models.documents import SourceDocument
-from app.domain.models.parsed_document import (
+from app.domain.models.ingestion.documents import SourceDocument
+from app.domain.models.ingestion.parsed_document import (
     HeadingNode,
     ListNode,
     ParagraphNode,

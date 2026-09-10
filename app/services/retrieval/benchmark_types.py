@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.models.retrieval import ExpansionPolicy, RetrievalMode, RetrievalQuery
-from app.domain.models.sufficiency import SufficiencyStatus
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 
 
 class BenchmarkQueryCategory(StrEnum):

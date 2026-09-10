@@ -10,9 +10,9 @@ import operator
 from typing import Annotated, Any, NotRequired, TypedDict
 
 from app.domain.enums import Domain
-from app.domain.models.evidence import EvidenceItem
-from app.domain.models.plan import ExecutionPlan
-from app.domain.models.tool import ToolRestriction
+from app.domain.models.platform.tool import ToolRestriction
+from app.domain.models.retrieval.evidence import EvidenceItem
+from app.domain.models.supervisor.plan import ExecutionPlan
 
 
 def update_dict(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:

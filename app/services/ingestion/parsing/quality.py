@@ -10,7 +10,7 @@ from __future__ import annotations
 import unicodedata
 
 from app.core.config import ParsingSettings
-from app.domain.models.parsed_document import (
+from app.domain.models.ingestion.parsed_document import (
     ParsedDocument,
     ParseQualityReport,
     ParseStatus,

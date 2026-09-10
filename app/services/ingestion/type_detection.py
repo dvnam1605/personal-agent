@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
-from app.domain.models.documents import (
+from app.domain.models.ingestion.documents import (
     DetectedDocumentType,
     DetectionStatus,
     TypeDetectionResult,

@@ -9,8 +9,8 @@ from dataclasses import dataclass
 
 from app.core.config import ChunkingSettings
 from app.core.config import settings as app_settings
-from app.domain.models.chunks import ChildChunkDraft, ParentChunkDraft
-from app.domain.models.parsed_document import ParsedDocument
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ParentChunkDraft
+from app.domain.models.ingestion.parsed_document import ParsedDocument
 from app.services.ingestion.chunking.children import SentenceChildChunker
 from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext

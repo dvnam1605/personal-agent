@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from app.domain.enums import MemoryType
-from app.domain.models.memory import MemoryGateDecision
+from app.domain.models.context.memory import MemoryGateDecision
 
 # Patterns indicating trivial standalone requests that require NO memory lookup (<1ms check)
 _TRIVIAL_STANDALONE_PATTERNS = [

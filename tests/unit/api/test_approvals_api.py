@@ -10,14 +10,16 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.dependencies import get_current_user_id
+from app.api.routes.approvals import get_approval_execution_service
 from app.api.routes.approvals import router as approvals_router
 from app.domain.enums import ActionRiskLevel
-from app.domain.models import ProposedAction
+from app.domain.models import ProposedAction, ToolExecutionMetadata, ToolInput, ToolResult
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import User
 from app.infrastructure.db.session import get_db_session
 from app.services.approvals import ApprovalRequestService
-from app.services.run_persistence import RunPersistenceService
+from app.services.approvals.execution import ApprovalExecutionService
+from app.services.platform.run_persistence import RunPersistenceService
 
 
 @pytest.fixture
@@ -291,3 +293,129 @@ async def test_list_pending_approvals_is_scoped_to_current_user(
         ids = {item["id"] for item in response.json()}
         assert mine_req.id in ids
         assert other_req.id not in ids
+
+
+def _calendar_create_action() -> ProposedAction:
+    return ProposedAction(
+        action_type="create_event",
+        description="Create calendar event",
+        tool_name="calendar.create_event",
+        parameters={
+            "summary": "Họp",
+            "start": "2026-09-11T10:00:00+07:00",
+            "end": "2026-09-11T11:00:00+07:00",
+            "timezone": "Asia/Ho_Chi_Minh",
+            "attendees": [],
+        },
+        risk_level=ActionRiskLevel.HIGH_IMPACT_WRITE,
+        requires_approval=True,
+    )
+
+
+async def _seed_calendar_approval(db_session: AsyncSession, run_id: str):
+    user = User(id="test-user-123", email="approver@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    await RunPersistenceService.create_run(
+        db_session,
+        run_id=run_id,
+        user_id=user.id,
+        request="Tạo lịch họp lúc 10h sáng mai",
+        route_type="direct_specialist",
+        domains=["calendar"],
+        complexity="direct",
+        correlation_id=f"corr-{run_id}",
+    )
+    req = await ApprovalRequestService.create_request(db_session, run_id, _calendar_create_action())
+    return req
+
+
+@pytest.mark.asyncio
+async def test_approve_with_execute_runs_calendar_and_hides_token(
+    app: FastAPI, db_session: AsyncSession
+) -> None:
+    req = await _seed_calendar_approval(db_session, "run_exec_once")
+    captured: list[ToolInput] = []
+
+    async def calendar_execute(tool_input: ToolInput, context) -> ToolResult:
+        captured.append(tool_input)
+        assert context.approval_token is not None
+        assert context.approval_token.startswith("appr_")
+        return ToolResult(
+            tool_name=tool_input.tool_name,
+            success=True,
+            output={"id": "evt-live", "summary": "Họp"},
+            metadata=ToolExecutionMetadata(tool_name=tool_input.tool_name, latency_ms=1.0),
+        )
+
+    app.dependency_overrides[get_approval_execution_service] = lambda: ApprovalExecutionService(
+        calendar_execute=calendar_execute
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            f"/approvals/{req.id}/approve",
+            json={"execute": True},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["approved"] is True
+    assert data["token"] is None
+    assert data["executed"] is True
+    assert data["execution"]["id"] == "evt-live"
+    assert captured == [
+        ToolInput(
+            tool_name="calendar.create_event",
+            arguments={
+                "summary": "Họp",
+                "start": "2026-09-11T10:00:00+07:00",
+                "end": "2026-09-11T11:00:00+07:00",
+                "timezone": "Asia/Ho_Chi_Minh",
+                "attendees": [],
+            },
+        )
+    ]
+    run = await RunPersistenceService.get_run(db_session, "run_exec_once")
+    assert run is not None
+    assert run.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_approve_then_execute_endpoint(app: FastAPI, db_session: AsyncSession) -> None:
+    req = await _seed_calendar_approval(db_session, "run_exec_two_step")
+    captured: list[str] = []
+
+    async def calendar_execute(tool_input: ToolInput, context) -> ToolResult:
+        captured.append(tool_input.tool_name)
+        assert "timezone" in tool_input.arguments
+        assert "time_zone" not in tool_input.arguments
+        return ToolResult(
+            tool_name=tool_input.tool_name,
+            success=True,
+            output={"id": "evt-2", "summary": "Họp"},
+            metadata=ToolExecutionMetadata(tool_name=tool_input.tool_name, latency_ms=1.0),
+        )
+
+    app.dependency_overrides[get_approval_execution_service] = lambda: ApprovalExecutionService(
+        calendar_execute=calendar_execute
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        approved = await client.post(f"/approvals/{req.id}/approve")
+        assert approved.status_code == 200
+        token = approved.json()["token"]
+        assert token is not None
+        assert approved.json()["executed"] is False
+
+        executed = await client.post(
+            f"/approvals/{req.id}/execute",
+            json={"token": token},
+        )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["token"] is None
+    assert body["executed"] is True
+    assert captured == ["calendar.create_event"]
+    run = await RunPersistenceService.get_run(db_session, "run_exec_two_step")
+    assert run is not None
+    assert run.status == "completed"

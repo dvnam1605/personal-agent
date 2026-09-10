@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 from app.core.config import ChunkingSettings
 from app.core.config import settings as app_settings
-from app.domain.models.chunks import ChunkLevel, ParentChunkDraft
-from app.domain.models.parsed_document import (
+from app.domain.models.ingestion.chunks import ChunkLevel, ParentChunkDraft
+from app.domain.models.ingestion.parsed_document import (
     HeadingNode,
     ParsedDocument,
     ParsedNode,

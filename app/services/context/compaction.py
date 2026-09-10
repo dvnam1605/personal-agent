@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from app.domain.enums import CompactionStage
-from app.domain.models.compaction import CompactionCheckpoint, CompactionTokenPressure
-from app.domain.models.specialist import ChatMessage
+from app.domain.models.context.compaction import CompactionCheckpoint, CompactionTokenPressure
+from app.domain.models.supervisor.specialist import ChatMessage
 from app.services.context.tool_pruner import ToolResultPruner
 
 

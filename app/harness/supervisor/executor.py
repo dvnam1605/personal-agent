@@ -10,8 +10,8 @@ from typing import Any
 
 from app.agents.specialist.delegation import DelegationService
 from app.domain.enums import EvidenceType, SpecialistStatus
-from app.domain.models.evidence import EvidenceItem, EvidenceSource
-from app.domain.models.specialist import DelegationRequest
+from app.domain.models.retrieval.evidence import EvidenceItem, EvidenceSource
+from app.domain.models.supervisor.specialist import DelegationRequest
 from app.harness.supervisor.channels import TaskDispatchChannel
 
 

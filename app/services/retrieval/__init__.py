@@ -1,6 +1,5 @@
 """P10 retrieval engine surface: foundation (P10A) + processing pipeline (P10B) + policies & safety (P10C)."""
 
-from app.domain.models.citation import Citation
 from app.domain.models.retrieval import (
     Evidence,
     EvidenceBundle,
@@ -10,7 +9,8 @@ from app.domain.models.retrieval import (
     RetrievalQuery,
     RetrievedChunk,
 )
-from app.domain.models.sufficiency import SufficiencyStatus, SufficiencyVerdict
+from app.domain.models.retrieval.citation import Citation
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus, SufficiencyVerdict
 from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
 from app.services.retrieval.dense import DenseRetrievalService
 from app.services.retrieval.diversity import (

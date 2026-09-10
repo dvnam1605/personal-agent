@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.domain.enums import EntityType
-from app.domain.models.entity import EntityRecord
+from app.domain.models.context.entity import EntityRecord
 
 
 class EntityStore(Protocol):

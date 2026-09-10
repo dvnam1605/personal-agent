@@ -34,17 +34,17 @@ from app.domain.enums import (
 )
 from app.domain.errors import PermissionDeniedError
 from app.domain.models import AssistantState, ExecutionBudget
-from app.domain.models.evidence import EvidenceItem, EvidenceSource
-from app.domain.models.plan import ExecutionPlan, ExecutionTask, TaskDependency
+from app.domain.models.platform.tool import ToolDefinition, ToolRestriction
+from app.domain.models.retrieval.evidence import EvidenceItem, EvidenceSource
 from app.domain.models.supervisor import CapabilityCatalog
-from app.domain.models.tool import ToolDefinition, ToolRestriction
+from app.domain.models.supervisor.plan import ExecutionPlan, ExecutionTask, TaskDependency
 from app.harness.supervisor.channels import SupervisorChannels, TaskDispatchChannel
 from app.harness.supervisor.graph import SupervisorGraphBuilder
+from app.services.routing.triage import FastTriage
 from app.services.supervisor.catalog import build_capability_catalog
 from app.services.supervisor.planner import SupervisorPlanner
 from app.services.supervisor.session_manager import ContinuableSessionManager
 from app.services.supervisor.validator import validate_execution_plan
-from app.services.triage import FastTriage
 from app.tools.registry import ToolRegistryView
 
 
@@ -650,7 +650,7 @@ class TestSupervisorInvariants:
 
 @pytest.mark.asyncio
 async def test_deadline_inside_plan_node_returns_failed(default_catalog: CapabilityCatalog) -> None:
-    from app.services.budget_manager import BudgetManager
+    from app.services.platform.budget_manager import BudgetManager
 
     budget = ExecutionBudget(timeout_seconds=0.05)
     manager = BudgetManager(budget=budget, start_time=time.monotonic() - 10.0)

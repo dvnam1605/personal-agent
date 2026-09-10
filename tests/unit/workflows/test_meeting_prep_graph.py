@@ -22,7 +22,7 @@ import pytest
 from app.domain.enums import Domain, RouteType
 from app.domain.errors import PermissionDeniedError
 from app.domain.models import AssistantState, RouteDecision
-from app.domain.models.meeting_dossier import (
+from app.domain.models.supervisor.meeting_dossier import (
     MeetingAttendee,
     MeetingDocumentRef,
     MeetingDossier,
@@ -34,7 +34,7 @@ from app.harness.workflows.meeting_prep import (
     assert_read_only_tool,
     build_meeting_prep_graph,
 )
-from app.services.workflow_registry import (
+from app.services.routing.workflow_registry import (
     load_default_workflow_registry,
 )
 from tests.evaluation.benchmark_meeting_prep import (

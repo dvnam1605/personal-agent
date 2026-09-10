@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
-from app.domain.models.documents import (
+from app.domain.models.ingestion.documents import (
     DetectedDocumentType,
     DetectionStatus,
     FingerprintInputs,

@@ -4,8 +4,8 @@ from typing import Any
 
 from app.domain.enums import ActionClass, ActionRiskLevel
 from app.domain.errors import NotFoundError, PermissionDeniedError, ValidationError
-from app.domain.models.tool import ToolDefinition
-from app.services.spill import SpillStore
+from app.domain.models.platform.tool import ToolDefinition
+from app.services.platform.spill import SpillStore
 from app.tools.registry import ToolRegistry
 
 SPILL_LOCATOR_SCHEMA = {

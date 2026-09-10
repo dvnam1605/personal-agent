@@ -54,10 +54,10 @@ from app.services.approvals import (
     generate_approval_token,
     verify_approval_token,
 )
-from app.services.consumed_store import InMemoryConsumedTokenStore
-from app.services.policy_engine import PolicyEngine
-from app.services.question_plane import QuestionPlaneService
-from app.services.run_persistence import RunPersistenceService
+from app.services.approvals.consumed_store import InMemoryConsumedTokenStore
+from app.services.approvals.policy_engine import PolicyEngine
+from app.services.approvals.question_plane import QuestionPlaneService
+from app.services.platform.run_persistence import RunPersistenceService
 from app.tools.google_calendar import GoogleCalendarTools
 from app.tools.google_communication import GoogleCommunicationTools
 from app.tools.registry import ToolRegistry

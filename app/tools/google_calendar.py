@@ -29,7 +29,7 @@ from app.services.approvals import (
     expected_target_fingerprint_from_arguments,
     require_mutation_approval,
 )
-from app.services.calendar import CalendarService
+from app.services.google.calendar import CalendarService
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -305,6 +305,15 @@ def _parse_datetime_argument(value: object, *, time_zone: str | None, label: str
         raise ValidationError(f"Invalid Calendar {label}.") from exc
 
 
+def _tool_time_zone(arguments: dict[str, Any]) -> str | None:
+    """Accept both Calendar wire ``time_zone`` and proposal ``timezone``."""
+    raw = arguments.get("time_zone") or arguments.get("timezone")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def _event_request(arguments: dict[str, Any]) -> CalendarEventRequest:
     start = arguments.get("start")
     end = arguments.get("end")
@@ -315,7 +324,7 @@ def _event_request(arguments: dict[str, Any]) -> CalendarEventRequest:
             summary=str(arguments.get("summary") or ""),
             start=start,
             end=end,
-            time_zone=arguments.get("time_zone"),
+            time_zone=_tool_time_zone(arguments),
             all_day=arguments.get("all_day"),
             description=arguments.get("description"),
             location=arguments.get("location"),
@@ -332,7 +341,7 @@ def _event_update(arguments: dict[str, Any]) -> CalendarEventUpdate:
             summary=arguments.get("summary"),
             start=arguments.get("start"),
             end=arguments.get("end"),
-            time_zone=arguments.get("time_zone"),
+            time_zone=_tool_time_zone(arguments),
             all_day=arguments.get("all_day"),
             description=arguments.get("description"),
             location=arguments.get("location"),
@@ -442,7 +451,7 @@ class GoogleCalendarTools:
         return await self.execute(tool_input, context)
 
     async def _dispatch(self, name: str, args: dict[str, Any]) -> Any:
-        time_zone = args.get("time_zone")
+        time_zone = _tool_time_zone(args)
         if name == "calendar.list_events":
             time_min = (
                 _parse_datetime_argument(args["time_min"], time_zone=time_zone, label="time_min")

@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.domain.models.chunks import ChildChunkDraft, ParentChunkDraft
-from app.domain.models.documents import SourceDocument
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ParentChunkDraft
+from app.domain.models.ingestion.documents import SourceDocument
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.ingestion_repository import SqlAlchemyIngestionRepository
 from app.infrastructure.db.models import DocumentChunk, User

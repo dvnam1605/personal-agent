@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from app.domain.enums import EntityType
-from app.domain.models.entity import EntityRecord, EntityResolutionResult
-from app.domain.models.evidence import EvidenceItem
+from app.domain.models.context.entity import EntityRecord, EntityResolutionResult
+from app.domain.models.retrieval.evidence import EvidenceItem
 from app.services.context.entity_store import EntityStore
 
 _VIETNAMESE_NUMBERS: dict[str, int] = {

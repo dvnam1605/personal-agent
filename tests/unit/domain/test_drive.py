@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from app.domain.models.drive import (
+from app.domain.models.google.drive import (
     GOOGLE_DOC_MIMETYPE,
     GOOGLE_DRAWING_MIMETYPE,
     GOOGLE_FOLDER_MIMETYPE,

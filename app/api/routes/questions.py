@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user_id
 from app.domain.models import UserQuestionAnswer
 from app.infrastructure.db.session import get_db_session
-from app.services.question_plane import QuestionPlaneService
+from app.services.approvals.question_plane import QuestionPlaneService
 
 router = APIRouter(tags=["questions"])
 
@@ -67,7 +67,7 @@ async def answer_question(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Question request does not belong to the current user",
         )
-    from app.services.run_persistence import RunPersistenceService
+    from app.services.platform.run_persistence import RunPersistenceService
 
     run = await RunPersistenceService.get_run(session, q.run_id)
     if run is None:

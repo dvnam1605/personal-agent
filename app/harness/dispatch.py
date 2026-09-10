@@ -18,9 +18,9 @@ from pydantic import ValidationError as PydanticValidationError
 from app.core.sanitization import strip_sensitive_keys
 from app.domain.enums import RouteType
 from app.domain.errors import ConfigurationError, ValidationError
-from app.domain.models.budget import BudgetUsage
-from app.domain.models.route import RouteDecision
-from app.domain.models.state import AssistantState
+from app.domain.models.platform.budget import BudgetUsage
+from app.domain.models.platform.state import AssistantState
+from app.domain.models.routing.route import RouteDecision
 from app.harness.channels import state_to_channels
 from app.services.approvals import (
     approval_token_bound_tool,

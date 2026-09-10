@@ -39,13 +39,13 @@ from app.services.approvals import (
     generate_approval_token,
     verify_approval_token_sync,
 )
-from app.services.capability_gate import CapabilityGate
-from app.services.consumed_store import InMemoryConsumedTokenStore
+from app.services.approvals.consumed_store import InMemoryConsumedTokenStore
 from app.services.context.entity_resolver import EntityResolver
 from app.services.context.entity_store import InMemoryEntityStore
+from app.services.routing.capability_gate import CapabilityGate
+from app.services.routing.triage import FastTriage
+from app.services.routing.workflow_registry import load_default_workflow_registry
 from app.services.skills.registry import load_production_skills
-from app.services.triage import FastTriage
-from app.services.workflow_registry import load_default_workflow_registry
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
 

@@ -14,8 +14,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
-from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import IngestionStatus
+from app.domain.models.ingestion.documents import SourceDocument
 from app.infrastructure.db.models import Document, DocumentChunk, IngestionJobRecord
 from app.services.ingestion.embedding import EmbeddingContract, LocalEmbeddingService
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore, run_batch

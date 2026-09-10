@@ -11,9 +11,9 @@ Validates:
 from __future__ import annotations
 
 from app.core.config import settings as app_settings
-from app.domain.models.budget import ExecutionBudget
-from app.domain.models.plan import ExecutionPlan, PlanValidationResult
+from app.domain.models.platform.budget import ExecutionBudget
 from app.domain.models.supervisor import CapabilityCatalog
+from app.domain.models.supervisor.plan import ExecutionPlan, PlanValidationResult
 
 DEFAULT_MAX_TASKS = 10
 

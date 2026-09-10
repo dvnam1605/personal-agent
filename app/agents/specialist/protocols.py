@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.domain.models.specialist import AssistantTurn, ChatMessage
-from app.domain.models.tool import ToolContext, ToolDefinition, ToolInput, ToolResult
+from app.domain.models.platform.tool import ToolContext, ToolDefinition, ToolInput, ToolResult
+from app.domain.models.supervisor.specialist import AssistantTurn, ChatMessage
 
 
 @runtime_checkable

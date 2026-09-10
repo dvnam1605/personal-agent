@@ -28,6 +28,19 @@ from app.core.sanitization import sanitize_payload, sanitize_string
 from app.infrastructure.db.base import Base, TimestampMixin
 
 
+def _sanitize_approval_arguments(value: Any) -> dict[str, Any]:
+    """Bound approval JSON while keeping recipient emails executable."""
+    sanitized = sanitize_payload(
+        value if isinstance(value, dict) else {},
+        max_string_len=1000,
+        max_depth=8,
+        max_items=100,
+        max_payload_bytes=32_768,
+        mask_emails=False,
+    )
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
 def _sanitize_json_mapping(value: Any) -> dict[str, Any]:
     """Keep JSON metadata bounded even when models are created outside a service."""
     sanitized = sanitize_payload(
@@ -575,7 +588,7 @@ class ApprovalRequest(Base):
 
     @validates("important_arguments", "parameters")
     def sanitize_arguments(self, _key: str, value: dict[str, Any]) -> dict[str, Any]:
-        return _sanitize_json_mapping(value)
+        return _sanitize_approval_arguments(value)
 
     @validates("description", "target", "reason")
     def sanitize_text(self, _key: str, value: str | None) -> str | None:

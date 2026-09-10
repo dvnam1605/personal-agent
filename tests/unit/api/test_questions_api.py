@@ -15,8 +15,8 @@ from app.domain.models import UserQuestionItem, UserQuestionOption
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import User
 from app.infrastructure.db.session import get_db_session
-from app.services.question_plane import QuestionPlaneService
-from app.services.run_persistence import RunPersistenceService
+from app.services.approvals.question_plane import QuestionPlaneService
+from app.services.platform.run_persistence import RunPersistenceService
 
 
 @pytest.fixture
@@ -146,7 +146,7 @@ async def test_answer_question_api_invalid_option_fails(
 async def test_cross_user_answer_question_forbidden(app: FastAPI, db_session: AsyncSession) -> None:
     """Submitting answers to a question belonging to another user raises 403 Forbidden (M4)."""
     from app.infrastructure.db.models import User
-    from app.services.run_persistence import RunPersistenceService
+    from app.services.platform.run_persistence import RunPersistenceService
 
     alice = User(id="user_alice", email="alice@example.com")
     db_session.add(alice)

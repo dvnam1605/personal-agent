@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select, update
 
-from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import IngestionObservability, IngestionStatus
+from app.domain.models.ingestion.documents import SourceDocument
 from app.infrastructure.db.models import IngestionJobRecord
 from app.services.ingestion.orchestrator import logical_document_id_for
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from app.domain.models.retrieval import RetrievalMode
-from app.domain.models.sufficiency import SufficiencyStatus
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.services.retrieval.benchmark_types import (
     BenchmarkChunk,
     BenchmarkCorpus,

@@ -11,9 +11,9 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol, runtime_checkable
 
-from app.domain.models.chunks import ChildChunkDraft, ParentChunkDraft
-from app.domain.models.documents import SourceDocument
 from app.domain.models.ingestion import StoredFingerprintState
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ParentChunkDraft
+from app.domain.models.ingestion.documents import SourceDocument
 
 
 @runtime_checkable

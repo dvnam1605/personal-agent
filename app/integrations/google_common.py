@@ -20,7 +20,7 @@ from app.domain.errors import (
 )
 
 if TYPE_CHECKING:
-    from app.services.google_auth import GoogleApiClient
+    from app.services.google.auth import GoogleApiClient
 
 Sleep = Callable[[float], Awaitable[None]]
 

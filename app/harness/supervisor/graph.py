@@ -21,10 +21,10 @@ from langgraph.types import Send
 
 from app.domain.enums import SpecialistStatus, TaskStatus
 from app.domain.errors import AppTimeoutError, BudgetExceededError, ConfigurationError
-from app.domain.models.budget import ExecutionBudget
-from app.domain.models.plan import ExecutionPlan
+from app.domain.models.platform.budget import ExecutionBudget
+from app.domain.models.platform.tool import ToolRestriction
 from app.domain.models.supervisor import CapabilityCatalog
-from app.domain.models.tool import ToolRestriction
+from app.domain.models.supervisor.plan import ExecutionPlan
 from app.harness.supervisor.channels import SupervisorChannels, TaskDispatchChannel
 from app.services.supervisor.planner import SupervisorPlanner
 from app.services.supervisor.session_manager import ContinuableSessionManager

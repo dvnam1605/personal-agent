@@ -4,7 +4,7 @@ Docling-specific objects never leave this package; callers only ever see
 ParsedDocument / ParseResult domain models.
 """
 
-from app.domain.models.parsed_document import (
+from app.domain.models.ingestion.parsed_document import (
     DocumentNode,
     HeadingNode,
     ListNode,

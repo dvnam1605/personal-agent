@@ -26,11 +26,11 @@ from app.domain.enums import Domain, ExecutionMode, SpecialistStatus
 from app.domain.errors import ValidationError
 from app.domain.models import ToolContext, ToolInput, WebSearchPage, WebSearchResultItem
 from app.domain.models.retrieval import RetrievalQuery, RetrievedChunk
-from app.domain.models.sufficiency import SufficiencyStatus
-from app.services.capability_gate import CapabilityGate
+from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.services.retrieval.injection_boundary import BOUNDARY_INSTRUCTIONS
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.services.retrieval.synthesis import PromptAnswerSynthesizer
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools import (
     CALENDAR_TOOL_DEFINITIONS,
     COMMUNICATION_TOOL_DEFINITIONS,

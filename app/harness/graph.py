@@ -16,11 +16,11 @@ from app.agents.registry import AgentRegistry
 from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ExecutionMode
 from app.domain.errors import PermissionDeniedError
-from app.domain.models.agent import AgentDefinition
-from app.domain.models.specialist import SpecialistTask
-from app.domain.models.tool import ToolRestriction
+from app.domain.models.platform.agent import AgentDefinition
+from app.domain.models.platform.tool import ToolRestriction
+from app.domain.models.supervisor.specialist import SpecialistTask
 from app.harness.channels import SpecialistChannels
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistryView
 
 

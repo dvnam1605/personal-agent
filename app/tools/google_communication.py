@@ -16,7 +16,7 @@ from app.domain.models import (
 from app.integrations.google_contacts import CONTACTS_READONLY_SCOPE
 from app.integrations.google_gmail import GMAIL_MODIFY_SCOPE
 from app.services.approvals import require_mutation_approval
-from app.services.communication import CommunicationService
+from app.services.google.communication import CommunicationService
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)

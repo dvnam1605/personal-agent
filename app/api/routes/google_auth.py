@@ -10,7 +10,7 @@ from app.core.config import Environment, settings
 from app.domain.errors import ValidationError as DomainValidationError
 from app.infrastructure.db.session import get_db_session
 from app.infrastructure.redis.client import redis_manager
-from app.services.google_auth import (
+from app.services.google.auth import (
     GoogleIntegrationStatus,
     GoogleOAuthService,
     InMemoryOAuthStateStore,

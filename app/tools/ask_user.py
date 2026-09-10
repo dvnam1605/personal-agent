@@ -7,7 +7,7 @@ questions rather than relying exclusively on open-ended conversational output.
 from __future__ import annotations
 
 from app.domain.enums import ActionClass, ActionRiskLevel
-from app.domain.models.tool import (
+from app.domain.models.platform.tool import (
     ToolContext,
     ToolDefinition,
     ToolExecutionMetadata,

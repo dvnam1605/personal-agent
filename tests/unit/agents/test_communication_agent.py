@@ -15,7 +15,7 @@ from app.agents.specialist.communication import (
 from app.agents.specialist.react import ModeSelector, SpecialistRunner
 from app.domain.enums import ActionRiskLevel, ExecutionMode, SpecialistStatus
 from app.domain.errors import ValidationError
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools import COMMUNICATION_TOOL_DEFINITIONS, ToolRegistry
 from tests.unit.agents import _fakes as fakes
 from tests.unit.agents._fakes import DictExecutor, ScriptedChat

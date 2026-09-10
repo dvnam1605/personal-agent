@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.domain.models.documents import IngestDecision, StoredSourceState
+from app.domain.models.ingestion.documents import IngestDecision, StoredSourceState
 
 
 def decide_ingest_action(

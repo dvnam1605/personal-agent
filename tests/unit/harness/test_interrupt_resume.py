@@ -13,7 +13,7 @@ from app.domain.errors import PermissionDeniedError
 from app.harness.checkpointer import get_checkpointer_dsn
 from app.harness.interrupts import interrupt_for_approval, resume_graph
 from app.services.approvals import generate_approval_token, verify_approval_token
-from app.services.consumed_store import InMemoryConsumedTokenStore
+from app.services.approvals.consumed_store import InMemoryConsumedTokenStore
 
 
 class InterruptGraphChannels(TypedDict):

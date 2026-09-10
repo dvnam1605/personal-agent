@@ -58,16 +58,16 @@ from app.harness.workflows.meeting_prep import (
 )
 from app.infrastructure.db.base import Base
 from app.services.approvals import generate_approval_token, verify_approval_token_sync
-from app.services.capability_gate import CapabilityGate
+from app.services.approvals.policy_engine import PolicyEngine
+from app.services.approvals.question_plane import QuestionPlaneService
 from app.services.context.entity_resolver import EntityResolver
 from app.services.context.entity_store import InMemoryEntityStore
-from app.services.policy_engine import PolicyEngine
-from app.services.question_plane import QuestionPlaneService
+from app.services.routing.capability_gate import CapabilityGate
+from app.services.routing.triage import FastTriage
+from app.services.routing.workflow_registry import load_default_workflow_registry
 from app.services.skills.registry import load_production_skills
 from app.services.supervisor.catalog import build_capability_catalog
 from app.services.supervisor.planner import SupervisorPlanner
-from app.services.triage import FastTriage
-from app.services.workflow_registry import load_default_workflow_registry
 from app.tools.registry import ToolRegistry, ToolRegistryView
 from tests.unit.agents import _fakes as fakes
 from tests.unit.agents._fakes import DictExecutor, ScriptedChat

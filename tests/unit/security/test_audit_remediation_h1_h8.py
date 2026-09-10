@@ -24,8 +24,8 @@ from app.services.approvals import (
     require_mutation_approval,
     verify_approval_token,
 )
-from app.services.consumed_store import RedisConsumedTokenStore
-from app.services.question_plane import QuestionPlaneService
+from app.services.approvals.consumed_store import RedisConsumedTokenStore
+from app.services.approvals.question_plane import QuestionPlaneService
 from app.tools.ask_user import execute_ask_user
 
 
@@ -84,7 +84,7 @@ class TestH2ApprovalTokenUserIdBinding:
 
     @pytest.mark.asyncio
     async def test_production_requires_user_id(self) -> None:
-        with patch("app.services.approval_tokens._is_relaxed_token_env", return_value=False):
+        with patch("app.services.approvals.tokens._is_relaxed_token_env", return_value=False):
             with pytest.raises(ValueError, match="user_id is required"):
                 generate_approval_token(
                     approval_id="appr-123",
@@ -220,7 +220,9 @@ class TestH7IDOROwnershipValidation:
         mock_question.expires_at = None
         mock_session.scalar.return_value = mock_question
 
-        with patch("app.services.run_persistence.RunPersistenceService.get_run", return_value=None):
+        with patch(
+            "app.services.platform.run_persistence.RunPersistenceService.get_run", return_value=None
+        ):
             with pytest.raises(PermissionError, match="does not belong to expected user"):
                 await QuestionPlaneService.record_answers(
                     session=mock_session,

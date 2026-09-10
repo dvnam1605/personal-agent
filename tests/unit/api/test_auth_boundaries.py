@@ -7,8 +7,8 @@ import pytest
 from app.api.dependencies import DEFAULT_USER_ID, get_current_user_id
 from app.api.routes.health import check_configuration
 from app.domain.errors import AuthenticationError
-from app.services.google_auth import GoogleOAuthService
-from app.services.spill import LocalFileSpillStore
+from app.services.google.auth import GoogleOAuthService
+from app.services.platform.spill import LocalFileSpillStore
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,7 @@ from app.harness import (
     state_to_channels,
 )
 from app.services.approvals import generate_approval_token
-from app.services.capability_gate import CapabilityGate
+from app.services.routing.capability_gate import CapabilityGate
 from app.tools.registry import ToolRegistry
 from tests.unit.agents import _fakes as fakes
 from tests.unit.agents._fakes import DictExecutor, ScriptedChat

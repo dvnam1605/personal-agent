@@ -1,6 +1,6 @@
 """P9C chunking engine package (pure functions over ParsedDocument)."""
 
-from app.domain.models.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
+from app.domain.models.ingestion.chunks import ChildChunkDraft, ChunkLevel, ParentChunkDraft
 from app.services.ingestion.chunking.children import SentenceChildChunker
 from app.services.ingestion.chunking.engine import (
     ChunkContext,

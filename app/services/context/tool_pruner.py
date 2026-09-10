@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from app.domain.models.specialist import ChatMessage
+from app.domain.models.supervisor.specialist import ChatMessage
 
 
 class ToolResultPruner:

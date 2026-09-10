@@ -12,8 +12,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.domain.enums import SpecialistStatus, StopReason
-from app.domain.models.specialist import SpecialistReport, ToolCallRequest
-from app.domain.models.tool import ToolDefinition
+from app.domain.models.platform.tool import ToolDefinition
+from app.domain.models.supervisor.specialist import SpecialistReport, ToolCallRequest
 
 REPORT_TOOL_NAME = "specialist.report"
 
