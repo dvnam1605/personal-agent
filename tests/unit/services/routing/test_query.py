@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -112,9 +113,7 @@ def test_event_summary_for_custom_activity() -> None:
         == "Đi chuyển đồ cho trà my"
     )
     assert (
-        infer_event_summary(
-            "Tạo lịch với nội dung đá bóng cùng công ty lúc 17h"
-        )
+        infer_event_summary("Tạo lịch với nội dung đá bóng cùng công ty lúc 17h")
         == "Đá bóng cùng công ty"
     )
 

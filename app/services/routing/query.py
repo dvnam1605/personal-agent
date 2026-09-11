@@ -91,13 +91,26 @@ _WEEKDAY_RE = re.compile(
     re.IGNORECASE,
 )
 _WEEKDAY_INDEX = {
-    "thu hai": 0, "thu 2": 0, "t2": 0,
-    "thu ba": 1, "thu 3": 1, "t3": 1,
-    "thu tu": 2, "thu 4": 2, "t4": 2,
-    "thu nam": 3, "thu 5": 3, "t5": 3,
-    "thu sau": 4, "thu 6": 4, "t6": 4,
-    "thu bay": 5, "thu 7": 5, "t7": 5,
-    "chu nhat": 6, "cn": 6,
+    "thu hai": 0,
+    "thu 2": 0,
+    "t2": 0,
+    "thu ba": 1,
+    "thu 3": 1,
+    "t3": 1,
+    "thu tu": 2,
+    "thu 4": 2,
+    "t4": 2,
+    "thu nam": 3,
+    "thu 5": 3,
+    "t5": 3,
+    "thu sau": 4,
+    "thu 6": 4,
+    "t6": 4,
+    "thu bay": 5,
+    "thu 7": 5,
+    "t7": 5,
+    "chu nhat": 6,
+    "cn": 6,
 }
 _TIME_RE = re.compile(
     r"\b(\d{1,2})\s*(?:h|gio|:)\s*(\d{1,2})?\s*(sang|chieu|toi|trua|am|pm)?\b",
@@ -962,9 +975,7 @@ def fallback_summarize_emails(query: str, messages: list[dict[str, Any]]) -> str
             "🔴 **Quan trọng / Cần lưu ý ngay**:\n" + "\n".join(_fmt_item(m) for m in critical)
         )
     if work:
-        sections.append(
-            "💼 **Công việc & Tuyển dụng**:\n" + "\n".join(_fmt_item(m) for m in work)
-        )
+        sections.append("💼 **Công việc & Tuyển dụng**:\n" + "\n".join(_fmt_item(m) for m in work))
     if news:
         sections.append(
             "📰 **Bản tin & Thông báo dịch vụ**:\n" + "\n".join(_fmt_item(m) for m in news)
@@ -1028,8 +1039,7 @@ async def summarize_emails(
 
             user_content = (
                 f"Yêu cầu của người dùng: {query}\n\n"
-                f"Danh sách {len(messages)} email nhận được:\n\n"
-                + "\n\n".join(email_entries)
+                f"Danh sách {len(messages)} email nhận được:\n\n" + "\n\n".join(email_entries)
             )
 
             model = getattr(settings.llm, "fast_model", "gpt-4o-mini") or "gpt-4o-mini"
@@ -1051,7 +1061,7 @@ async def summarize_emails(
                     content = str(data["choices"][0]["message"]["content"]).strip()
                     if content:
                         return content
-    except Exception:
+    except Exception:  # noqa: BLE001 - LLM is optional; fall back to heuristic summary
         logger.exception("llm_email_summarization_failed")
 
     return fallback_summarize_emails(query, messages)
