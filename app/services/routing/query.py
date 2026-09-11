@@ -1042,10 +1042,10 @@ async def summarize_emails(
                 f"Danh sách {len(messages)} email nhận được:\n\n" + "\n\n".join(email_entries)
             )
 
-            model = getattr(settings.llm, "fast_model", "gpt-4o-mini") or "gpt-4o-mini"
+            model = settings.llm.fast_model
             async with httpx.AsyncClient(timeout=timeout_seconds) as client:
                 resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
+                    settings.llm.chat_completions_url(),
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": model,

@@ -130,7 +130,7 @@ class PromptAnswerSynthesizer:
                 timeout = settings.timeouts.llm_request_seconds
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(
-                        "https://api.openai.com/v1/chat/completions",
+                        settings.llm.chat_completions_url(),
                         headers={"Authorization": f"Bearer {api_key}"},
                         json={
                             "model": settings.llm.primary_model,

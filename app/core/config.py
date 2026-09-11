@@ -46,13 +46,78 @@ class RedisSettings(BaseModel):
     socket_timeout_seconds: float = Field(default=2.0, description="Redis socket timeout")
 
 
+class LLMMode(StrEnum):
+    KIRA = "kira"
+    ROUTER = "router"
+
+
 class LLMProviderSettings(BaseModel):
+    mode: LLMMode = Field(default=LLMMode.KIRA, description="Active OpenAI-compatible backend")
     openai_api_key: str | None = Field(default=None, description="OpenAI API Key")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API Key")
     gemini_api_key: str | None = Field(default=None, description="Google Gemini API Key")
     primary_model: str = Field(default="gpt-4o", description="Primary reasoning model")
     fast_model: str = Field(default="gpt-4o-mini", description="Fast classifier model")
     temperature: float = Field(default=0.0, description="Default sampling temperature")
+    base_url: str | None = Field(
+        default=None,
+        description="OpenAI-compatible chat base URL (no trailing /chat/completions)",
+    )
+    kira_api_key: str | None = Field(default=None, description="Kira gateway API key")
+    kira_model: str = Field(default="glm-5.3-flash-free", description="Kira model id")
+    kira_base_url: str | None = Field(
+        default="https://kiraai.vn/api/v1",
+        description="Kira OpenAI-compatible base URL",
+    )
+    router_api_key: str | None = Field(default=None, description="Local router API key")
+    router_model: str = Field(
+        default="ag/gemini-3.7-flash-low", description="Local router model id"
+    )
+    router_base_url: str = Field(
+        default="http://localhost:20128/v1",
+        description="Local OpenAI-compatible router base URL",
+    )
+
+    @field_validator(
+        "openai_api_key",
+        "kira_api_key",
+        "kira_base_url",
+        "router_api_key",
+        "base_url",
+        mode="before",
+    )
+    @classmethod
+    def empty_strings_are_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def apply_selected_mode(self) -> "LLMProviderSettings":
+        """Copy the active mode's key/model/base_url onto the fields call sites already read."""
+        if self.mode == LLMMode.ROUTER:
+            key = (self.router_api_key or "").strip() or None
+            model = (self.router_model or "").strip() or "ag/gemini-3.7-flash-low"
+            base = (self.router_base_url or "").strip() or "http://localhost:20128/v1"
+            self.openai_api_key = key
+            self.primary_model = model
+            self.fast_model = model
+            self.base_url = base
+            return self
+        kira_key = (self.kira_api_key or "").strip() or None
+        if kira_key:
+            self.openai_api_key = kira_key
+            model = (self.kira_model or "").strip() or "glm-5.3-flash-free"
+            self.primary_model = model
+            self.fast_model = model
+            kira_base = (self.kira_base_url or "").strip() or "https://kiraai.vn/api/v1"
+            self.base_url = kira_base
+        return self
+
+    def chat_completions_url(self) -> str:
+        """POST target for OpenAI-compatible chat completions."""
+        base = (self.base_url or "https://api.openai.com/v1").rstrip("/")
+        return f"{base}/chat/completions"
 
 
 class GoogleOAuthSettings(BaseModel):
@@ -428,6 +493,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, repr=False, exclude=True)
     anthropic_api_key: str | None = Field(default=None, repr=False, exclude=True)
     gemini_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    llm_mode: str | None = Field(default=None, repr=False, exclude=True)
+    kira_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    kira_model: str | None = Field(default=None, repr=False, exclude=True)
+    kira_base_url: str | None = Field(default=None, repr=False, exclude=True)
+    router_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    router_model: str | None = Field(default=None, repr=False, exclude=True)
+    router_base_url: str | None = Field(default=None, repr=False, exclude=True)
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
@@ -493,17 +565,38 @@ class Settings(BaseSettings):
             merged.update(updates)
             self.google = GoogleOAuthSettings.model_validate(merged)
 
-        # Merge flat LLM settings (M6)
+        # Merge flat LLM settings (M6) plus Kira / local-router modes
         llm_updates: dict[str, str] = {}
         openai_key = (self.openai_api_key or "").strip()
         anthropic_key = (self.anthropic_api_key or "").strip()
         gemini_key = (self.gemini_api_key or "").strip()
+        kira_key = (self.kira_api_key or "").strip()
+        kira_model = (self.kira_model or "").strip()
+        kira_base = (self.kira_base_url or "").strip()
+        router_key = (self.router_api_key or "").strip()
+        router_model = (self.router_model or "").strip()
+        router_base = (self.router_base_url or "").strip()
+        mode = (self.llm_mode or "").strip().lower()
         if openai_key and not self.llm.openai_api_key:
             llm_updates["openai_api_key"] = openai_key
         if anthropic_key and not self.llm.anthropic_api_key:
             llm_updates["anthropic_api_key"] = anthropic_key
         if gemini_key and not self.llm.gemini_api_key:
             llm_updates["gemini_api_key"] = gemini_key
+        if kira_key and not self.llm.kira_api_key:
+            llm_updates["kira_api_key"] = kira_key
+        if kira_model:
+            llm_updates["kira_model"] = kira_model
+        if kira_base:
+            llm_updates["kira_base_url"] = kira_base
+        if router_key and not self.llm.router_api_key:
+            llm_updates["router_api_key"] = router_key
+        if router_model:
+            llm_updates["router_model"] = router_model
+        if router_base:
+            llm_updates["router_base_url"] = router_base
+        if mode in {LLMMode.KIRA, LLMMode.ROUTER}:
+            llm_updates["mode"] = mode
         if llm_updates:
             merged_llm = {
                 field_name: getattr(self.llm, field_name)

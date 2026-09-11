@@ -24,9 +24,11 @@ COPY alembic.ini ./
 COPY scripts/ ./scripts/
 COPY data/ ./data/
 COPY docker-entrypoint.sh ./
+# hatchling reads [project].readme during install
+COPY README.md ./
 
-# Final sync including the project
-RUN uv sync --frozen --no-dev
+# Final sync including the project (non-editable: no bind-mount of sources)
+RUN uv sync --frozen --no-dev --no-editable
 RUN chmod +x docker-entrypoint.sh
 
 # --- Production Runner Stage ---

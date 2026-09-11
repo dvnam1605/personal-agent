@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Environment, GoogleOAuthSettings, SecuritySettings, Settings
+from app.core.config import Environment, GoogleOAuthSettings, LLMMode, SecuritySettings, Settings
 
 
 def test_default_settings_instantiation():
@@ -134,6 +134,39 @@ def test_production_requires_api_key_user_binding() -> None:
             security=SecuritySettings(api_key="shared-key", approval_signing_key="a" * 32),
             _env_file=None,  # type: ignore[call-arg]
         )
+
+
+def test_llm_mode_kira_uses_kira_key_and_model() -> None:
+    cfg = Settings(
+        environment=Environment.DEVELOPMENT,
+        llm_mode="kira",
+        kira_api_key="kira_test_key",
+        kira_model="glm-5.3-flash-free",
+        kira_base_url="https://kira.example/v1",
+        openai_api_key="sk-should-not-win",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    assert cfg.llm.mode == LLMMode.KIRA
+    assert cfg.llm.openai_api_key == "kira_test_key"
+    assert cfg.llm.primary_model == "glm-5.3-flash-free"
+    assert cfg.llm.fast_model == "glm-5.3-flash-free"
+    assert cfg.llm.chat_completions_url() == "https://kira.example/v1/chat/completions"
+
+
+def test_llm_mode_router_uses_local_endpoint() -> None:
+    cfg = Settings(
+        environment=Environment.DEVELOPMENT,
+        llm_mode="router",
+        router_api_key="local",
+        router_model="ag/gemini-3.7-flash-low",
+        router_base_url="http://localhost:20128/v1",
+        kira_api_key="kira_should_not_win",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    assert cfg.llm.mode == LLMMode.ROUTER
+    assert cfg.llm.openai_api_key == "local"
+    assert cfg.llm.primary_model == "ag/gemini-3.7-flash-low"
+    assert cfg.llm.chat_completions_url() == "http://localhost:20128/v1/chat/completions"
 
 
 def test_production_signing_key_never_falls_back_to_test_key(

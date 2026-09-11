@@ -340,6 +340,7 @@ class TestM6FlatLLMKeyAliases:
             environment=Environment.DEVELOPMENT,
             openai_api_key="sk-openai-test",
             anthropic_api_key="sk-ant-test",
+            _env_file=None,  # type: ignore[call-arg]
         )
         assert cfg.llm.openai_api_key == "sk-openai-test"
         assert cfg.llm.anthropic_api_key == "sk-ant-test"
@@ -348,6 +349,7 @@ class TestM6FlatLLMKeyAliases:
         cfg = Settings(
             environment=Environment.DEVELOPMENT,
             openai_api_key="   ",
+            _env_file=None,  # type: ignore[call-arg]
         )
         assert not (cfg.llm.openai_api_key or "").strip()
 
