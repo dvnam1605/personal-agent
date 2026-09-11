@@ -15,3 +15,5 @@ TencentDB-Agent-Memory/
 data/
 scratch/
 .codegraph/
+.agents
+skills-lock.json

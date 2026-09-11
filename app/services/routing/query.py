@@ -8,6 +8,7 @@ Mutations never hit Google directly: they become approval requests.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 import uuid
@@ -44,6 +45,8 @@ from app.services.skills.matching import unaccent_vietnamese
 GOOGLE_CONNECT_HINT = (
     "Google chưa được kết nối hoặc token không còn hiệu lực. Mở GET /auth/google/start rồi thử lại."
 )
+
+logger = logging.getLogger(__name__)
 
 _CALENDAR_CREATE = re.compile(
     r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich)\b",
@@ -83,6 +86,19 @@ _DAY_TOMORROW = re.compile(
 _DAY_TODAY = re.compile(r"\b(hom\s+nay|today)\b", re.IGNORECASE)
 _DAY_THIS_WEEK = re.compile(r"\b(tuan\s+nay|this\s+week)\b", re.IGNORECASE)
 _DAY_MAI = re.compile(r"\bmai\b", re.IGNORECASE)
+_WEEKDAY_RE = re.compile(
+    r"\b(?:ngay\s+)?(chu\s+nhat|cn|thu\s+[2-7]|t[2-7]|thu\s+(?:hai|ba|tu|nam|sau|bay))\b",
+    re.IGNORECASE,
+)
+_WEEKDAY_INDEX = {
+    "thu hai": 0, "thu 2": 0, "t2": 0,
+    "thu ba": 1, "thu 3": 1, "t3": 1,
+    "thu tu": 2, "thu 4": 2, "t4": 2,
+    "thu nam": 3, "thu 5": 3, "t5": 3,
+    "thu sau": 4, "thu 6": 4, "t6": 4,
+    "thu bay": 5, "thu 7": 5, "t7": 5,
+    "chu nhat": 6, "cn": 6,
+}
 _TIME_RE = re.compile(
     r"\b(\d{1,2})\s*(?:h|gio|:)\s*(\d{1,2})?\s*(sang|chieu|toi|trua|am|pm)?\b",
     re.IGNORECASE,
@@ -121,6 +137,7 @@ CommunicationFactory = Callable[[AsyncSession, str], Awaitable[Any]]
 RetrieveFn = Callable[[str, str], Awaitable[Any]]
 ClockFn = Callable[[], datetime]
 RunIdFn = Callable[[], str]
+SummarizeEmailsFn = Callable[[str, list[dict[str, Any]]], Awaitable[str]]
 
 
 def route_info(decision: RouteDecision) -> QueryRouteInfo:
@@ -239,7 +256,22 @@ def parse_event_times(
     if hour > 23:
         return None
 
-    if _DAY_TOMORROW.search(unaccented) or (
+    weekday_match = _WEEKDAY_RE.search(unaccented)
+    if weekday_match:
+        norm = re.sub(r"\s+", " ", weekday_match.group(1).casefold())
+        target_wd = _WEEKDAY_INDEX.get(norm)
+        if target_wd is not None:
+            days_ahead = (target_wd - local_now.date().weekday()) % 7
+            if days_ahead == 0:
+                candidate = datetime.combine(
+                    local_now.date(), datetime.min.time(), tzinfo=zone
+                ).replace(hour=hour, minute=minute)
+                if candidate <= local_now:
+                    days_ahead = 7
+            day = local_now.date() + timedelta(days=days_ahead)
+        else:
+            day = local_now.date() + timedelta(days=1)
+    elif _DAY_TOMORROW.search(unaccented) or (
         _DAY_MAI.search(unaccented) and not _DAY_TODAY.search(unaccented)
     ):
         day = local_now.date() + timedelta(days=1)
@@ -259,18 +291,44 @@ def parse_event_times(
 
 def infer_event_summary(query: str) -> str:
     """Pick a short event title from a Vietnamese create-event phrase."""
+    explicit_match = re.search(
+        r"(?:với\s+|voi\s+)?(?:lịch\s+là|lich\s+la|tiêu\s+đề\s+(?:là\s+)?|tieu\s+de\s+(?:la\s+)?|nội\s+dung\s+(?:là\s+)?|noi\s+dung\s+(?:la\s+)?|tên\s+(?:là\s+)?|ten\s+(?:la\s+)?)\s*[:=]?\s*(.+)$",
+        query,
+        re.IGNORECASE,
+    )
+    if explicit_match:
+        extracted = explicit_match.group(1).strip(" .,;:!?\"'")
+        extracted = re.sub(
+            r"\s+(?:vào\s+lúc|vao\s+luc|vào|vao|lúc|luc)\s+\d+.*$",
+            "",
+            extracted,
+            flags=re.IGNORECASE,
+        ).strip(" .,;:!?\"'")
+        if extracted:
+            return extracted[:80].strip().capitalize()
+
     unaccented = unaccent_vietnamese(query)
-    if re.search(r"\bhop\b", unaccented, re.IGNORECASE):
-        return "Họp"
     cleaned = _TIME_RE.sub(" ", unaccented)
+    cleaned = _DAY_TOMORROW.sub(" ", cleaned)
+    cleaned = _DAY_TODAY.sub(" ", cleaned)
+    cleaned = _DAY_MAI.sub(" ", cleaned)
+    cleaned = _WEEKDAY_RE.sub(" ", cleaned)
     cleaned = re.sub(
-        r"\b(tao|dat|book|create|schedule|lich|luc|vao|cho toi|giup|toi)\b",
+        r"\b(sang|chieu|toi|trua|am|pm|buoi\s+sang|buoi\s+chieu|buoi\s+toi)\b",
         " ",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = " ".join(cleaned.split())
-    return cleaned[:80] if cleaned else "Sự kiện"
+    cleaned = re.sub(
+        r"\b(tao|dat|book|create|schedule|lich|luc|vao|cho toi|giup|toi|mot|cuoc)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = " ".join(cleaned.split()).strip()
+    if not cleaned or cleaned.casefold() == "hop":
+        return "Họp"
+    return cleaned[:80].strip().capitalize()
 
 
 def _apply_period(hour: int, period: str) -> int:
@@ -314,6 +372,7 @@ class QueryOrchestrator:
         oauth_service: Any | None = None,
         clock: ClockFn | None = None,
         new_run_id: RunIdFn | None = None,
+        summarize_emails_fn: SummarizeEmailsFn | None = None,
     ) -> None:
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
@@ -322,6 +381,7 @@ class QueryOrchestrator:
         self._oauth_service = oauth_service
         self._clock = clock or (lambda: datetime.now(UTC))
         self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
+        self._summarize_emails_fn = summarize_emails_fn
         self._pipeline: Any | None = None
 
     async def handle(
@@ -602,8 +662,7 @@ class QueryOrchestrator:
             run_id=run_id,
             status="needs_approval",
             message=(
-                f"{proposal.description} Duyệt và tạo trên Google: "
-                f'POST /approvals/{approval.id}/approve với {{"execute": true}}.'
+                f"{proposal.description} Vui lòng xác nhận bên dưới để tạo sự kiện trên Google Calendar."
             ),
             route=route,
             data={
@@ -661,13 +720,10 @@ class QueryOrchestrator:
         if not messages:
             message = "Không có email nào khớp trong hộp thư đến."
         else:
-            lines = [
-                f"- {item['when']}: {item['from']} — {item['subject']}"
-                if item.get("from") or item.get("subject")
-                else f"- {item['snippet'] or item['id']}"
-                for item in messages
-            ]
-            message = "Email gần đây:\n" + "\n".join(lines)
+            if self._summarize_emails_fn is not None:
+                message = await self._summarize_emails_fn(query, messages)
+            else:
+                message = await summarize_emails(query, messages)
         return QueryResult(
             run_id=run_id,
             status="completed",
@@ -816,6 +872,191 @@ def _serialize_event(event: Any) -> dict[str, Any]:
     }
 
 
+def fallback_summarize_emails(query: str, messages: list[dict[str, Any]]) -> str:
+    """Deterministic, structured summary when LLM is offline or times out."""
+    total = len(messages)
+    unread_count = sum(1 for m in messages if m.get("unread"))
+
+    critical: list[dict[str, Any]] = []
+    work: list[dict[str, Any]] = []
+    news: list[dict[str, Any]] = []
+    others: list[dict[str, Any]] = []
+
+    _WORK_KEYWORDS = (
+        "linkedin",
+        "job",
+        "career",
+        "recruitment",
+        "tuyen dung",
+        "ung tuyen",
+        "phong van",
+        "interview",
+        "hr",
+        "offer",
+        "hiring",
+        "developer",
+        "engineer",
+    )
+    _CRITICAL_KEYWORDS = (
+        "canh bao",
+        "bao mat",
+        "security",
+        "otp",
+        "xac minh",
+        "xac thuc",
+        "ma dung mot lan",
+        "mat ma",
+        "ngan hang",
+        "bank",
+        "vpbank",
+        "vietcombank",
+        "techcombank",
+        "giao dich",
+        "transfer",
+        "thanh toan",
+        "payment",
+        "invoice",
+        "hoa don",
+    )
+    _NEWS_KEYWORDS = (
+        "medium",
+        "digest",
+        "newsletter",
+        "youtube",
+        "dang ky",
+        "hoi vien",
+        "khuyen mai",
+        "quang cao",
+        "promo",
+        "daily",
+    )
+
+    for m in messages:
+        text = unaccent_vietnamese(
+            f"{m.get('from', '')} {m.get('subject', '')} {m.get('snippet', '')}"
+        ).casefold()
+
+        # Check work first so "jobalerts" doesn't collide with security "alert"
+        if any(k in text for k in _WORK_KEYWORDS):
+            work.append(m)
+        elif any(k in text for k in _CRITICAL_KEYWORDS):
+            critical.append(m)
+        elif any(k in text for k in _NEWS_KEYWORDS):
+            news.append(m)
+        else:
+            others.append(m)
+
+    sections = []
+    unread_note = f" ({unread_count} email chưa đọc)" if unread_count else ""
+    sections.append(f"📌 **Tổng quan**: Tìm thấy {total} email trong hộp thư{unread_note}.")
+
+    def _fmt_item(m: dict[str, Any]) -> str:
+        sender = m.get("from") or m.get("from_email") or "Không rõ người gửi"
+        subject = m.get("subject") or "(Không có tiêu đề)"
+        snippet = m.get("snippet", "").strip()
+        snippet_text = f' — *"{snippet[:120]}..."*' if snippet else ""
+        return f"- **{subject}** ({sender}){snippet_text}"
+
+    if critical:
+        sections.append(
+            "🔴 **Quan trọng / Cần lưu ý ngay**:\n" + "\n".join(_fmt_item(m) for m in critical)
+        )
+    if work:
+        sections.append(
+            "💼 **Công việc & Tuyển dụng**:\n" + "\n".join(_fmt_item(m) for m in work)
+        )
+    if news:
+        sections.append(
+            "📰 **Bản tin & Thông báo dịch vụ**:\n" + "\n".join(_fmt_item(m) for m in news)
+        )
+    if others:
+        sections.append("✉️ **Email khác**:\n" + "\n".join(_fmt_item(m) for m in others))
+
+    return "\n\n".join(sections)
+
+
+async def summarize_emails(
+    query: str,
+    messages: list[dict[str, Any]],
+    *,
+    timeout_seconds: float = 12.0,
+) -> str:
+    """Summarize inbox messages using LLM when available, falling back to heuristic categorization."""
+    if not messages:
+        return "Không có email nào khớp trong hộp thư đến."
+
+    try:
+        from app.core.config import settings
+
+        api_key = settings.llm.openai_api_key
+        if api_key:
+            import httpx
+
+            system_prompt = (
+                "Bạn là Namm Agent - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Nhiệm vụ: Đọc nội dung email rồi viết BÁO CÁO TÓM TẮT tự nhiên bằng tiếng Việt.\n\n"
+                "Quy tắc bắt buộc:\n"
+                "- KHÔNG dùng heading markdown (# ## ###). Chỉ dùng emoji + **in đậm** làm đề mục.\n"
+                "- KHÔNG lặp lại nguyên văn tiêu đề email; phải đọc snippet để tóm tắt giá trị thực.\n"
+                "- Viết tự nhiên như đang nói chuyện với chủ nhân hộp thư, ngắn gọn mà đủ ý.\n\n"
+                "Cấu trúc phản hồi (đúng thứ tự):\n\n"
+                "📌 **Tổng quan nhanh**\n"
+                "1-2 câu tóm gọn: có bao nhiêu email, điểm đáng chú ý nhất là gì.\n\n"
+                "🔴 **Quan trọng / Cần lưu ý ngay**\n"
+                "Liệt kê dạng bullet, mỗi item viết rõ hành động hoặc thông tin cốt lõi "
+                "(bảo mật tài khoản, mã OTP, giao dịch ngân hàng...).\n\n"
+                "💼 **Công việc & Tuyển dụng**\n"
+                "Cơ hội việc làm, thông tin đồng nghiệp/đối tác (nếu có).\n\n"
+                "📰 **Bản tin & Khác**\n"
+                "Bài viết, thông báo dịch vụ, quà tặng... (nếu có).\n\n"
+                "Bỏ qua mục nào không có email phù hợp. Không thêm lời kết thừa."
+            )
+
+            email_entries = []
+            for i, item in enumerate(messages, 1):
+                sender = item.get("from") or item.get("from_email") or "Không rõ người gửi"
+                subject = item.get("subject") or "(Không có tiêu đề)"
+                when = item.get("when") or ""
+                status = "Chưa đọc" if item.get("unread") else "Đã đọc"
+                snippet = item.get("snippet") or ""
+                email_entries.append(
+                    f"{i}. Từ: {sender}\n"
+                    f"   Tiêu đề: {subject}\n"
+                    f"   Thời gian: {when} ({status})\n"
+                    f"   Trích đoạn nội dung: {snippet}"
+                )
+
+            user_content = (
+                f"Yêu cầu của người dùng: {query}\n\n"
+                f"Danh sách {len(messages)} email nhận được:\n\n"
+                + "\n\n".join(email_entries)
+            )
+
+            model = getattr(settings.llm, "fast_model", "gpt-4o-mini") or "gpt-4o-mini"
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_content},
+                        ],
+                        "temperature": 0.2,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = str(data["choices"][0]["message"]["content"]).strip()
+                    if content:
+                        return content
+    except Exception:
+        logger.exception("llm_email_summarization_failed")
+
+    return fallback_summarize_emails(query, messages)
+
+
 __all__ = [
     "GOOGLE_CONNECT_HINT",
     "QueryOrchestrator",
@@ -823,6 +1064,7 @@ __all__ = [
     "QueryRouteInfo",
     "build_gmail_search_query",
     "calendar_mutation_kind",
+    "fallback_summarize_emails",
     "infer_calendar_window",
     "infer_event_summary",
     "infer_past_calendar_window",
@@ -830,4 +1072,5 @@ __all__ = [
     "parse_event_times",
     "retrieval_requester_id",
     "route_info",
+    "summarize_emails",
 ]

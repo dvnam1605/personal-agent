@@ -1,0 +1,227 @@
+:root {
+  /* Harmonious Cosmic Obsidian Base (Dark Mode) */
+  --color-bg: #0B0D14;
+  --color-surface: #10131F;
+  --color-surface-elevated: #161A2B;
+  --color-surface-card: #131726;
+  --color-surface-hover: #1E2338;
+  --color-surface-active: #252B44;
+
+  /* Liquid Glass Surfaces (Translucent + Specular) */
+  --color-surface-glass: rgba(14, 17, 27, 0.75);
+  --color-surface-glass-elevated: rgba(20, 24, 38, 0.82);
+  --color-surface-glass-card: rgba(17, 21, 33, 0.68);
+  --color-surface-glass-hover: rgba(255, 255, 255, 0.06);
+  --color-surface-glass-active: rgba(255, 255, 255, 0.11);
+  --color-surface-glass-pill: rgba(255, 255, 255, 0.05);
+
+  /* Layout Dimensions */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 68px;
+  --header-height: 60px;
+  --context-panel-width: 340px;
+
+  /* Glass Specular Highlights & Borders */
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-subtle: rgba(255, 255, 255, 0.035);
+  --color-border-elevated: rgba(255, 255, 255, 0.13);
+  --color-border-glass: rgba(255, 255, 255, 0.09);
+  --color-border-glass-bright: rgba(255, 255, 255, 0.18);
+  --color-border-focus: #6366F1;
+
+  --card-top-shine: inset 0 1px 1px 0 rgba(255, 255, 255, 0.12);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+  --glass-specular-hover: inset 0 1px 1px 0 rgba(255, 255, 255, 0.22);
+  --glass-shimmer: inset 0 1px 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 0 rgba(0, 0, 0, 0.3);
+
+  /* Calibrated Typography */
+  --color-text: #F8FAFC;
+  --color-text-secondary: #CBD5E1;
+  --color-text-muted: #94A3B8;
+  --color-text-dim: #64748B;
+  --color-text-inverse: #0B0D14;
+
+  /* Harmonious Liquid Accents */
+  --color-primary: #6366F1;
+  --color-primary-hover: #4F46E5;
+  --color-primary-active: #4338CA;
+  --color-primary-light: #818CF8;
+  --color-primary-subtle: rgba(99, 102, 241, 0.14);
+  --color-primary-border: rgba(99, 102, 241, 0.3);
+
+  --color-accent: #818CF8;
+  --color-accent-violet: #A855F7;
+  --color-accent-subtle: rgba(129, 140, 248, 0.12);
+  --color-accent-border: rgba(129, 140, 248, 0.28);
+
+  /* Liquid Gradients */
+  --gradient-primary: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+  --gradient-liquid-btn: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(168, 85, 247, 0.14) 100%);
+  --gradient-liquid-btn-hover: linear-gradient(135deg, rgba(99, 102, 241, 0.34) 0%, rgba(168, 85, 247, 0.24) 100%);
+  --gradient-glass-pill: linear-gradient(135deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --gradient-gem: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+
+  --header-track-bg: rgba(255, 255, 255, 0.04);
+  --header-pill-active-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.06) 100%);
+  --header-pill-active-color: #FFFFFF;
+  --header-pill-active-border: rgba(255, 255, 255, 0.2);
+  --header-pill-active-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5), 0 0 12px rgba(99, 102, 241, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.28);
+  --shadow-card-hover: 0 22px 45px -6px rgba(0, 0, 0, 0.6), 0 4px 20px rgba(99, 102, 241, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  --ease-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Harmonious Risk & Status Levels */
+  --color-safe: #10B981;
+  --color-safe-subtle: rgba(16, 185, 129, 0.12);
+  --color-safe-border: rgba(16, 185, 129, 0.28);
+
+  --color-warning: #F59E0B;
+  --color-warning-subtle: rgba(245, 158, 11, 0.12);
+  --color-warning-border: rgba(245, 158, 11, 0.28);
+
+  --color-danger: #EF4444;
+  --color-danger-subtle: rgba(239, 68, 68, 0.12);
+  --color-danger-border: rgba(239, 68, 68, 0.28);
+
+  /* Typography Scales (Flawless Vietnamese & Modern Executive Pairing) */
+  --font-sans: 'Be Vietnam Pro', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Plus Jakarta Sans', 'Be Vietnam Pro', var(--font-sans);
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.84375rem;  /* 13.5px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-md: 1.0625rem;   /* 17px */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.5rem;      /* 24px */
+  --text-2xl: 1.875rem;   /* 30px */
+
+  /* Spacing Scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Border Radii */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 9999px;
+
+  /* Elevation Shadows & Blurs */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.38);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.48);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+
+  --backdrop-blur: blur(20px) saturate(180%);
+  --backdrop-blur-md: blur(16px) saturate(170%);
+  --backdrop-blur-sm: blur(10px);
+
+  /* Silky Smooth Transitions */
+  --ease-liquid: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-smooth: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================================
+   Light Mode Theme Palette (Elegant Modern Slate & Pearl Glass)
+   ========================================================================== */
+[data-theme="light"] {
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #F1F5F9;
+  --color-surface-card: #FFFFFF;
+  --color-surface-hover: #F1F5F9;
+  --color-surface-active: #E2E8F0;
+
+  /* Translucent Pearl Glass */
+  --color-surface-glass: rgba(255, 255, 255, 0.82);
+  --color-surface-glass-elevated: rgba(255, 255, 255, 0.92);
+  --color-surface-glass-card: rgba(255, 255, 255, 0.85);
+  --color-surface-glass-hover: rgba(0, 0, 0, 0.04);
+  --color-surface-glass-active: rgba(0, 0, 0, 0.08);
+  --color-surface-glass-pill: rgba(0, 0, 0, 0.04);
+
+  /* Crisp Light Borders */
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-subtle: rgba(0, 0, 0, 0.04);
+  --color-border-elevated: rgba(0, 0, 0, 0.14);
+  --color-border-glass: rgba(0, 0, 0, 0.08);
+  --color-border-glass-bright: rgba(0, 0, 0, 0.15);
+  --color-border-focus: #4F46E5;
+
+  --card-top-shine: inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+  --glass-specular-hover: inset 0 1px 1px 0 rgba(255, 255, 255, 1);
+  --glass-shimmer: inset 0 1px 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05);
+
+  /* Typography */
+  --color-text: #0F172A;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748B;
+  --color-text-dim: #94A3B8;
+  --color-text-inverse: #FFFFFF;
+
+  /* Accents */
+  --color-primary: #4F46E5;
+  --color-primary-hover: #4338CA;
+  --color-primary-active: #3730A3;
+  --color-primary-light: #6366F1;
+  --color-primary-subtle: rgba(79, 70, 229, 0.08);
+  --color-primary-border: rgba(79, 70, 229, 0.25);
+
+  --color-accent: #4F46E5;
+  --color-accent-violet: #9333EA;
+  --color-accent-subtle: rgba(79, 70, 229, 0.08);
+  --color-accent-border: rgba(79, 70, 229, 0.22);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+  --gradient-liquid-btn: linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(147, 51, 234, 0.08) 100%);
+  --gradient-liquid-btn-hover: linear-gradient(135deg, rgba(79, 70, 229, 0.2) 0%, rgba(147, 51, 234, 0.14) 100%);
+  --gradient-glass-pill: #FFFFFF;
+  --gradient-gem: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+
+  --header-track-bg: rgba(0, 0, 0, 0.05);
+  --header-pill-active-bg: #FFFFFF;
+  --header-pill-active-color: #0F172A;
+  --header-pill-active-border: rgba(0, 0, 0, 0.08);
+  --header-pill-active-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(99, 102, 241, 0.16), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --shadow-card-hover: 0 20px 40px -6px rgba(99, 102, 241, 0.18), 0 8px 18px -2px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --ease-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Status Colors */
+  --color-safe: #059669;
+  --color-safe-subtle: rgba(5, 150, 105, 0.1);
+  --color-safe-border: rgba(5, 150, 105, 0.25);
+
+  --color-warning: #D97706;
+  --color-warning-subtle: rgba(217, 119, 6, 0.1);
+  --color-warning-border: rgba(217, 119, 6, 0.25);
+
+  --color-danger: #DC2626;
+  --color-danger-subtle: rgba(220, 38, 38, 0.1);
+  --color-danger-border: rgba(220, 38, 38, 0.25);
+
+  /* Soft Light Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.12);
+  --shadow-glass: 0 8px 30px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms !important;
+    --transition-normal: 0ms !important;
+    --transition-smooth: 0ms !important;
+  }
+}

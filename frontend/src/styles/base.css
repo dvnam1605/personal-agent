@@ -1,0 +1,140 @@
+@import './tokens.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--color-bg);
+  background-image: 
+    radial-gradient(ellipse 65% 45% at 20% -10%, rgba(99, 102, 241, 0.12), transparent 70%),
+    radial-gradient(ellipse 55% 40% at 85% 15%, rgba(168, 85, 247, 0.08), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 50% 110%, rgba(56, 189, 248, 0.06), transparent 70%);
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom Liquid Glass Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Light Mode Background & Scrollbars */
+[data-theme="light"] body {
+  background-color: var(--color-bg);
+  background-image: 
+    radial-gradient(ellipse 65% 45% at 20% -10%, rgba(99, 102, 241, 0.08), transparent 70%),
+    radial-gradient(ellipse 55% 40% at 85% 15%, rgba(168, 85, 247, 0.05), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 50% 110%, rgba(56, 189, 248, 0.05), transparent 70%);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Accessible Focus States */
+:focus-visible {
+  outline: 2px solid var(--color-primary-light);
+  outline-offset: 2px;
+}
+
+/* Common Typography Utilities */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code, pre {
+  font-family: var(--font-mono);
+}
+
+/* Animations */
+@keyframes pulse-shimmer {
+  0% {
+    opacity: 0.6;
+    background-position: -200% 0;
+  }
+  50% {
+    opacity: 1;
+    background-position: 200% 0;
+  }
+  100% {
+    opacity: 0.6;
+    background-position: -200% 0;
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-bottom var(--transition-normal) forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in var(--transition-normal) forwards;
+}

@@ -28,6 +28,7 @@ from app.services.routing.query import (
     QueryOrchestrator,
     build_gmail_search_query,
     calendar_mutation_kind,
+    fallback_summarize_emails,
     infer_calendar_window,
     infer_event_summary,
     infer_past_calendar_window,
@@ -101,6 +102,29 @@ def test_calendar_mutation_kind() -> None:
 
 def test_event_summary_for_meeting() -> None:
     assert infer_event_summary("Tạo lịch họp lúc 10h sáng mai") == "Họp"
+
+
+def test_event_summary_for_custom_activity() -> None:
+    assert (
+        infer_event_summary(
+            "Tạo cuộc họp: tạo cho tôi một lịch vào 8h sáng ngày chủ nhật với lịch là đi chuyển đồ cho trà my"
+        )
+        == "Đi chuyển đồ cho trà my"
+    )
+    assert (
+        infer_event_summary(
+            "Tạo lịch với nội dung đá bóng cùng công ty lúc 17h"
+        )
+        == "Đá bóng cùng công ty"
+    )
+
+
+def test_parse_event_times_sunday() -> None:
+    window = parse_event_times("vào 8h sáng ngày chủ nhật", now=NOW)
+    assert window is not None
+    start, end = window
+    assert start.isoformat() == "2026-09-13T08:00:00+07:00"
+    assert end.isoformat() == "2026-09-13T09:00:00+07:00"
 
 
 def test_communication_mutation_detection() -> None:
@@ -228,7 +252,7 @@ async def test_orchestrator_creates_approval_for_booking(db_session: AsyncSessio
     assert result.status == "needs_approval"
     assert result.approval_id
     assert result.data["start"] == "2026-09-11T10:00:00+07:00"
-    assert '{"execute": true}' in result.message
+    assert "xác nhận" in result.message.casefold()
     approval = await db_session.get(ApprovalRequest, result.approval_id)
     assert approval is not None
     assert approval.status == "pending"
@@ -446,3 +470,72 @@ async def test_orchestrator_leaves_document_briefing_routed(db_session: AsyncSes
     )
     assert result.status == "routed"
     assert result.route.target_workflow_id == "WF-02"
+
+
+def test_fallback_summarize_emails_categorizes_correctly() -> None:
+    sample = [
+        {
+            "from": "Google <no-reply@accounts.google.com>",
+            "subject": "Cảnh báo bảo mật",
+            "when": "2026-09-11T02:54:21+00:00",
+            "snippet": "Mới đăng nhập trên thiết bị Windows",
+            "unread": True,
+        },
+        {
+            "from": "LinkedIn Job Alerts",
+            "subject": "AI Agent Engineer role at Binance",
+            "when": "2026-09-11T01:20:47+00:00",
+            "snippet": "Apply now for AI Agent Engineer",
+            "unread": True,
+        },
+        {
+            "from": "Medium Daily Digest",
+            "subject": "3D Perception: LiDAR",
+            "when": "2026-09-11T00:50:00+00:00",
+            "snippet": "Stories for Nam Dau",
+            "unread": False,
+        },
+    ]
+    summary = fallback_summarize_emails("Đọc và tóm tắt email", sample)
+    assert "Tổng quan" in summary
+    assert "3 email" in summary
+    assert "2 email chưa đọc" in summary
+    assert "Quan trọng / Cần lưu ý ngay" in summary
+    assert "Cảnh báo bảo mật" in summary
+    assert "Công việc & Tuyển dụng" in summary
+    assert "AI Agent Engineer role at Binance" in summary
+    assert "Bản tin & Thông báo dịch vụ" in summary
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_handles_communication_with_summarizer(
+    db_session: AsyncSession,
+) -> None:
+    fake_mail = _FakeGmail()
+
+    async def communication_for_user(_session: AsyncSession, _user_id: str) -> _FakeGmail:
+        return fake_mail
+
+    summarizer_called = False
+
+    async def mock_summarizer(query: str, messages: list[dict[str, Any]]) -> str:
+        nonlocal summarizer_called
+        summarizer_called = True
+        return f"Tóm tắt thông minh cho {len(messages)} email"
+
+    orchestrator = QueryOrchestrator(
+        communication_for_user=communication_for_user,
+        summarize_emails_fn=mock_summarizer,
+        new_run_id=lambda: "run-comm-sum-1",
+    )
+    result = await orchestrator.handle(
+        db_session,
+        "user_bob",
+        "Đọc và tóm tắt các email quan trọng nhận được hôm nay",
+    )
+    assert result.status == "completed"
+    assert result.route.target_agent == "CommunicationAgent"
+    assert summarizer_called is True
+    assert "Tóm tắt thông minh cho 1 email" in result.message
+    assert result.data["count"] == 1
+    assert len(result.data["messages"]) == 1

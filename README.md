@@ -21,6 +21,36 @@ Ví dụ bạn có thể nói:
 - «Tạo lịch họp lúc 10h sáng mai»
 - «Soạn thư cuộc họp»
 
+## Giao diện
+
+Ứng dụng web **Namm Agent** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu quy chế, duyệt hành động ghi. Có chế độ tối và sáng.
+
+**Trợ lý điều hành**
+
+![Trợ lý điều hành — chế độ tối](docs/screenshots/assistant.png)
+
+![Trợ lý điều hành — chế độ sáng](docs/screenshots/assistant-light.png)
+
+**Lịch Google**
+
+![Lịch Google — agenda hôm nay](docs/screenshots/calendar.png)
+
+**Hộp thư Gmail**
+
+![Hộp thư Gmail](docs/screenshots/email.png)
+
+**Hồ sơ họp**
+
+![Hồ sơ họp WF-05](docs/screenshots/meetings.png)
+
+**Kho tri thức**
+
+![Kho tri thức — danh mục văn bản nội bộ](docs/screenshots/knowledge.png)
+
+**Cài đặt**
+
+![Cài đặt hệ thống và liên kết Google](docs/screenshots/settings.png)
+
 ## Cách trợ lý làm việc
 
 Câu hỏi đơn giản (một việc, một nguồn) được xử lý thẳng. Việc lặp lại như chuẩn bị họp chạy theo kịch bản cố định. Việc lan sang nhiều nguồn được lập kế hoạch rồi mới làm.
@@ -49,6 +79,16 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 Kiểm tra sống: `GET http://127.0.0.1:8000/health`  
 Tài liệu API: `http://127.0.0.1:8000/api/v1/docs`
+
+Giao diện web (Vite, cổng 5173; proxy API về backend):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Mở `http://localhost:5173`. `docker compose up -d` cũng dựng frontend tại cổng đó.
 
 ## Kết nối Google
 
