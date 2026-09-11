@@ -1,35 +1,110 @@
 # Personal AI Assistant
 
-A capability-bounded, multi-agent AI assistant designed for productivity and scale.
+Trợ lý cá nhân nói tiếng Việt, làm việc trên Google Workspace và kho tài liệu nội bộ của bạn.
 
-## Architecture
-- 3 Execution paths: Direct Specialist, Known Workflow Graphs, Open-ended Supervisor DAG.
-- 4 Core Specialist Agent roles: `SupervisorAgent`, `CommunicationAgent`, `CalendarAgent`, `KnowledgeResearchAgent`.
-- Strict capability gating, memory gating, and human-in-the-loop (HITL) policy verification.
+Hỏi lịch, đọc mail, tìm quyết định, chuẩn bị họp, soạn follow-up — bằng câu thường, không cần nhớ lệnh. Việc chỉ đọc thì trợ lý làm luôn. Việc gửi đi, đặt lịch hay xóa thì dừng lại để bạn duyệt một lần.
 
-## Development Setup
+## Làm được gì
+
+- **Lịch** — xem hôm nay, ngày mai, tuần này; đặt cuộc họp khi bạn nói rõ giờ.
+- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp.
+- **Tài liệu nội bộ** — trả lời từ kho văn bản đã nạp, kèm dẫn chứng thay vì đoán.
+- **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
+- **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
+
+Ví dụ bạn có thể nói:
+
+- «Lịch ngày mai?»
+- «Đọc email mới nhất từ anh Nam»
+- «Tài liệu nội bộ nói gì về quy chế họp?»
+- «Chuẩn bị họp ngày mai với Nam»
+- «Tạo lịch họp lúc 10h sáng mai»
+- «Soạn thư cuộc họp»
+
+## Cách trợ lý làm việc
+
+Câu hỏi đơn giản (một việc, một nguồn) được xử lý thẳng. Việc lặp lại như chuẩn bị họp chạy theo kịch bản cố định. Việc lan sang nhiều nguồn được lập kế hoạch rồi mới làm.
+
+Mọi hành động ghi — tạo/sửa/xóa lịch, gửi hay xóa mail, đổi file trên Drive — đều cần bạn xác nhận. Token duyệt dùng một lần, không gửi lại được.
+
+Dữ liệu được tách theo người dùng. Log không giữ nguyên email hay khóa API.
+
+## Chạy trên máy bạn
+
+Cần **Python 3.11–3.14**, **Docker** (Postgres + Redis), và tài khoản Google OAuth nếu muốn lịch/mail/Drive thật.
+
 ```bash
 uv venv
-uv pip install -e ".[dev]"
+uv sync --extra dev
+cp .env.example .env
 ```
 
-## Running Tests
+Điền `.env`: khóa API (`SECURITY__API_KEY`), khóa ký duyệt (`SECURITY__APPROVAL_SIGNING_KEY`, tối thiểu 32 ký tự), mật khẩu Postgres/Redis, và nếu dùng Google thì `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. Không commit file `.env`.
+
 ```bash
-pytest
+docker compose up -d
+uv run alembic upgrade head
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Offline OCR Batch (P9E, external GPU machine only)
-Converts a folder of scanned PDFs into Markdown for ingestion via
-`source_type="preparsed_markdown"`. OCR engines never enter the runtime:
-install them from optional groups on the strong-GPU machine, then run one-shot:
+Kiểm tra sống: `GET http://127.0.0.1:8000/health`  
+Tài liệu API: `http://127.0.0.1:8000/api/v1/docs`
+
+## Kết nối Google
+
+Mở trình duyệt:
+
+```
+http://127.0.0.1:8000/auth/google/start
+```
+
+Đăng nhập Google, cấp quyền lịch / Gmail / Drive tùy việc bạn dùng. Redirect mặc định: `http://localhost:8000/auth/google/callback`.
+
+## Nói chuyện với trợ lý
+
+Mọi câu hỏi đi qua `POST /query`. Trong môi trường local, gửi kèm `X-API-Key` (nếu đã cấu hình) và `X-User-ID`.
 
 ```bash
-pip install -e ".[ocr-paddle]"   # or ".[ocr-surya]"
+curl -s http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: default-user" \
+  -H "X-API-Key: $SECURITY__API_KEY" \
+  -d '{"query": "Lịch ngày mai?"}'
+```
+
+Khi cần duyệt, phản hồi có `approval_id`. Tạo sự kiện hoặc nháp trên Google:
+
+```bash
+curl -s -X POST "http://127.0.0.1:8000/approvals/<approval_id>/approve" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: default-user" \
+  -H "X-API-Key: $SECURITY__API_KEY" \
+  -d '{"execute": true}'
+```
+
+Không gửi `execute` thì bạn chỉ nhận token một lần; lần sau dùng `POST /approvals/<id>/execute` với token đó.
+
+## Kho tài liệu
+
+Nạp PDF/DOCX vào Postgres (pgvector + tìm kiếm đầy đủ). Trợ lý trả lời từ kho này, không bịa nguồn. Embedding tiếng Việt chạy local nếu bạn cài extra `ml` và trỏ đường dẫn model trong `.env`.
+
+File scan (PDF ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi mới nạp markdown:
+
+```bash
+uv pip install -e ".[ocr-paddle]"   # hoặc ".[ocr-surya]"
 python scripts/ocr_batch.py --input-dir ./scanned_pdfs --output-dir ./parsed_md \
-    --engine paddleocr_vl_1_6 --device cuda:0 [--recursive] [--force] [--dry-run]
+  --engine paddleocr_vl_1_6 --device cuda:0
 ```
 
-Each output gets `<stem>.md` plus a `<stem>.ocr.json` sidecar (source checksum,
-engine+version, ocr_used, pages, warnings, duration); re-runs skip files whose
-sidecar checksum still matches. Point the assistant's ingestion at the output
-folder with `source_type="preparsed_markdown"`.
+Mỗi file ra `.md` và sidecar `.ocr.json`. Nạp thư mục output với `source_type="preparsed_markdown"`.
+
+## Phát triển
+
+```bash
+uv run pytest
+uv run ruff check .
+```
+
+## Stack
+
+FastAPI · PostgreSQL 16 + pgvector · Redis 7 · Google Calendar / Gmail / Drive · mô hình embedding/rerank tiếng Việt.

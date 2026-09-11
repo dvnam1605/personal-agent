@@ -2,6 +2,7 @@
 .secrets/
 client_secret*.json
 /models/
+/plan/
 __pycache__/
 .pytest_cache/
 .ruff_cache/

@@ -711,6 +711,7 @@ class QueryOrchestrator:
 
         retrieval_query = RetrievalQuery(
             original_query=query,
+            search_query=query,
             requester_id=retrieval_requester_id(user_id),
         )
         return await self._pipeline.run_with_synthesis(retrieval_query, internal_only=True)

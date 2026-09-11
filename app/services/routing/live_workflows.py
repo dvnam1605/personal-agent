@@ -272,12 +272,13 @@ def _attendee_emails(event: Any) -> list[str]:
 def _event_start(event: Any) -> datetime | None:
     start = getattr(event, "start", None)
     as_dt = getattr(start, "as_datetime", None)
-    if callable(as_dt):
-        try:
-            return as_dt()
-        except (TypeError, ValueError):
-            return None
-    return None
+    if not callable(as_dt):
+        return None
+    try:
+        value = as_dt()
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, datetime) else None
 
 
 def _event_when(event: Any) -> str:
