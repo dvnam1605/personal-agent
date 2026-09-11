@@ -727,6 +727,7 @@ class TestPipelineIntegration:
 
         pipe = build_retrieval_pipeline(
             provider=FakeProvider(),
+            hybrid_service=FixedHybrid([]),
             use_viranker=False,
             generate=fake_gen,
         )
