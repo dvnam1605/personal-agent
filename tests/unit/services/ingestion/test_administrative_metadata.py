@@ -12,9 +12,10 @@ from app.services.ingestion.administrative_extractor import AdministrativeMetada
 from app.services.ingestion.chunking.engine import build_chunk_drafts
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.parsing.markdown_parser import MarkdownDocumentParser
+from tests.unit.services._repo import fixtures_root
 
 CORPUS_DIR = Path("data/QuyetDinh")
-FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "ingestion" / "administrative"
+FIXTURE_DIR = fixtures_root() / "ingestion" / "administrative"
 
 
 def _document(relative: str) -> Path:
