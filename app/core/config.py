@@ -622,7 +622,15 @@ class Settings(BaseSettings):
             )
         if self.environment in (Environment.DEVELOPMENT, Environment.TESTING):
             db_url = self.database.url.lower()
-            local_markers = ("localhost", "127.0.0.1", ":5434", "sqlite", ":memory:")
+            local_markers = (
+                "localhost",
+                "127.0.0.1",
+                ":5434",
+                "sqlite",
+                ":memory:",
+                "@postgres:",  # docker compose service DNS
+                "host.docker.internal",
+            )
             if not any(marker in db_url for marker in local_markers):
                 raise ValueError(
                     f"ENVIRONMENT={self.environment.value} but DATABASE__URL is not local. "

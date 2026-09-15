@@ -114,6 +114,16 @@ def test_development_rejects_remote_database_url() -> None:
         )
 
 
+def test_development_allows_docker_compose_postgres_hostname() -> None:
+    cfg = Settings(
+        environment=Environment.DEVELOPMENT,
+        deploy_target="local",
+        database={"url": "postgresql+asyncpg://postgres:changeme@postgres:5432/assistant"},
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    assert "@postgres:5432" in cfg.database.url
+
+
 def test_deploy_target_production_rejects_development_environment() -> None:
     with pytest.raises(ValidationError, match="DEPLOY_TARGET"):
         Settings(
