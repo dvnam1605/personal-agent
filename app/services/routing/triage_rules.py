@@ -180,9 +180,7 @@ TIM_PREFIX_PATTERN = re.compile(r"\btim\s+", re.IGNORECASE)
 # Calendar noise that frequently appears inside a DOCUMENT TITLE or topic
 # ("Quy chế tổ chức cuộc họp...", "Kế hoạch chuyển đổi số...") rather than as
 # a calendar action.
-DOC_TITLE_CALENDAR_NOISE_PATTERN = re.compile(
-    r"\b(cuoc hop|hop|meeting|ke hoach)\b", re.IGNORECASE
-)
+DOC_TITLE_CALENDAR_NOISE_PATTERN = re.compile(r"\b(cuoc hop|hop|meeting|ke hoach)\b", re.IGNORECASE)
 
 # Read/summarize verbs: the request is about document CONTENT.
 DOC_READ_PATTERN = re.compile(

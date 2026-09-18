@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+# Configure host.docker.internal if WINDOWS_HOST_IP is supplied (fixes WSL2 docker bridge mismatch)
+if [ -n "$WINDOWS_HOST_IP" ]; then
+  echo "Configuring host.docker.internal to point to Windows host ($WINDOWS_HOST_IP)..."
+  grep -v "host.docker.internal" /etc/hosts > /tmp/hosts 2>/dev/null || true
+  cat /tmp/hosts > /etc/hosts 2>/dev/null || true
+  echo "$WINDOWS_HOST_IP host.docker.internal" >> /etc/hosts 2>/dev/null || true
+fi
+
 # Wait for Docker DNS + Postgres before Alembic (avoids startup race).
 wait_for_database() {
   db_url="$1"

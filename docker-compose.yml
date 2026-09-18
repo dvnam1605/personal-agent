@@ -59,8 +59,10 @@ services:
       - DEBUG=true
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WINDOWS_HOST_IP=${WINDOWS_HOST_IP:-}
+    # host-gateway tracks host IP dynamically, or falls back to WINDOWS_HOST_IP in WSL
     extra_hosts:
-      - "host.docker.internal:172.18.160.1"
+      - "host.docker.internal:${WINDOWS_HOST_IP:-host-gateway}"
     volumes:
       - ./app:/app/app
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh

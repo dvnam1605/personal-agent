@@ -13,6 +13,7 @@ import asyncio
 import inspect
 import logging
 import math
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -157,9 +158,17 @@ class TransformersPoolingBackend:
         self._device = device
         self._tokenizer: Any = None
         self._model: Any = None
+        # embed() runs via asyncio.to_thread, so concurrent requests share this
+        # backend across threads. The lock guarantees no caller ever observes a
+        # half-moved model (some layers on cuda, some on cpu -> device mismatch).
+        self._load_lock = threading.Lock()
 
     def _ensure_loaded(self) -> tuple[Any, Any]:
-        if self._model is None:
+        if self._model is not None:
+            return self._tokenizer, self._model
+        with self._load_lock:
+            if self._model is not None:
+                return self._tokenizer, self._model
             import torch
             from transformers import AutoModel, AutoTokenizer
 
@@ -167,16 +176,19 @@ class TransformersPoolingBackend:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
             try:
-                self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
+                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
             except Exception:
-                self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)
+                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)
 
             try:
-                self._model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
+                model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
             except Exception:
-                self._model = AutoModel.from_pretrained(self._local_path, local_files_only=False)
-            self._model.to(self._device)
-            self._model.eval()
+                model = AutoModel.from_pretrained(self._local_path, local_files_only=False)
+            model.to(self._device)
+            model.eval()
+            # Publish only after the model is fully moved and in eval mode.
+            self._tokenizer = tokenizer
+            self._model = model
         assert self._tokenizer is not None and self._model is not None
         return self._tokenizer, self._model
 

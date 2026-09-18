@@ -361,7 +361,20 @@ class PromptAnswerSynthesizer:
             question, bundle, missing_documents=missing_documents
         )
 
-        answer_text = await self._generate(system_msg, user_msg)
+        try:
+            answer_text = await self._generate(system_msg, user_msg)
+        except Exception as gen_err:
+            logger.error("synthesis_generate_failed error=%s", gen_err)
+            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
+            citations = build_citations_from_bundle(fallback_eids, bundle)
+            return SynthesisResult(
+                answer=(
+                    f"⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết ({gen_err}). "
+                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
+                ),
+                citations=citations,
+                status=SufficiencyStatus.SUFFICIENT if citations else SufficiencyStatus.INSUFFICIENT,
+            )
 
         cited_ids = extract_cited_ids(answer_text)
         citations = build_citations_from_bundle(cited_ids, bundle)
@@ -479,11 +492,21 @@ class PromptAnswerSynthesizer:
                 break
             return out
 
-        async for chunk in self._stream_generate(system_msg, user_msg):
-            buf += chunk
-            emitted = _process_buffer(force=False)
-            if emitted:
-                yield {"type": "token", "delta": emitted}
+        try:
+            async for chunk in self._stream_generate(system_msg, user_msg):
+                buf += chunk
+                emitted = _process_buffer(force=False)
+                if emitted:
+                    yield {"type": "token", "delta": emitted}
+        except Exception as stream_err:
+            logger.error("synthesis_stream_generate_failed error=%s", stream_err)
+            yield {
+                "type": "token",
+                "delta": (
+                    f"\n\n⚠️ Lỗi kết nối mô hình AI ({stream_err}). "
+                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
+                ),
+            }
 
         # Flush any remaining buffer
         final_emitted = _process_buffer(force=True)

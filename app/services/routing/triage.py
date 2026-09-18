@@ -67,9 +67,7 @@ def _is_meeting_only_calendar(unaccented_cal: str) -> bool:
     title and deadline phrases like "trước 24 giờ" must not count as calendar
     evidence.
     """
-    cleaned = DOC_DURATION_PATTERN.sub(
-        "", DOC_TITLE_CALENDAR_NOISE_PATTERN.sub("", unaccented_cal)
-    )
+    cleaned = DOC_DURATION_PATTERN.sub("", DOC_TITLE_CALENDAR_NOISE_PATTERN.sub("", unaccented_cal))
     return not (
         CALENDAR_CORE.search(cleaned)
         or CALENDAR_INQUIRY.search(cleaned)
