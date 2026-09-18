@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +58,34 @@ async def submit_query(
         user_id,
         body.query,
         correlation_id=correlation_id,
+    )
+
+
+@router.post(
+    "/query/stream",
+    summary="Ask a natural-language question with SSE token streaming",
+)
+async def submit_query_stream(
+    body: QueryRequest,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    orchestrator: QueryOrchestrator = Depends(get_query_orchestrator),  # noqa: B008
+) -> StreamingResponse:
+    correlation_id = request.headers.get("X-Request-ID")
+    return StreamingResponse(
+        orchestrator.handle_stream(
+            session,
+            user_id,
+            body.query,
+            correlation_id=correlation_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

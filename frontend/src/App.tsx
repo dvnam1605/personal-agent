@@ -65,36 +65,137 @@ const AppContent: React.FC = () => {
       return exists ? prev : [...prev, queryText]
     })
 
+    const startTime = Date.now()
+    let firstTokenReceived = false
+
     try {
-      const result = await apiClient.submitQuery(queryText)
-
-      let pendingApproval = null
-      if (result.approval_id && result.status === 'needs_approval') {
-        try {
-          const pending = await apiClient.getPendingApprovals(result.run_id)
-          pendingApproval = pending.find((p) => p.id === result.approval_id) || null
-        } catch {
-          // If pending approval fetch fails, fallback to basic data proposal
-        }
-      }
-
-      setTurns((prev) =>
-        prev.map((turn) =>
-          turn.id === turnId
-            ? {
-                ...turn,
-                result,
-                pendingApproval,
+      await apiClient.submitQueryStream(queryText, {
+        onMetadata: (data) => {
+          setTurns((prev) =>
+            prev.map((turn) =>
+              turn.id === turnId
+                ? {
+                    ...turn,
+                    result: {
+                      run_id: data.run_id,
+                      status: data.status,
+                      message: '',
+                      route: data.route,
+                      data: {},
+                    },
+                  }
+                : turn
+            )
+          )
+        },
+        onToken: (delta) => {
+          if (!firstTokenReceived) {
+            firstTokenReceived = true
+            setIsLoading(false)
+          }
+          setTurns((prev) =>
+            prev.map((turn) => {
+              if (turn.id === turnId) {
+                const existing = turn.result?.message || ''
+                const ttft = turn.ttft ?? (Date.now() - startTime) / 1000
+                return {
+                  ...turn,
+                  ttft,
+                  result: {
+                    ...(turn.result || {
+                      run_id: 'pending',
+                      status: 'processing',
+                      route: { route_type: 'direct_specialist', confidence: 1, domains: [] },
+                      data: {},
+                    }),
+                    message: existing + delta,
+                  },
+                }
               }
-            : turn
-        )
-      )
+              return turn
+            })
+          )
+        },
+        onCitations: async (citeData) => {
+          let pendingApproval = null
+          if (citeData.approval_id) {
+            try {
+              const runId = turns.find((t) => t.id === turnId)?.result?.run_id
+              if (runId) {
+                const pending = await apiClient.getPendingApprovals(runId)
+                pendingApproval = pending.find((p) => p.id === citeData.approval_id) || null
+              }
+            } catch {
+              // ignore
+            }
+          }
 
-      if (result.status === 'needs_approval') {
-        showToast('Trợ lý cần bạn xác nhận hành động ghi bảo mật.', 'warning')
-      } else if (result.status === 'clarification_needed') {
-        showToast('Trợ lý cần bạn làm rõ thêm thông tin.', 'info')
-      }
+          setTurns((prev) =>
+            prev.map((turn) => {
+              if (turn.id === turnId && turn.result) {
+                const mergedData = {
+                  ...(turn.result.data || {}),
+                  ...(citeData.data || {}),
+                }
+                if (citeData.citations) {
+                  mergedData.citations = citeData.citations
+                }
+                if (citeData.sufficiency) {
+                  mergedData.sufficiency = citeData.sufficiency
+                }
+                return {
+                  ...turn,
+                  result: {
+                    ...turn.result,
+                    data: mergedData,
+                    approval_id: citeData.approval_id || turn.result.approval_id,
+                  },
+                  pendingApproval: pendingApproval || turn.pendingApproval,
+                }
+              }
+              return turn
+            })
+          )
+        },
+        onDone: (doneData) => {
+          setIsLoading(false)
+          const latency = (Date.now() - startTime) / 1000
+          setTurns((prev) =>
+            prev.map((turn) => {
+              if (turn.id === turnId && turn.result) {
+                return {
+                  ...turn,
+                  latency,
+                  result: {
+                    ...turn.result,
+                    status: doneData.status,
+                  },
+                }
+              }
+              return turn
+            })
+          )
+
+          if (doneData.status === 'needs_approval') {
+            showToast('Trợ lý cần bạn xác nhận hành động ghi bảo mật.', 'warning')
+          } else if (doneData.status === 'clarification_needed') {
+            showToast('Trợ lý cần bạn làm rõ thêm thông tin.', 'info')
+          }
+        },
+        onError: (err) => {
+          const errMsg = err?.message || 'Không thể xử lý yêu cầu.'
+          setTurns((prev) =>
+            prev.map((turn) =>
+              turn.id === turnId
+                ? {
+                    ...turn,
+                    error: errMsg,
+                  }
+                : turn
+            )
+          )
+        },
+      })
     } catch (err: any) {
       const errMsg = err?.message || 'Không thể xử lý yêu cầu.'
       // Set error solely on the chat turn — DO NOT emit duplicate toast error!

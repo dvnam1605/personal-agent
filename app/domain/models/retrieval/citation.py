@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class Citation(BaseModel):
     """One citation reference attached to a synthesised answer (P10-19)."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     evidence_id: str
     document_id: str
@@ -22,3 +22,9 @@ class Citation(BaseModel):
     page_end: int | None = None
     heading_path: list[str] = Field(default_factory=list)
     source_type: str = ""
+    chunk_id: str | None = None
+    text: str | None = None
+    page_number: int | None = None
+    section_title: str | None = None
+    score: float | None = None
+    source_uri: str | None = None

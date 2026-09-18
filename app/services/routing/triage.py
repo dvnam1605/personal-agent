@@ -16,6 +16,7 @@ import structlog
 
 from app.domain.enums import Complexity, Domain, RouteType
 from app.domain.models.routing.route import RouteDecision
+from app.services.routing.llm_classifier import classify_with_llm, needs_llm_fallback
 from app.services.routing.triage_rules import (
     CALENDAR_CORE,
     CALENDAR_INQUIRY,
@@ -26,8 +27,12 @@ from app.services.routing.triage_rules import (
     COMMUNICATION_PATTERN,
     DEFINITIONAL_INQUIRY_PATTERN,
     DESTRUCTIVE_COMMAND_PATTERN,
+    DOC_DURATION_PATTERN,
+    DOC_READ_PATTERN,
+    DOC_TITLE_CALENDAR_NOISE_PATTERN,
     FOLLOWUP_AFTER_MEETING,
     INVITATION_PATTERN,
+    NON_CALENDAR_KE_HOACH,
     NON_MEETING_HOP,
     ORDER_PHRASE,
     PROMPT_ATTACK_PATTERN,
@@ -53,6 +58,26 @@ _MULTI_STEP_CONJUNCTIONS = re.compile(
     r"\b(roi|sau do|va sau do|dong thoi|ket hop|lien ket|sau khi|and then|then)\b",
     re.IGNORECASE,
 )
+
+
+def _is_meeting_only_calendar(unaccented_cal: str) -> bool:
+    """True when no calendar signal survives after removing title noise/durations.
+
+    Used by the document-topic guard: "cuộc họp"/"kế hoạch" inside a document
+    title and deadline phrases like "trước 24 giờ" must not count as calendar
+    evidence.
+    """
+    cleaned = DOC_DURATION_PATTERN.sub(
+        "", DOC_TITLE_CALENDAR_NOISE_PATTERN.sub("", unaccented_cal)
+    )
+    return not (
+        CALENDAR_CORE.search(cleaned)
+        or CALENDAR_INQUIRY.search(cleaned)
+        or CALENDAR_RELATIVE.search(cleaned)
+        or CALENDAR_WEEKDAY.search(cleaned)
+        or CALENDAR_WEDNESDAY.search(cleaned)
+        or TIME_SIGNAL_TIGHT.search(cleaned)
+    )
 
 
 class FastTriage:
@@ -130,7 +155,7 @@ class FastTriage:
                 return decision
 
         # Calendar domain detection
-        unaccented_cal = NON_MEETING_HOP.sub("", unaccented)
+        unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented))
         has_calendar_core = bool(CALENDAR_CORE.search(unaccented_cal))
         has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented))
         has_cal_relative = bool(CALENDAR_RELATIVE.search(unaccented))
@@ -184,6 +209,20 @@ class FastTriage:
             has_research = has_doc_terms and has_effective_lookup
         else:
             has_research = has_doc_terms or has_lookup_verbs
+
+        # Document-topic guard: meeting nouns inside a document read/summarize
+        # request ("Tóm tắt văn bản Quy chế tổ chức cuộc họp...") name the TOPIC,
+        # not a calendar action. Without this, a pure knowledge request gains a
+        # spurious calendar domain and bounces to the supervisor stub on POST /query.
+        if (
+            has_calendar
+            and not has_comm
+            and has_doc_terms
+            and DOC_READ_PATTERN.search(unaccented)
+            and _is_meeting_only_calendar(unaccented_cal)
+        ):
+            has_calendar = False
+            has_research = has_doc_terms or has_effective_lookup
 
         # 4. Known Static Workflow trigger match (WF-01, WF-02, WF-05)
         # Compiled static workflows take precedence over uncompiled dynamic skills (§5.3 / P19).
@@ -367,6 +406,12 @@ class FastTriage:
                 complexity=Complexity.DIRECT,
                 reason_code="AMBIGUOUS_QUERY_CLARIFICATION",
             )
+
+        # 11. LLM router fallback: short classification when still ambiguous / low-confidence
+        if needs_llm_fallback(decision):
+            llm_decision = classify_with_llm(normalized)
+            if llm_decision is not None:
+                decision = llm_decision
 
         self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
         return decision

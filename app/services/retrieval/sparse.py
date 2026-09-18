@@ -12,6 +12,7 @@ import logging
 
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery, RetrievedChunk
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
+from app.services.retrieval.query_reformulation import reformulate_query
 from app.services.retrieval.sql import (
     ANCHOR_SELECT_COLUMNS,
     CANDIDATE_FILTERS_TEMPLATE,
@@ -52,8 +53,9 @@ class SparseRetrievalService:
                 query.document_ids if query.mode is not RetrievalMode.CORPUS_SEARCH else []
             ),
         )
+        _, fts_query = reformulate_query(query.search_query)
         sql = _SPARSE_SQL_TEMPLATE.format(
-            tsquery=fts_query_expression(query.search_query),
+            tsquery=fts_query_expression(fts_query),
             filters=filters,
             limit=query.top_k_sparse,
         )

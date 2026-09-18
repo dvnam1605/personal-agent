@@ -135,6 +135,99 @@ class ApiClient {
     })
   }
 
+  /* 1b. Natural Language Query with SSE Streaming */
+  async submitQueryStream(
+    query: string,
+    callbacks: {
+      onMetadata?: (data: { run_id: string; status: string; route: any }) => void
+      onToken?: (delta: string) => void
+      onCitations?: (data: { citations?: any[]; sufficiency?: string; data?: any; approval_id?: string }) => void
+      onError?: (err: Error) => void
+      onDone?: (data: { run_id: string; status: string }) => void
+    }
+  ): Promise<void> {
+    const payload: QueryRequest = { query }
+    const url = '/query/stream'
+    const headers = {
+      ...this.getHeaders(),
+      Accept: 'text/event-stream',
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          if (errorData?.error?.message) {
+            errorMessage = errorData.error.message
+          }
+        } catch {
+          // keep default
+        }
+        throw new Error(errorMessage)
+      }
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported by response.')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+      let currentEvent = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) {
+            currentEvent = ''
+            continue
+          }
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim()
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim()
+            try {
+              const data = JSON.parse(dataStr)
+              if (currentEvent === 'metadata' && callbacks.onMetadata) {
+                callbacks.onMetadata(data)
+              } else if (currentEvent === 'token' && callbacks.onToken) {
+                if (data.delta) callbacks.onToken(data.delta)
+              } else if (currentEvent === 'citations' && callbacks.onCitations) {
+                callbacks.onCitations(data)
+              } else if (currentEvent === 'done' && callbacks.onDone) {
+                callbacks.onDone(data)
+              } else if (currentEvent === 'error' && callbacks.onError) {
+                callbacks.onError(new Error(data.message || 'Lỗi streaming'))
+              }
+            } catch {
+              // ignore malformed JSON chunk
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (callbacks.onError) {
+        callbacks.onError(err)
+      } else {
+        throw err
+      }
+    }
+  }
+
   /* 2. Approvals (Human-in-the-Loop) */
   async getPendingApprovals(runId?: string): Promise<ApprovalRequestResponse[]> {
     const queryParam = runId ? `?run_id=${encodeURIComponent(runId)}` : ''

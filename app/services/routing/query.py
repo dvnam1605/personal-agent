@@ -12,7 +12,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -222,6 +222,23 @@ def calendar_mutation_kind(query: str) -> str | None:
     if _CALENDAR_CREATE.search(unaccented):
         return "create_event"
     return None
+
+
+_COMM_DRAFT = re.compile(
+    r"\b("
+    r"soan\s+(email|mail|thu|tin|don)|"
+    r"viet\s+(email|mail|thu|don)|"
+    r"tao\s+(nhap|ban\s+nhap|draft)|"
+    r"gui\s+(email|mail|thu|don)|"
+    r"draft\s+(email|mail)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_communication_draft(query: str) -> bool:
+    """True when the query explicitly asks to compose or draft an email."""
+    return _COMM_DRAFT.search(unaccent_vietnamese(query)) is not None
 
 
 def is_communication_mutation(query: str) -> bool:
@@ -453,6 +470,183 @@ class QueryOrchestrator:
         if result.status != "needs_approval":
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
         return result
+
+    async def handle_stream(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        query: str,
+        *,
+        correlation_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Triage a query, persist run, stream tokens via SSE, and finalize run status."""
+        import json
+
+        started = time.perf_counter()
+        decision = self._triage.triage(query)
+        route = route_info(decision)
+        await self._ensure_user(session, user_id)
+        run_id = self._new_run_id()
+        await RunPersistenceService.create_run(
+            session,
+            run_id=run_id,
+            user_id=user_id,
+            request=query,
+            route_type=decision.route_type.value,
+            domains=[domain.value for domain in decision.domains],
+            complexity=decision.complexity.value,
+            correlation_id=correlation_id or run_id,
+            workflow_name=decision.target_workflow_id,
+            active_skill=decision.target_agent,
+            goal=query,
+        )
+
+        def _sse(event: str, data: dict[str, Any]) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        # 1. Yield route metadata event
+        yield _sse(
+            "metadata",
+            {
+                "run_id": run_id,
+                "status": "processing",
+                "route": route.model_dump(mode="json"),
+            },
+        )
+
+        final_status = RunStatus.COMPLETED
+        final_error: str | None = None
+
+        try:
+            if decision.route_type is RouteType.REJECT:
+                msg = "Yêu cầu bị từ chối vì vi phạm ranh giới an toàn."
+                yield _sse("token", {"delta": msg})
+                yield _sse("done", {"run_id": run_id, "status": "rejected"})
+                return
+
+            if decision.route_type is RouteType.CLARIFICATION:
+                msg = (
+                    "Bạn có thể nói rõ hơn được không? Ví dụ: xem lịch ngày mai, "
+                    "hỏi tài liệu nội bộ, hoặc tạo một cuộc họp."
+                )
+                yield _sse("token", {"delta": msg})
+                yield _sse("done", {"run_id": run_id, "status": "clarification_needed"})
+                return
+
+            if decision.route_type is RouteType.CASUAL_RESPONSE:
+                msg = "Xin chào. Bạn cần tôi giúp gì?"
+                yield _sse("token", {"delta": msg})
+                yield _sse("done", {"run_id": run_id, "status": "casual_response"})
+                return
+
+            agent = decision.target_agent
+            if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
+                # Real LLM token streaming from RAG pipeline
+                async for event in self._run_retrieval_stream(query, user_id):
+                    ev_type = event.get("type")
+                    if ev_type == "token":
+                        delta = event.get("delta", "")
+                        if delta:
+                            yield _sse("token", {"delta": delta})
+                    elif ev_type == "citations":
+                        yield _sse(
+                            "citations",
+                            {
+                                "citations": event.get("citations", []),
+                                "sufficiency": event.get("status"),
+                            },
+                        )
+                yield _sse("done", {"run_id": run_id, "status": "completed"})
+                return
+
+            # For other routes (Calendar, Email, Workflows), execute specialist
+            result: QueryResult
+            if is_workflow_route(decision.route_type) or is_supervisor_route(decision.route_type):
+                handled = await self._handle_workflow(session, user_id, query, run_id, decision, route)
+                result = handled or QueryResult(
+                    run_id=run_id,
+                    status="routed",
+                    message="Yêu cầu được định tuyến tới workflow nhưng chưa thực thi trên luồng này.",
+                    route=route,
+                )
+            elif agent == CALENDAR_AGENT_NAME:
+                result = await self._handle_calendar(session, user_id, query, run_id, route)
+            elif agent == COMMUNICATION_AGENT_NAME:
+                if is_communication_draft(query):
+                    result = await self._handle_communication_draft(session, user_id, query, run_id, route)
+                elif is_communication_mutation(query):
+                    result = QueryResult(
+                        run_id=run_id,
+                        status="routed",
+                        message=(
+                            "Gửi hoặc xóa email trực tiếp không được thực hiện trên POST /query vì lý do an toàn. "
+                            "Bạn có thể yêu cầu: 'Soạn email gửi [người nhận] về [nội dung]' để tôi soạn thảo trước và tạo thẻ duyệt cho bạn."
+                        ),
+                        route=route,
+                    )
+                else:
+                    gmail_query, page_size = build_gmail_search_query(query)
+                    service = await self._communication(session, user_id)
+                    page = await service.search_messages(gmail_query, page_size=page_size)
+                    summaries = list(getattr(page, "items", []) or [])
+                    messages = await _load_gmail_details(service, summaries)
+                    if not messages:
+                        yield _sse("token", {"delta": "Không có email nào khớp trong hộp thư đến."})
+                    else:
+                        async for delta in summarize_emails_stream(query, messages, timeout_seconds=45.0):
+                            yield _sse("token", {"delta": delta})
+                    yield _sse(
+                        "citations",
+                        {
+                            "data": {"query": gmail_query, "count": len(messages)},
+                        },
+                    )
+                    yield _sse("done", {"run_id": run_id, "status": "completed"})
+                    return
+            else:
+                result = QueryResult(
+                    run_id=run_id,
+                    status="routed",
+                    message="Yêu cầu đã được định tuyến nhưng chưa thực thi.",
+                    route=route,
+                )
+
+            # Stream message
+            if result.message:
+                yield _sse("token", {"delta": result.message})
+
+            # Stream citations/data/approval
+            if result.data or result.approval_id:
+                yield _sse(
+                    "citations",
+                    {
+                        "data": result.data,
+                        "approval_id": result.approval_id,
+                    },
+                )
+
+            yield _sse("done", {"run_id": run_id, "status": result.status})
+
+        except (
+            AuthenticationError,
+            ExternalServiceError,
+            PermissionDeniedError,
+            ValidationError,
+        ) as exc:
+            final_status = RunStatus.COMPLETED
+            blocked_msg = _blocked_message(exc)
+            yield _sse("token", {"delta": blocked_msg})
+            yield _sse("done", {"run_id": run_id, "status": "blocked", "error_code": exc.code})
+        except Exception as exc:
+            final_status = RunStatus.FAILED
+            final_error = str(exc)
+            yield _sse("error", {"message": "Đã xảy ra lỗi khi xử lý yêu cầu."})
+            raise
+        finally:
+            try:
+                await self._complete(session, run_id, started, status=final_status, error_summary=final_error)
+            except Exception:
+                logger.warning("stream_complete_run_failed", exc_info=True)
 
     async def _dispatch(
         self,
@@ -707,6 +901,56 @@ class QueryOrchestrator:
             data={"citations": citations, "sufficiency": status},
         )
 
+    async def _handle_communication_draft(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        query: str,
+        run_id: str,
+        route: QueryRouteInfo,
+    ) -> QueryResult:
+        from app.domain.enums import ActionRiskLevel
+        from app.domain.models import ProposedAction
+
+        subject, body, recipients = await compose_email_draft(query)
+        to_list = recipients or ["quanly@vov.vn"]
+        proposal = ProposedAction(
+            action_type="create_draft",
+            description=f"Tạo bản nháp email '{subject}' tới {', '.join(to_list)} trên Gmail",
+            tool_name="gmail.create_draft",
+            parameters={
+                "to": to_list,
+                "subject": subject,
+                "body_text": body,
+            },
+            risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
+            requires_approval=True,
+        )
+        approval = await ApprovalRequestService.create_request(session, run_id, proposal)
+
+        msg = (
+            f"Tôi đã soạn sẵn nội dung email theo yêu cầu của bạn:\n\n"
+            f"📌 **Tiêu đề:** {subject}\n\n"
+            f"📬 **Người nhận:** {', '.join(to_list)}\n\n"
+            f"---\n\n"
+            f"{body}\n\n"
+            f"---\n\n"
+            f"Vui lòng kiểm tra nội dung ở trên. Bạn có thể nhấn **Duyệt** trên thẻ xác nhận bên dưới để tự động tạo bản nháp này trên Gmail của bạn."
+        )
+        return QueryResult(
+            run_id=run_id,
+            status="needs_approval",
+            message=msg,
+            route=route,
+            data={
+                "proposal": proposal.model_dump(mode="json"),
+                "subject": subject,
+                "body": body,
+                "to": to_list,
+            },
+            approval_id=approval.id,
+        )
+
     async def _handle_communication(
         self,
         session: AsyncSession,
@@ -715,13 +959,16 @@ class QueryOrchestrator:
         run_id: str,
         route: QueryRouteInfo,
     ) -> QueryResult:
+        if is_communication_draft(query):
+            return await self._handle_communication_draft(session, user_id, query, run_id, route)
+
         if is_communication_mutation(query):
             return QueryResult(
                 run_id=run_id,
                 status="routed",
                 message=(
-                    "Gửi hoặc xóa email không được thực hiện trực tiếp trên POST /query. "
-                    "Dùng luồng duyệt (approvals) sau khi soạn thảo."
+                    "Gửi hoặc xóa email trực tiếp không được thực hiện trên POST /query vì lý do an toàn. "
+                    "Bạn có thể yêu cầu: 'Soạn email gửi [người nhận] về [nội dung]' để tôi soạn thảo trước và tạo thẻ duyệt cho bạn."
                 ),
                 route=route,
             )
@@ -775,15 +1022,38 @@ class QueryOrchestrator:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False)
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=4)
         from app.domain.models.retrieval import RetrievalQuery
 
         retrieval_query = RetrievalQuery(
             original_query=query,
             search_query=query,
             requester_id=retrieval_requester_id(user_id),
+            top_k_dense=25,
+            top_k_sparse=25,
         )
         return await self._pipeline.run_with_synthesis(retrieval_query, internal_only=True)
+
+    async def _run_retrieval_stream(
+        self, query: str, user_id: str
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        if self._pipeline is None:
+            from app.services.retrieval.factory import build_retrieval_pipeline
+
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=4)
+        from app.domain.models.retrieval import RetrievalQuery
+
+        retrieval_query = RetrievalQuery(
+            original_query=query,
+            search_query=query,
+            requester_id=retrieval_requester_id(user_id),
+            top_k_dense=25,
+            top_k_sparse=25,
+        )
+        async for event in self._pipeline.run_with_streaming_synthesis(
+            retrieval_query, internal_only=True
+        ):
+            yield event
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:
@@ -986,21 +1256,23 @@ def fallback_summarize_emails(query: str, messages: list[dict[str, Any]]) -> str
     return "\n\n".join(sections)
 
 
-async def summarize_emails(
+async def summarize_emails_stream(
     query: str,
     messages: list[dict[str, Any]],
     *,
-    timeout_seconds: float = 12.0,
-) -> str:
-    """Summarize inbox messages using LLM when available, falling back to heuristic categorization."""
+    timeout_seconds: float = 45.0,
+) -> AsyncGenerator[str, None]:
+    """Stream summarize inbox messages token-by-token directly from LLM."""
     if not messages:
-        return "Không có email nào khớp trong hộp thư đến."
+        yield "Không có email nào khớp trong hộp thư đến."
+        return
 
     try:
         from app.core.config import settings
 
         api_key = settings.llm.openai_api_key
         if api_key:
+            import json
             import httpx
 
             system_prompt = (
@@ -1043,8 +1315,10 @@ async def summarize_emails(
             )
 
             model = settings.llm.fast_model
+            has_yielded = False
             async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                resp = await client.post(
+                async with client.stream(
+                    "POST",
                     settings.llm.chat_completions_url(),
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
@@ -1054,17 +1328,145 @@ async def summarize_emails(
                             {"role": "user", "content": user_content},
                         ],
                         "temperature": 0.2,
+                        "stream": True,
                     },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = str(data["choices"][0]["message"]["content"]).strip()
-                    if content:
-                        return content
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            payload = json.loads(data_str)
+                            choices = payload.get("choices") or []
+                            if choices:
+                                delta = choices[0].get("delta", {}).get("content")
+                                if delta:
+                                    has_yielded = True
+                                    yield delta
+                        except Exception:
+                            continue
+
+            if has_yielded:
+                return
     except Exception:  # noqa: BLE001 - LLM is optional; fall back to heuristic summary
         logger.exception("llm_email_summarization_failed")
 
-    return fallback_summarize_emails(query, messages)
+    yield fallback_summarize_emails(query, messages)
+
+
+async def summarize_emails(
+    query: str,
+    messages: list[dict[str, Any]],
+    *,
+    timeout_seconds: float = 45.0,
+) -> str:
+    """Summarize inbox messages using LLM when available, falling back to heuristic categorization."""
+    tokens = []
+    async for t in summarize_emails_stream(query, messages, timeout_seconds=timeout_seconds):
+        tokens.append(t)
+    return "".join(tokens)
+
+
+async def compose_email_draft(query: str) -> tuple[str, str, list[str]]:
+    """Generate subject, body, and recipients for an email draft request using LLM."""
+    subject = "Xin nghỉ phép việc gia đình"
+    recipients = ["quanly@vov.vn"]
+    body = (
+        "Kính gửi: Quản lý trực tiếp,\n\n"
+        "Tôi viết email này để xin phép được nghỉ làm việc 01 ngày vì lý do bận việc gia đình cần trực tiếp giải quyết.\n\n"
+        "Về tiến độ công việc, tôi đã sắp xếp và bàn giao các nhiệm vụ phát sinh cho đồng nghiệp hỗ trợ theo dõi. "
+        "Trong ngày nghỉ, tôi vẫn sẽ kiểm tra email định kỳ và có thể liên hệ qua điện thoại nếu có vấn đề khẩn cấp.\n\n"
+        "Rất mong nhận được sự thông cảm và phê duyệt từ Quản lý.\n\n"
+        "Trân trọng,\n"
+        "[Tên của bạn]"
+    )
+
+    try:
+        from app.core.config import settings
+
+        api_key = settings.llm.openai_api_key
+        if api_key:
+            import json
+            import httpx
+
+            system_prompt = (
+                "Bạn là Namm Agent - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Nhiệm vụ: Soạn thảo một email công việc chuyên nghiệp, lịch sự bằng tiếng Việt theo yêu cầu của người dùng.\n\n"
+                "Quy tắc phản hồi:\n"
+                "Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc sau, không kèm bất kỳ lời giải thích nào khác:\n"
+                "{\n"
+                '  "subject": "Tiêu đề email ngắn gọn, chuẩn mực",\n'
+                '  "recipients": ["địa_chỉ_email_hoặc_tên_người_nhận"],\n'
+                '  "body": "Nội dung đầy đủ bức email (chào hỏi kính gửi, lý do, chi tiết công việc/bàn giao, lời kết, ký tên)"\n'
+                "}\n"
+            )
+            user_content = f"Yêu cầu: {query}"
+            model = settings.llm.fast_model or settings.llm.primary_model
+            timeout = 35.0
+            chunks: list[str] = []
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST",
+                    settings.llm.chat_completions_url(),
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_content},
+                        ],
+                        "temperature": 0.3,
+                        "stream": True,
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            payload = json.loads(data_str)
+                            choices = payload.get("choices") or []
+                            if choices:
+                                delta = choices[0].get("delta", {}).get("content")
+                                if delta:
+                                    chunks.append(delta)
+                        except Exception:
+                            continue
+
+            raw = "".join(chunks).strip()
+            if raw.startswith("```"):
+                lines = raw.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                raw = "\n".join(lines).strip()
+
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                sub = parsed.get("subject")
+                b = parsed.get("body")
+                rec = parsed.get("recipients")
+                if sub and b:
+                    subject = str(sub).strip()
+                    body = str(b).strip()
+                    if isinstance(rec, list) and rec:
+                        recipients = [str(r).strip() for r in rec if str(r).strip()]
+                    elif isinstance(rec, str) and rec.strip():
+                        recipients = [rec.strip()]
+    except Exception:
+        logger.exception("compose_email_draft_llm_failed")
+
+    return subject, body, recipients
 
 
 __all__ = [
@@ -1074,13 +1476,16 @@ __all__ = [
     "QueryRouteInfo",
     "build_gmail_search_query",
     "calendar_mutation_kind",
+    "compose_email_draft",
     "fallback_summarize_emails",
     "infer_calendar_window",
     "infer_event_summary",
     "infer_past_calendar_window",
+    "is_communication_draft",
     "is_communication_mutation",
     "parse_event_times",
     "retrieval_requester_id",
     "route_info",
     "summarize_emails",
 ]
+

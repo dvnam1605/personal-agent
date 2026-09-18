@@ -146,6 +146,20 @@ def test_production_requires_api_key_user_binding() -> None:
         )
 
 
+def test_llm_mode_openai_uses_native_openai() -> None:
+    cfg = Settings(
+        environment=Environment.DEVELOPMENT,
+        llm_mode="openai",
+        openai_api_key="sk-test-openai",
+        kira_api_key="kira_should_not_win",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    assert cfg.llm.mode == LLMMode.OPENAI
+    assert cfg.llm.openai_api_key == "sk-test-openai"
+    assert cfg.llm.primary_model == "gpt-4o-mini"
+    assert cfg.llm.chat_completions_url() == "https://api.openai.com/v1/chat/completions"
+
+
 def test_llm_mode_kira_uses_kira_key_and_model() -> None:
     cfg = Settings(
         environment=Environment.DEVELOPMENT,

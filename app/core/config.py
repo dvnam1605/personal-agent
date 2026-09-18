@@ -47,16 +47,17 @@ class RedisSettings(BaseModel):
 
 
 class LLMMode(StrEnum):
+    OPENAI = "openai"
     KIRA = "kira"
     ROUTER = "router"
 
 
 class LLMProviderSettings(BaseModel):
-    mode: LLMMode = Field(default=LLMMode.KIRA, description="Active OpenAI-compatible backend")
+    mode: LLMMode = Field(default=LLMMode.OPENAI, description="Active OpenAI-compatible backend")
     openai_api_key: str | None = Field(default=None, description="OpenAI API Key")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API Key")
     gemini_api_key: str | None = Field(default=None, description="Google Gemini API Key")
-    primary_model: str = Field(default="gpt-4o", description="Primary reasoning model")
+    primary_model: str = Field(default="gpt-4o-mini", description="Primary reasoning model")
     fast_model: str = Field(default="gpt-4o-mini", description="Fast classifier model")
     temperature: float = Field(default=0.0, description="Default sampling temperature")
     base_url: str | None = Field(
@@ -71,7 +72,7 @@ class LLMProviderSettings(BaseModel):
     )
     router_api_key: str | None = Field(default=None, description="Local router API key")
     router_model: str = Field(
-        default="ag/gemini-3.7-flash-low", description="Local router model id"
+        default="cu/default", description="Local router model id"
     )
     router_base_url: str = Field(
         default="http://localhost:20128/v1",
@@ -95,23 +96,28 @@ class LLMProviderSettings(BaseModel):
     @model_validator(mode="after")
     def apply_selected_mode(self) -> "LLMProviderSettings":
         """Copy the active mode's key/model/base_url onto the fields call sites already read."""
+        if self.mode == LLMMode.OPENAI:
+            # Native OpenAI: keep base_url None (or custom if explicitly configured)
+            return self
         if self.mode == LLMMode.ROUTER:
             key = (self.router_api_key or "").strip() or None
-            model = (self.router_model or "").strip() or "ag/gemini-3.7-flash-low"
+            model = (self.router_model or "").strip() or "cu/default"
             base = (self.router_base_url or "").strip() or "http://localhost:20128/v1"
             self.openai_api_key = key
             self.primary_model = model
             self.fast_model = model
             self.base_url = base
             return self
-        kira_key = (self.kira_api_key or "").strip() or None
-        if kira_key:
-            self.openai_api_key = kira_key
-            model = (self.kira_model or "").strip() or "glm-5.3-flash-free"
-            self.primary_model = model
-            self.fast_model = model
-            kira_base = (self.kira_base_url or "").strip() or "https://kiraai.vn/api/v1"
-            self.base_url = kira_base
+        if self.mode == LLMMode.KIRA:
+            kira_key = (self.kira_api_key or "").strip() or None
+            if kira_key:
+                self.openai_api_key = kira_key
+                model = (self.kira_model or "").strip() or "glm-5.3-flash-free"
+                self.primary_model = model
+                self.fast_model = model
+                kira_base = (self.kira_base_url or "").strip() or "https://kiraai.vn/api/v1"
+                self.base_url = kira_base
+            return self
         return self
 
     def chat_completions_url(self) -> str:
@@ -246,6 +252,13 @@ class EmbeddingSettings(BaseModel):
         description=(
             "Optional local HuggingFace snapshot directory; when set, the offline "
             "model at this path is used instead of a hosted provider."
+        ),
+    )
+    device: str | None = Field(
+        default=None,
+        description=(
+            "Torch device for local embedding inference: 'cuda', 'cpu', or null "
+            "to auto-select (cuda when available)."
         ),
     )
 
@@ -595,7 +608,7 @@ class Settings(BaseSettings):
             llm_updates["router_model"] = router_model
         if router_base:
             llm_updates["router_base_url"] = router_base
-        if mode in {LLMMode.KIRA, LLMMode.ROUTER}:
+        if mode in {LLMMode.OPENAI, LLMMode.KIRA, LLMMode.ROUTER}:
             llm_updates["mode"] = mode
         if llm_updates:
             merged_llm = {
@@ -629,6 +642,8 @@ class Settings(BaseSettings):
                 "sqlite",
                 ":memory:",
                 "@postgres:",  # docker compose service DNS
+                "@postgres",
+                "assistant_postgres",
                 "host.docker.internal",
             )
             if not any(marker in db_url for marker in local_markers):

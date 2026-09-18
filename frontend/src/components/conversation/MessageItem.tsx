@@ -33,6 +33,8 @@ export interface ChatTurn {
   result?: QueryResult
   pendingApproval?: ApprovalRequestResponse | null
   error?: string
+  ttft?: number
+  latency?: number
 }
 
 interface MessageItemProps {
@@ -105,6 +107,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               {domain.icon}
               <span>{domain.label}</span>
             </div>
+            {turn.ttft != null && (
+              <span className="assistant-ttft-badge" title="Thời gian nhận token đầu tiên (TTFT)">
+                ⚡ TTFT: {turn.ttft.toFixed(2)}s
+              </span>
+            )}
           </div>
 
           {/* Assistant Text Message Body */}

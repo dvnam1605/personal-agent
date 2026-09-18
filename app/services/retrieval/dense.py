@@ -13,6 +13,7 @@ import logging
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery, RetrievedChunk
 from app.services.ingestion.embedding import LocalEmbeddingService
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
+from app.services.retrieval.query_reformulation import reformulate_query
 from app.services.retrieval.sql import (
     ANCHOR_SELECT_COLUMNS,
     CANDIDATE_FILTERS_TEMPLATE,
@@ -50,7 +51,8 @@ class DenseRetrievalService:
         self._provider: RowProvider = provider or SqlAlchemyRowProvider()
 
     async def retrieve(self, query: RetrievalQuery) -> list[RetrievedChunk]:
-        vector = await self._embedding.embed_query(query.search_query)
+        cleaned_query, _ = reformulate_query(query.search_query)
+        vector = await self._embedding.embed_query(cleaned_query)
         filters = CANDIDATE_FILTERS_TEMPLATE.format(
             level=SEARCHABLE_LEVEL,
             owner_scope=owner_scope_sql(query.requester_id),

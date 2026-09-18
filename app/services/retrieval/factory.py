@@ -52,15 +52,38 @@ def resolve_embedding_snapshot_path(settings_obj: Settings | None = None) -> str
     """Return the local embedding snapshot directory.
 
     ``EMBEDDING__LOCAL_PATH`` wins when set; otherwise resolve the cached
-    HuggingFace snapshot for ``EMBEDDING__MODEL`` offline
-    (``local_files_only=True`` per ADR-0012).
+    HuggingFace snapshot for ``EMBEDDING__MODEL``. Falls back to downloading
+    from HuggingFace Hub if local cache is missing.
     """
+    from app.core.config import resolve_project_path
+
     cfg = (settings_obj or global_settings).embedding
     if cfg.local_path:
-        return cfg.local_path
+        return str(resolve_project_path(cfg.local_path))
     from huggingface_hub import snapshot_download
 
-    return snapshot_download(cfg.model, local_files_only=True)
+    try:
+        return snapshot_download(cfg.model, local_files_only=True)
+    except Exception as exc:
+        logger.warning(
+            "Local embedding snapshot for '%s' not found. Falling back to HuggingFace Hub download: %s",
+            cfg.model,
+            exc,
+        )
+        return snapshot_download(cfg.model, local_files_only=False)
+
+
+_shared_embedding_service: LocalEmbeddingService | None = None
+
+
+def get_shared_embedding_service(
+    settings_obj: Settings | None = None,
+) -> LocalEmbeddingService:
+    """Return the process-wide shared LocalEmbeddingService singleton."""
+    global _shared_embedding_service
+    if _shared_embedding_service is None:
+        _shared_embedding_service = build_embedding_service(settings_obj)
+    return _shared_embedding_service
 
 
 def build_embedding_service(
@@ -73,7 +96,8 @@ def build_embedding_service(
     resolved = settings_obj or global_settings
     cfg = resolved.embedding
     service_backend = backend or TransformersPoolingBackend(
-        resolve_embedding_snapshot_path(resolved)
+        resolve_embedding_snapshot_path(resolved),
+        device=(cfg.device.strip() if cfg.device else None),
     )
     return LocalEmbeddingService(
         backend=service_backend,
@@ -127,7 +151,7 @@ def build_retrieval_pipeline(
     if hybrid_service is not None:
         hybrid = hybrid_service
     else:
-        embedding = embedding_service or build_embedding_service(resolved)
+        embedding = embedding_service or get_shared_embedding_service(resolved)
         hybrid = HybridRetrievalService(
             dense_service=DenseRetrievalService(
                 embedding_service=embedding, provider=shared_provider

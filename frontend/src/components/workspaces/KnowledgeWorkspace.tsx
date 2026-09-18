@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { RAGCitation } from '../../types/api'
+import { MarkdownContent } from '../ui/MarkdownContent'
 import './Workspaces.css'
 
 interface KnowledgeWorkspaceProps {
@@ -22,7 +23,7 @@ interface InternalDoc {
   id: string
   code: string
   title: string
-  category: 'policy' | 'finance' | 'hr' | 'security'
+  category: 'policy' | 'finance' | 'hr' | 'tech'
   categoryLabel: string
   effectiveDate: string
   authority: string
@@ -31,97 +32,472 @@ interface InternalDoc {
   samplePrompt: string
 }
 
+/**
+ * Danh mục văn bản bám sát kho RAG thật: 37 quyết định/chỉ thị đã số hóa trong
+ * `data/QuyetDinh` (số hiệu, ngày ký, số trang OCR đều lấy từ file nguồn).
+ * Mọi thẻ đều có văn bản đối ứng trong DB nên nút "Tra cứu"/"Tóm tắt" luôn
+ * truy xuất được evidence thay vì trả lời "không có văn bản".
+ */
 const INTERNAL_DOCUMENTS: InternalDoc[] = [
+  // ---- Quy chế & Chỉ đạo (policy) ----
   {
     id: 'doc-01',
-    code: 'QC-05/MEET',
-    title: 'Quy chế tổ chức cuộc họp và nguyên tắc gửi tài liệu trước 24 giờ',
+    code: '1838/CT-TNVN',
+    title: 'Chỉ thị tổ chức Diễn đàn trực tuyến về EVFTA',
     category: 'policy',
-    categoryLabel: 'Quy chế điều hành',
-    effectiveDate: '15/01/2026',
-    authority: 'Văn phòng Điều hành',
+    categoryLabel: 'Quy chế & Chỉ đạo',
+    effectiveDate: '23/07/2020',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Quy định bắt buộc đối với tất cả cuộc họp nội bộ: người chủ trì phải chuẩn bị hồ sơ (dossier), gửi chương trình nghị sự (agenda) trước tối thiểu 24 giờ và ghi nhận biên bản.',
-    pages: 12,
-    samplePrompt: 'Tài liệu nội bộ nói gì về quy chế họp và yêu cầu gửi agenda trước 24 giờ?',
+      'Chỉ đạo tổ chức Diễn đàn trực tuyến “EVFTA – con đường đặc lợi, con đường gian nan” phối hợp Liên hiệp các Hội Doanh nghiệp VN tại châu Âu.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Chỉ thị 1838 về tổ chức Diễn đàn trực tuyến EVFTA',
   },
   {
     id: 'doc-02',
-    code: 'QC-01/HR',
-    title: 'Quy chế làm việc, quản lý thời gian và chấm công trực tuyến',
-    category: 'hr',
-    categoryLabel: 'Nhân sự & Phúc lợi',
-    effectiveDate: '01/01/2026',
-    authority: 'Khối Nhân sự',
+    code: '1367/QĐ-TNVN',
+    title: 'Quy chế tổ chức Liên hoan Phát thanh toàn quốc',
+    category: 'policy',
+    categoryLabel: 'Quy chế & Chỉ đạo',
+    effectiveDate: '10/06/2024',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Quy định khung giờ làm việc linh hoạt, chế độ làm việc từ xa (hybrid work), quy trình đăng ký nghỉ phép và thủ tục xin phê duyệt vắng mặt.',
-    pages: 24,
-    samplePrompt: 'Quy chế làm việc và chấm công quy định như thế nào về làm việc từ xa?',
+      'Ban hành Quy chế tổ chức Liên hoan Phát thanh toàn quốc (kèm chế độ nhuận bút, kinh phí giải báo chí).',
+    pages: 10,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 1367 về Quy chế tổ chức Liên hoan Phát thanh toàn quốc',
   },
   {
     id: 'doc-03',
-    code: 'QT-08/FIN',
-    title: 'Quy trình phê duyệt chi phí, thanh toán và tạm ứng công tác phí',
-    category: 'finance',
-    categoryLabel: 'Tài chính & Chi phí',
-    effectiveDate: '01/02/2026',
-    authority: 'Phòng Tài chính - Kế toán',
+    code: '29/QĐ-TNVN',
+    title: 'Quy chế làm việc của Đài Tiếng nói Việt Nam',
+    category: 'policy',
+    categoryLabel: 'Quy chế & Chỉ đạo',
+    effectiveDate: '21/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Hạn mức chi tiêu công tác theo cấp bậc, quy chuẩn hóa đơn chứng từ điện tử hợp lệ, và quy trình phê duyệt điện tử 2 cấp qua hệ thống.',
-    pages: 18,
-    samplePrompt: 'Quy trình phê duyệt chi phí và hạn mức tạm ứng công tác phí là bao nhiêu?',
+      'Quy chế làm việc: kỷ luật phát ngôn, bảo mật, tổ chức hội nghị – cuộc họp, trách nhiệm đơn vị và cá nhân.',
+    pages: 24,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 29 về Quy chế làm việc của Đài Tiếng nói Việt Nam',
   },
   {
     id: 'doc-04',
-    code: 'CS-03/SEC',
-    title: 'Chính sách bảo mật dữ liệu, an toàn thông tin và quyền riêng tư',
-    category: 'security',
-    categoryLabel: 'Bảo mật & Kỹ thuật',
-    effectiveDate: '10/01/2026',
-    authority: 'Bộ phận Bảo mật & Pháp chế',
+    code: '56/QĐ-TNVN',
+    title: 'Quy chế công tác văn thư và lưu trữ',
+    category: 'policy',
+    categoryLabel: 'Quy chế & Chỉ đạo',
+    effectiveDate: '23/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Nguyên tắc phân loại tài liệu mật, quy định sử dụng tài khoản Google Workspace công ty, chính sách xác thực hai lớp (2FA) và bảo vệ dữ liệu khách hàng.',
-    pages: 30,
-    samplePrompt: 'Chính sách bảo mật dữ liệu quy định thế nào về thông tin mật và thiết bị cá nhân?',
+      'Quản lý văn bản đi/đến, con dấu, chữ ký số; bảo vệ bí mật nhà nước và an toàn thông tin mạng hệ thống QLVB.',
+    pages: 57,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 56 về Quy chế công tác văn thư và lưu trữ',
   },
   {
     id: 'doc-05',
-    code: 'QĐ-587/TNVN',
-    title: 'Quyết định 587 ban hành Quy chế chấm điểm và tiêu chuẩn chuyên môn',
+    code: '587/QĐ-TNVN',
+    title: 'Quy chế chấm điểm Liên hoan Phát thanh toàn quốc XVII',
     category: 'policy',
-    categoryLabel: 'Quy chế điều hành',
+    categoryLabel: 'Quy chế & Chỉ đạo',
     effectiveDate: '16/03/2026',
-    authority: 'Hội đồng Điều hành',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Quy định cơ cấu thang điểm đánh giá, điều kiện tham dự, phân loại thể loại chuyên môn và trách nhiệm của Hội đồng Giám khảo.',
-    pages: 16,
-    samplePrompt: 'Nội dung chính và điều kiện tham dự trong Quyết định 587 là gì?',
+      'Quy chế chấm điểm các tác phẩm dự Liên hoan Phát thanh toàn quốc lần XVII – Quảng Ninh 2026.',
+    pages: 7,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 587 về Quy chế chấm điểm Liên hoan Phát thanh',
   },
+  // ---- Tài chính & Dự toán (finance) ----
   {
     id: 'doc-06',
-    code: 'QC-11/HR',
-    title: 'Quy chế đánh giá hiệu suất (KPI), thi đua khen thưởng và phúc lợi',
-    category: 'hr',
-    categoryLabel: 'Nhân sự & Phúc lợi',
-    effectiveDate: '01/03/2026',
-    authority: 'Ban Nhân sự & Công đoàn',
-    summary:
-      'Chu kỳ đánh giá hiệu suất định kỳ 6 tháng, cơ chế thưởng theo thành tích dự án vượt trội, và các gói bảo hiểm sức khỏe nâng cao cho nhân sự chính thức.',
-    pages: 22,
-    samplePrompt: 'Quy chế thi đua khen thưởng và đánh giá hiệu suất KPI cuối năm như thế nào?',
+    code: '427/QĐ-TNVN',
+    title: 'Dự toán hoạt động thông tin khoa học năm 2026',
+    category: 'finance',
+    categoryLabel: 'Tài chính & Dự toán',
+    effectiveDate: '25/02/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Phê duyệt dự toán hoạt động thông tin khoa học Đài TNVN năm 2026.',
+    pages: 4,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 427 về dự toán hoạt động thông tin khoa học năm 2026',
   },
   {
     id: 'doc-07',
-    code: 'HD-02/AI',
-    title: 'Hướng dẫn vận hành Trợ lý Cá nhân AI & quy chuẩn phê duyệt Safe Write',
-    category: 'security',
-    categoryLabel: 'Bảo mật & Kỹ thuật',
-    effectiveDate: '20/02/2026',
-    authority: 'Nhóm Kỹ thuật AI',
+    code: '4332/QĐ-TNVN',
+    title: 'Chương trình tiết kiệm, chống lãng phí năm 2026',
+    category: 'finance',
+    categoryLabel: 'Tài chính & Dự toán',
+    effectiveDate: '31/12/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
     summary:
-      'Quy chuẩn phân quyền Human-in-the-loop: Mọi hành động gửi email hay sửa lịch đều bắt buộc tạo Approval Token và chờ người dùng xác nhận rõ ràng.',
-    pages: 14,
-    samplePrompt: 'Quy chuẩn phê duyệt hành động ghi Safe Write của Trợ lý AI hoạt động thế nào?',
+      'Chương trình tiết kiệm, chống lãng phí: quản lý, sử dụng lao động và thời gian lao động.',
+    pages: 9,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 4332 về Chương trình tiết kiệm, chống lãng phí năm 2026',
+  },
+  // ---- Nhân sự & Đào tạo (hr) ----
+  {
+    id: 'doc-08',
+    code: '80/QĐ-TNVN',
+    title: 'Chấm dứt hợp đồng làm việc đối với viên chức',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '28/04/2026',
+    authority: 'Đảng ủy Đài TNVN',
+    summary: 'Quyết định chấm dứt hợp đồng làm việc đối với viên chức.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 80 về chấm dứt hợp đồng làm việc viên chức',
+  },
+  {
+    id: 'doc-09',
+    code: '109/QĐ-TNVN',
+    title: 'Tuyển dụng viên chức',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '05/05/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Quyết định tuyển dụng viên chức Đài TNVN.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 109 về tuyển dụng viên chức',
+  },
+  {
+    id: 'doc-10',
+    code: '23/QĐ-TNVN',
+    title: 'Chức năng, nhiệm vụ, tổ chức bộ máy Trung tâm R&D',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '21/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Quy định vị trí, chức năng tham mưu NCKH, chuyển đổi số và an toàn thông tin mạng của Trung tâm R&D.',
+    pages: 4,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 23 về chức năng, nhiệm vụ Trung tâm R&D',
+  },
+  {
+    id: 'doc-11',
+    code: '808/QĐ-TNVN',
+    title: 'Điều động cán bộ cấp phòng Trung tâm Kỹ thuật',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '30/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Điều động ông Lưu Phú giữ chức Trưởng phòng Phòng Quản lý kỹ thuật, Trung tâm Kỹ thuật.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 808 về điều động ông Lưu Phú giữ Trưởng phòng Quản lý kỹ thuật',
+  },
+  {
+    id: 'doc-12',
+    code: '862/QĐ-TNVN',
+    title: 'Chế độ thâm niên vượt khung năm 2026',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '31/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Thực hiện chế độ thâm niên vượt khung năm 2026 đối với viên chức.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 862 về chế độ thâm niên vượt khung năm 2026',
+  },
+  {
+    id: 'doc-13',
+    code: '906/QĐ-TNVN',
+    title: 'Thôi giữ chức vụ quản lý Trung tâm Kỹ thuật',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '31/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Ông Nguyễn Hoàng Mạnh thôi giữ chức Phó Trưởng phòng Quản lý kỹ thuật, hưởng phụ cấp đến 31/01/2029.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 906 về việc ông Nguyễn Hoàng Mạnh thôi giữ chức vụ',
+  },
+  {
+    id: 'doc-14',
+    code: '937/QĐ-TNVN',
+    title: 'Tuyển dụng viên chức',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '31/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Quyết định tuyển dụng viên chức Đài TNVN.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 937 về tuyển dụng viên chức',
+  },
+  {
+    id: 'doc-15',
+    code: '627/QĐ-TNVN',
+    title: 'Bổ nhiệm lại cán bộ',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '18/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Quyết định bổ nhiệm lại cán bộ Đài TNVN.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 627 về bổ nhiệm lại cán bộ',
+  },
+  {
+    id: 'doc-16',
+    code: '664/QĐ-TNVN',
+    title: 'Tặng quà nữ viên chức, người lao động 8/3/2026',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '20/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tặng quà cho nữ viên chức, người lao động nhân ngày Quốc tế Phụ nữ 8/3/2026.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 664 về tặng quà ngày 8/3 cho nữ viên chức',
+  },
+  {
+    id: 'doc-17',
+    code: '683/QĐ-TNVN',
+    title: 'Thành lập Tổ Kỹ thuật phục vụ Liên hoan Phát thanh',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '24/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Thành lập Tổ Kỹ thuật phục vụ Liên hoan Phát thanh toàn quốc lần XVII – Quảng Ninh 2026.',
+    pages: 3,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 683 về thành lập Tổ Kỹ thuật phục vụ Liên hoan Phát thanh',
+  },
+  {
+    id: 'doc-18',
+    code: '1139/QĐ-TNVN',
+    title: 'Danh mục mã định danh điện tử các đơn vị',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '16/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Ban hành danh mục mã định danh điện tử (A71) phục vụ kết nối, chia sẻ dữ liệu.',
+    pages: 6,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 1139 về mã định danh điện tử các đơn vị',
+  },
+  {
+    id: 'doc-19',
+    code: '899/QĐ-TNVN',
+    title: 'Gia hạn chế độ phu nhân đối với viên chức',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '31/03/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Gia hạn hưởng chế độ phu nhân đối với viên chức công tác nhiệm kỳ.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 899 về gia hạn chế độ phu nhân viên chức',
+  },
+  {
+    id: 'doc-20',
+    code: '87/QĐ-TNVN',
+    title: 'Tập huấn “Ứng dụng AI trong tòa soạn”',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '29/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tổ chức khóa tập huấn nghiệp vụ ứng dụng AI trong tòa soạn.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 87 về khóa tập huấn ứng dụng AI trong tòa soạn',
+  },
+  {
+    id: 'doc-21',
+    code: '50/QĐ-TNVN',
+    title: 'Cử viên chức học lớp bồi dưỡng ngạch chuyên viên 2026',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '23/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Cử viên chức tham gia lớp bồi dưỡng ngạch chuyên viên và chuyên viên chính năm 2026.',
+    pages: 3,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 50 về cử viên chức học lớp bồi dưỡng ngạch chuyên viên',
+  },
+  {
+    id: 'doc-22',
+    code: 'QĐ-CVC/TNVN',
+    title: 'Cử viên chức học lớp bồi dưỡng ngạch chuyên viên 2026 (văn bản CVC)',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '25/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Cử viên chức tham gia lớp bồi dưỡng ngạch chuyên viên và chuyên viên chính năm 2026.',
+    pages: 3,
+    samplePrompt: 'Tóm tắt nội dung văn bản về cử viên chức tham gia lớp bồi dưỡng ngạch chuyên viên chính',
+  },
+  {
+    id: 'doc-23',
+    code: '445/QĐ-TNVN',
+    title: 'Công nhận Chiến sĩ thi đua cơ sở năm 2025',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '27/02/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Công nhận danh hiệu Chiến sĩ thi đua cơ sở năm 2025.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 445 về công nhận Chiến sĩ thi đua cơ sở năm 2025',
+  },
+  {
+    id: 'doc-24',
+    code: '90/QĐ-TNVN',
+    title: 'Tặng Bằng khen của Tổng Giám đốc',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '16/01/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tặng Bằng khen của Tổng Giám đốc theo Quy chế Thi đua, khen thưởng.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 90 về tặng Bằng khen của Tổng Giám đốc',
+  },
+  {
+    id: 'doc-25',
+    code: '91/QĐ-TNVN',
+    title: 'Tặng Bằng khen của Tổng Giám đốc',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '16/01/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tặng Bằng khen của Tổng Giám đốc theo Quy chế Thi đua, khen thưởng.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 91 về tặng Bằng khen của Tổng Giám đốc',
+  },
+  {
+    id: 'doc-26',
+    code: '93/QĐ-TNVN',
+    title: 'Tặng Bằng khen của Tổng Giám đốc',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '16/01/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tặng Bằng khen của Tổng Giám đốc theo Quy chế Thi đua, khen thưởng.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 93 về tặng Bằng khen của Tổng Giám đốc',
+  },
+  {
+    id: 'doc-27',
+    code: '1119/QĐ-TNVN',
+    title: 'Tặng Bằng khen của Tổng Giám đốc',
+    category: 'hr',
+    categoryLabel: 'Nhân sự & Đào tạo',
+    effectiveDate: '13/04/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Tặng Bằng khen của Tổng Giám đốc theo Quy chế Thi đua, khen thưởng.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 1119 về tặng Bằng khen của Tổng Giám đốc',
+  },
+  // ---- Khoa học & Phát sóng (tech) ----
+  {
+    id: 'doc-28',
+    code: '1792/QĐ-TNVN',
+    title: 'Thành lập Hội đồng tư vấn xác định đề tài NCKH',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '02/06/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Thành lập Hội đồng tư vấn xác định đề tài nghiên cứu khoa học tại Đài TNVN.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 1792 về Hội đồng tư vấn xác định đề tài nghiên cứu khoa học',
+  },
+  {
+    id: 'doc-29',
+    code: '3698/QĐ-TNVN',
+    title: 'Nghiệm thu đề tài xác thực đa nhân tố nền tảng số',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '07/11/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Thành lập Hội đồng nghiệm thu đề tài “Giải pháp xác thực đa nhân tố cho nền tảng số” (R&D, Bùi Thế Anh).',
+    pages: 3,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 3698 về nghiệm thu đề tài xác thực đa nhân tố',
+  },
+  {
+    id: 'doc-30',
+    code: '3631/QĐ-TNVN',
+    title: 'Giao nhiệm vụ NCKH 2025: trường quay trực tuyến qua IP',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '31/12/2024',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Giao đề tài xây dựng giải pháp trường quay trực tuyến qua IP cho đào tạo.',
+    pages: 3,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 3631 về đề tài trường quay trực tuyến qua IP',
+  },
+  {
+    id: 'doc-31',
+    code: '4348/QĐ-TNVN',
+    title: 'Điều chỉnh dự toán và giao nhiệm vụ NCKH 2026',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '31/12/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Điều chỉnh dự toán và giao nhiệm vụ nghiên cứu khoa học năm 2026.',
+    pages: 12,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 4348 về điều chỉnh dự toán và giao nhiệm vụ nghiên cứu khoa học 2026',
+  },
+  {
+    id: 'doc-32',
+    code: '4357/QĐ-TNVN',
+    title: 'Giao nhiệm vụ NCKH 2026: Thương hiệu quốc gia qua phát thanh',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '31/12/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Giao đề tài “Phát triển Thương hiệu quốc gia qua phát thanh và truyền thông số” (R&D, Nguyễn Vũ Duy).',
+    pages: 4,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 4357 về đề tài phát triển Thương hiệu quốc gia qua phát thanh',
+  },
+  {
+    id: 'doc-33',
+    code: '4351/QĐ-TNVN',
+    title: 'Giao nhiệm vụ NCKH 2026: trợ lý ảo cung cấp thông tin',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '31/12/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary:
+      'Giao đề tài “trợ lý ảo hỗ trợ cung cấp thông tin” (R&D, Cao Hòa Bình, kinh phí 350 triệu đồng).',
+    pages: 4,
+    samplePrompt: 'Tóm tắt nội dung quyết định giao đề tài trợ lý ảo cung cấp thông tin của Trung tâm R&D',
+  },
+  {
+    id: 'doc-34',
+    code: '1758/QĐ-TNVN',
+    title: 'Định mức dự toán kinh phí nhiệm vụ KH&CN',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '28/05/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Quy định định mức xây dựng dự toán kinh phí nhiệm vụ khoa học và công nghệ dùng ngân sách.',
+    pages: 9,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 1758 về định mức dự toán kinh phí nhiệm vụ khoa học công nghệ',
+  },
+  {
+    id: 'doc-35',
+    code: '3398/QĐ-TNVN',
+    title: 'Kế hoạch Ngày Chuyển đổi số quốc gia',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '09/10/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Triển khai Quyết định 505/QĐ-TTg về Ngày Chuyển đổi số quốc gia tại Đài TNVN.',
+    pages: 2,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 3398 về kế hoạch Ngày Chuyển đổi số quốc gia',
+  },
+  {
+    id: 'doc-36',
+    code: '2244/QĐ-TNVN',
+    title: 'Điều chỉnh phương án phát sóng FM Cột 5 Hạ Long',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '09/07/2025',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Điều chỉnh phương án phát sóng FM tại trạm Cột 5 Hạ Long (Trung tâm Truyền thông Quảng Ninh).',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 2244 về phát sóng FM tại trạm Cột 5 Hạ Long',
+  },
+  {
+    id: 'doc-37',
+    code: '72/QĐ-TNVN',
+    title: 'Phát sóng FM kênh VOV Giao thông Duyên Hải',
+    category: 'tech',
+    categoryLabel: 'Khoa học & Phát sóng',
+    effectiveDate: '15/01/2026',
+    authority: 'Tổng Giám đốc Đài TNVN',
+    summary: 'Phát sóng FM kênh VOV Giao thông Duyên Hải tại trạm phát sóng Cột 5 Hạ Long.',
+    pages: 1,
+    samplePrompt: 'Tóm tắt nội dung Quyết định 72 về phát sóng FM kênh VOV Giao thông Duyên Hải',
   },
 ]
 
@@ -175,11 +551,11 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
   }, [selectedCategory, searchQuery])
 
   const sampleQueries = [
-    'Quy chế họp và báo trước 24h',
-    'Quy trình phê duyệt chi phí & tạm ứng',
-    'Chính sách bảo mật dữ liệu',
-    'Chế độ làm việc hybrid và nghỉ phép',
-    'Quy chế thi đua khen thưởng',
+    'Quy chế làm việc của Đài TNVN',
+    'Chương trình tiết kiệm, chống lãng phí 2026',
+    'Quy chế văn thư, lưu trữ và ký số',
+    'Tuyển dụng viên chức',
+    'Danh hiệu Chiến sĩ thi đua cơ sở',
   ]
 
   const isShowingSearchResults = Boolean(answer || citations.length > 0)
@@ -279,7 +655,7 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
                   <h4>Tổng hợp nội dung từ quy chế & tài liệu nội bộ</h4>
                 </div>
                 <div className="answer-body">
-                  <p>{answer}</p>
+                  <MarkdownContent content={answer} />
                 </div>
               </div>
             )}
@@ -337,9 +713,9 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
             {/* Catalog Header & Category Tabs */}
             <div className="catalog-header-bar">
               <div className="catalog-title-wrap">
-                <h3 className="catalog-heading">Danh mục Văn bản & Quy chế Doanh nghiệp</h3>
+                <h3 className="catalog-heading">Danh mục Quyết định & Văn bản Đài TNVN</h3>
                 <p className="catalog-subheading">
-                  Tổng hợp các chính sách, quy chế và quy trình điều hành nội bộ đã được số hóa trên hệ thống RAG.
+                  37 quyết định, chỉ thị đã được số hóa và ingest vào kho RAG — mọi thẻ đều tra cứu được.
                 </p>
               </div>
 
@@ -355,25 +731,25 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
                   className={`category-pill ${selectedCategory === 'policy' ? 'category-pill--active' : ''}`}
                   onClick={() => setSelectedCategory('policy')}
                 >
-                  Quy chế điều hành
+                  Quy chế & Chỉ đạo
                 </button>
                 <button
                   className={`category-pill ${selectedCategory === 'finance' ? 'category-pill--active' : ''}`}
                   onClick={() => setSelectedCategory('finance')}
                 >
-                  Tài chính & Chi phí
+                  Tài chính & Dự toán
                 </button>
                 <button
                   className={`category-pill ${selectedCategory === 'hr' ? 'category-pill--active' : ''}`}
                   onClick={() => setSelectedCategory('hr')}
                 >
-                  Nhân sự & Phúc lợi
+                  Nhân sự & Đào tạo
                 </button>
                 <button
-                  className={`category-pill ${selectedCategory === 'security' ? 'category-pill--active' : ''}`}
-                  onClick={() => setSelectedCategory('security')}
+                  className={`category-pill ${selectedCategory === 'tech' ? 'category-pill--active' : ''}`}
+                  onClick={() => setSelectedCategory('tech')}
                 >
-                  Bảo mật & Kỹ thuật
+                  Khoa học & Phát sóng
                 </button>
               </div>
             </div>

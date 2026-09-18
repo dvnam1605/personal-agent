@@ -8,6 +8,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import or_, select, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.sanitization import (
@@ -57,6 +58,37 @@ STATE_SNAPSHOT_ALLOWLIST = {
 
 UNRESOLVED_OUTBOX_STATUSES = ("pending", "processing", "failed")
 DEFAULT_CLAIM_TIMEOUT_SECONDS = 300
+
+_CONNECTION_CLOSED_MARKERS = (
+    "connection was closed",
+    "connection is closed",
+    "connection does not exist",
+)
+
+
+def is_db_connection_closed_error(exc: BaseException) -> bool:
+    """Detect a DB connection torn down mid-query (e.g. Postgres stopping on shutdown).
+
+    Shutdown races surface as asyncpg ``ConnectionDoesNotExistError`` (sometimes
+    wrapped in the driver's adapted ``Error``) rather than a SQLAlchemy
+    ``DBAPIError`` with ``connection_invalidated`` set, so walk the whole cause
+    chain. These are benign: the batch rolls back and rows stay queued for the
+    next boot, so workers can log them quietly instead of as errors.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, DBAPIError) and current.connection_invalidated:
+            return True
+        module = type(current).__module__ or ""
+        name = type(current).__name__
+        if "asyncpg" in module and ("Connection" in name or "Interface" in name):
+            return True
+        if any(marker in str(current).lower() for marker in _CONNECTION_CLOSED_MARKERS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _sanitize_column(value: str | None, max_len: int) -> str | None:
@@ -329,9 +361,12 @@ class AuditOutboxWorker:
                 )
                 await session.commit()
                 return delivered
-            except Exception:  # noqa: BLE001 - worker iteration isolation
+            except Exception as exc:  # noqa: BLE001 - worker iteration isolation
                 await session.rollback()
-                logger.exception("audit_outbox_worker_iteration_failed")
+                if is_db_connection_closed_error(exc):
+                    logger.warning("audit_outbox_worker_db_closed")
+                else:
+                    logger.exception("audit_outbox_worker_iteration_failed")
                 return 0
 
     async def run(self, stop_event: asyncio.Event) -> None:

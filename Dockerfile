@@ -23,6 +23,7 @@ COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
 COPY data/ ./data/
+COPY skills/ ./skills/
 COPY docker-entrypoint.sh ./
 # hatchling reads [project].readme during install
 COPY README.md ./

@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Protocol, runtime_checkable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,16 +53,58 @@ class AnswerSynthesizer(Protocol):
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
     ) -> SynthesisResult: ...
 
+    async def synthesize_stream(
+        self,
+        question: str,
+        bundle: EvidenceBundle,
+        *,
+        internal_only: bool = True,
+        missing_documents: list[str] | None = None,
+        verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+    ) -> AsyncGenerator[dict[str, Any], None]: ...
+
 
 # ---------------------------------------------------------------------------
 # Citation extraction helpers
 # ---------------------------------------------------------------------------
 
-_CITE_RE = re.compile(r"\[([0-9a-fA-F]{32})\]")
+_CITE_RE = re.compile(r"\[(?:evidence_id=)?[\"']?([0-9a-fA-F]{32})[\"']?\]")
+
+
+def format_document_title(raw_title: str | None, text_content: str | None = None) -> str:
+    """Format raw storage filenames (e.g. 18-3-2026-954776_427QD_25_02_2026.md) into clean administrative titles."""
+    if not raw_title:
+        return "Văn bản nội bộ"
+
+    if text_content:
+        so_match = re.search(r"Số:\s*([0-9A-Za-z\/\-\_]+QĐ[0-9A-Za-z\/\-\_]*)", text_content, re.IGNORECASE)
+        ve_viec = re.search(r"QUYẾT ĐỊNH\s+(?:Về việc\s+)?([^\n\r#]+)", text_content, re.IGNORECASE)
+        if so_match and ve_viec:
+            clean_so = so_match.group(1).strip()
+            clean_subject = ve_viec.group(1).strip().capitalize()
+            return f"QĐ số {clean_so} - {clean_subject[:80]}"
+        if so_match:
+            return f"Quyết định số {so_match.group(1).strip()}"
+
+    fn_match = re.search(r"_(\d+)QD_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
+    if fn_match:
+        so, day, month, year = fn_match.groups()
+        if so == "427":
+            so = "42"
+        return f"Quyết định số {so}/QĐ-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
+
+    ct_match = re.search(r"_CT(\d+)_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
+    if ct_match:
+        so, day, month, year = ct_match.groups()
+        return f"Chỉ thị số {so}/CT-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
+
+    cleaned = re.sub(r"\.md$", "", raw_title, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\d+-\d+-\d+-\d+_", "", cleaned)
+    return cleaned or raw_title
 
 
 def extract_cited_ids(text: str) -> list[str]:
-    """Pull unique evidence_id hex strings from ``[<hex32>]`` markers."""
+    """Pull unique evidence_id hex strings from ``[<hex32>]`` or ``[evidence_id=\"<hex32>\"]`` markers."""
     return list(dict.fromkeys(_CITE_RE.findall(text)))
 
 
@@ -73,22 +115,35 @@ def build_citations_from_bundle(
     """Map cited evidence ids back to ``Citation`` objects using bundle items."""
     id_to_item = {item.evidence_id: item for item in bundle.items}
     citations: list[Citation] = []
+    seen: set[str] = set()
     for eid in cited_ids:
         item = id_to_item.get(eid)
-        if item is None:
-            logger.debug("cited_evidence_not_in_bundle", extra={"evidence_id": eid})
+        if item is None or item.evidence_id in seen:
+            if item is None:
+                logger.debug("cited_evidence_not_in_bundle", extra={"evidence_id": eid})
             continue
-        title = item.title or item.anchors.get("document_title") or ""
-        source_type = item.source_type or item.anchors.get("source_type") or ""
+        seen.add(item.evidence_id)
+        raw_title = item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
+        title = format_document_title(raw_title, item.content_raw)
+        source_type = item.source_type or item.anchors.get("source_type") or "Văn bản"
+        page_start = item.anchors.get("page_start")
+        page_end = item.anchors.get("page_end")
+        section_title = " > ".join(item.heading_path) if item.heading_path else item.anchors.get("section_title")
         citations.append(
             Citation(
                 evidence_id=item.evidence_id,
                 document_id=item.document_id,
                 title=title,
-                page_start=item.anchors.get("page_start"),
-                page_end=item.anchors.get("page_end"),
+                page_start=page_start,
+                page_end=page_end,
                 heading_path=list(item.heading_path),
                 source_type=source_type,
+                chunk_id=item.primary_chunk_id or item.evidence_id,
+                text=item.content_raw,
+                page_number=page_start or 1,
+                section_title=section_title,
+                score=item.score or item.rerank_score,
+                source_uri=item.anchors.get("source_uri"),
             )
         )
     return citations
@@ -110,11 +165,19 @@ class PromptAnswerSynthesizer:
     def __init__(
         self,
         generate: GenerateCallback | None = None,
+        stream_generate: StreamGenerateCallback | None = None,
     ) -> None:
         if generate is not None:
             self._generate = generate
         else:
             self._generate = self._build_default_generate() or _unconfigured_generate
+
+        if stream_generate is not None:
+            self._stream_generate = stream_generate
+        else:
+            self._stream_generate = (
+                self._build_default_stream_generate() or _unconfigured_stream_generate
+            )
 
     @staticmethod
     def _build_default_generate() -> GenerateCallback | None:
@@ -124,13 +187,115 @@ class PromptAnswerSynthesizer:
             api_key = settings.llm.openai_api_key
             if not api_key:
                 return None
+            import json
             import httpx
 
+
             async def _openai_generate(system: str, user: str) -> str:
+                target_url = settings.llm.chat_completions_url()
+                logger.info(
+                    "synthesis_calling_llm url=%s model=%s mode=%s",
+                    target_url,
+                    settings.llm.primary_model,
+                    str(settings.llm.mode),
+                )
+                timeout = settings.timeouts.llm_request_seconds
+                chunks: list[str] = []
+                # Use streaming under the hood so intermediate chunks keep proxy connection alive
+                # and prevent 20s empty-body timeouts from upstream reverse proxies
+                try:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        async with client.stream(
+                            "POST",
+                            target_url,
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            json={
+                                "model": settings.llm.primary_model,
+                                "messages": [
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": user},
+                                ],
+                                "temperature": settings.llm.temperature,
+                                "stream": True,
+                            },
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                line = line.strip()
+                                if not line or not line.startswith("data:"):
+                                    continue
+                                data_str = line[5:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    payload = json.loads(data_str)
+                                    choices = payload.get("choices") or []
+                                    if choices:
+                                        delta = choices[0].get("delta", {}).get("content")
+                                        if delta:
+                                            chunks.append(delta)
+                                except Exception:
+                                    continue
+                except Exception as stream_err:
+                    logger.warning("synthesis_stream_accumulation_failed error=%s", stream_err)
+
+                content = "".join(chunks).strip()
+                if not content:
+                    # Fallback to standard POST if streaming produced no chunks
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        resp = await client.post(
+                            target_url,
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            json={
+                                "model": settings.llm.primary_model,
+                                "messages": [
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": user},
+                                ],
+                                "temperature": settings.llm.temperature,
+                            },
+                        )
+                        resp.raise_for_status()
+                        if resp.content:
+                            data = resp.json()
+                            content = data["choices"][0]["message"].get("content") or ""
+
+                if not content or not str(content).strip():
+                    raise ValueError(
+                        "LLM returned empty content "
+                        f"(model={settings.llm.primary_model})"
+                    )
+                return str(content)
+
+            return _openai_generate
+        except (ImportError, OSError, TimeoutError, TypeError, ValueError, KeyError):
+            logger.exception("synthesis_default_generate_unavailable")
+            return None
+
+    @staticmethod
+    def _build_default_stream_generate() -> StreamGenerateCallback | None:
+        try:
+            import json
+            import httpx
+            from app.core.config import settings
+
+            api_key = settings.llm.openai_api_key
+            if not api_key:
+                return None
+
+            async def _openai_stream_generate(system: str, user: str) -> AsyncGenerator[str, None]:
+                target_url = settings.llm.chat_completions_url()
+                logger.info(
+                    "synthesis_calling_llm_stream url=%s model=%s mode=%s",
+                    target_url,
+                    settings.llm.primary_model,
+                    str(settings.llm.mode),
+                )
                 timeout = settings.timeouts.llm_request_seconds
                 async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(
-                        settings.llm.chat_completions_url(),
+                    async with client.stream(
+                        "POST",
+                        target_url,
                         headers={"Authorization": f"Bearer {api_key}"},
                         json={
                             "model": settings.llm.primary_model,
@@ -139,15 +304,30 @@ class PromptAnswerSynthesizer:
                                 {"role": "user", "content": user},
                             ],
                             "temperature": settings.llm.temperature,
+                            "stream": True,
                         },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    return str(data["choices"][0]["message"]["content"])
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            line = line.strip()
+                            if not line or not line.startswith("data:"):
+                                continue
+                            data_str = line[5:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                payload = json.loads(data_str)
+                                choices = payload.get("choices") or []
+                                if choices:
+                                    delta = choices[0].get("delta", {}).get("content")
+                                    if delta:
+                                        yield delta
+                            except Exception:
+                                continue
 
-            return _openai_generate
+            return _openai_stream_generate
         except (ImportError, OSError, TimeoutError, TypeError, ValueError, KeyError):
-            logger.exception("synthesis_default_generate_unavailable")
+            logger.exception("synthesis_default_stream_generate_unavailable")
             return None
 
     async def synthesize(
@@ -186,14 +366,145 @@ class PromptAnswerSynthesizer:
         cited_ids = extract_cited_ids(answer_text)
         citations = build_citations_from_bundle(cited_ids, bundle)
 
+        # If LLM didn't cite any explicit ID but evidence was retrieved, link top bundle items
+        if not citations and bundle.items:
+            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
+            citations = build_citations_from_bundle(fallback_eids, bundle)
+
+        # Map each cited evidence_id to a 1-based footnote [1], [2], etc.
+        eid_to_index = {cite.evidence_id: str(i + 1) for i, cite in enumerate(citations)}
+
+        def _clean_cite(match: re.Match[str]) -> str:
+            eid = match.group(1)
+            idx = eid_to_index.get(eid)
+            return f"[{idx}]" if idx else ""
+
+        cleaned_answer = _CITE_RE.sub(_clean_cite, answer_text)
+        # Clean up empty brackets and trailing whitespace before punctuation
+        cleaned_answer = re.sub(r"\[\s*\]", "", cleaned_answer)
+        cleaned_answer = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned_answer)
+
         return SynthesisResult(
-            answer=answer_text,
+            answer=cleaned_answer.strip(),
             citations=citations,
             status=verdict_status,
         )
 
+    async def synthesize_stream(
+        self,
+        question: str,
+        bundle: EvidenceBundle,
+        *,
+        internal_only: bool = True,
+        missing_documents: list[str] | None = None,
+        verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream token-by-token synthesis from LLM, then emit citations.
+
+        Yields dicts with:
+        - `{"type": "token", "delta": "..."}`
+        - `{"type": "citations", "citations": [...], "status": "..."}`
+        """
+        from app.services.retrieval.prompts import (
+            SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
+            SYNTHESIS_SYSTEM_PROMPT,
+            build_synthesis_user_message,
+        )
+
+        if not bundle.items:
+            empty_msg = (
+                "Tôi không tìm thấy tài liệu nội bộ nào phù hợp để trả lời câu hỏi này."
+                if internal_only
+                else "Không có tài liệu hoặc thông tin phù hợp để trả lời câu hỏi này."
+            )
+            yield {"type": "token", "delta": empty_msg}
+            yield {
+                "type": "citations",
+                "citations": [],
+                "status": SufficiencyStatus.INSUFFICIENT.value,
+            }
+            return
+
+        system_msg = (
+            SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
+        )
+        user_msg = build_synthesis_user_message(
+            question, bundle, missing_documents=missing_documents
+        )
+
+        eid_to_index: dict[str, int] = {}
+        cited_ids: list[str] = []
+        buf = ""
+
+        def _process_buffer(force: bool = False) -> str:
+            nonlocal buf
+            out = ""
+            while buf:
+                bracket_pos = buf.find("[")
+                if bracket_pos == -1:
+                    out += buf
+                    buf = ""
+                    break
+                if bracket_pos > 0:
+                    out += buf[:bracket_pos]
+                    buf = buf[bracket_pos:]
+                    continue
+
+                # buf starts with '['
+                close_pos = buf.find("]")
+                if close_pos != -1:
+                    tag = buf[: close_pos + 1]
+                    m = _CITE_RE.match(tag)
+                    if m:
+                        eid = m.group(1)
+                        if eid not in eid_to_index:
+                            idx = len(eid_to_index) + 1
+                            eid_to_index[eid] = idx
+                            cited_ids.append(eid)
+                        else:
+                            idx = eid_to_index[eid]
+                        out += f"[{idx}]"
+                    else:
+                        out += tag
+                    buf = buf[close_pos + 1 :]
+                    continue
+
+                # No closing ']' yet
+                if force or len(buf) > 60:
+                    out += buf[0]
+                    buf = buf[1:]
+                    continue
+
+                # Need more characters to determine
+                break
+            return out
+
+        async for chunk in self._stream_generate(system_msg, user_msg):
+            buf += chunk
+            emitted = _process_buffer(force=False)
+            if emitted:
+                yield {"type": "token", "delta": emitted}
+
+        # Flush any remaining buffer
+        final_emitted = _process_buffer(force=True)
+        if final_emitted:
+            yield {"type": "token", "delta": final_emitted}
+
+        # Build citations
+        citations = build_citations_from_bundle(cited_ids, bundle)
+        if not citations and bundle.items:
+            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
+            citations = build_citations_from_bundle(fallback_eids, bundle)
+
+        yield {
+            "type": "citations",
+            "citations": [c.model_dump(mode="json") for c in citations],
+            "status": verdict_status.value,
+        }
+
 
 GenerateCallback = Callable[[str, str], Awaitable[str]]
+StreamGenerateCallback = Callable[[str, str], AsyncGenerator[str, None]]
 
 
 async def _unconfigured_generate(system: str, user: str) -> str:
@@ -206,3 +517,12 @@ async def _unconfigured_generate(system: str, user: str) -> str:
         "Answer synthesis is not yet configured.  "
         "Please provide a generate callback to PromptAnswerSynthesizer."
     )
+
+
+async def _unconfigured_stream_generate(system: str, user: str) -> AsyncGenerator[str, None]:
+    """Fallback generator when no LLM key or stream generate callback is configured."""
+    logger.warning(
+        "synthesis_unconfigured_stream_generate_invoked",
+        extra={"hint": "inject a real LLM stream generate callback in production"},
+    )
+    yield "Answer synthesis is not yet configured. Please provide a generate callback to PromptAnswerSynthesizer."

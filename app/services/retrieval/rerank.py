@@ -127,7 +127,11 @@ class ViRankerReranker:
         settings_to_use = reranker_settings or app_settings.reranker
         model_name = settings_to_use.model or "namdp-ptit/ViRanker"
         local_dir = settings_to_use.local_path
-        path_or_name = str(local_dir) if local_dir else model_name
+        if local_dir:
+            from app.core.config import resolve_project_path
+            path_or_name = str(resolve_project_path(local_dir))
+        else:
+            path_or_name = model_name
         kwargs: dict[str, Any] = {
             "model_path_or_name": path_or_name,
             "model_name": model_name,

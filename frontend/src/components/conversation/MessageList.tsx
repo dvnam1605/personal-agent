@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import {
   Sparkles,
   Calendar,
@@ -11,6 +11,50 @@ import type { ChatTurn } from './MessageItem'
 import { MessageItem } from './MessageItem'
 import type { GmailMessage, RAGCitation } from '../../types/api'
 import './MessageList.css'
+
+const LOADING_STEPS = [
+  "Đang nhận diện ý định & phân luồng chuyên gia...",
+  "Đang tra cứu dữ liệu kết hợp (Dense Vector & BM25)...",
+  "Đang rà soát & xếp hạng trích dẫn tài liệu...",
+  "Đang đối chiếu dữ liệu & kiểm tra ngữ cảnh...",
+  "Đang tổng hợp và hoàn thiện câu trả lời...",
+]
+
+const LoadingIndicator: React.FC = () => {
+  const [stepIndex, setStepIndex] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const startTime = Date.now()
+    const timer = setInterval(() => {
+      setElapsed((Date.now() - startTime) / 1000)
+    }, 100)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const stepTimer = setInterval(() => {
+      setStepIndex((prev) => (prev + 1) % LOADING_STEPS.length)
+    }, 2000)
+    return () => clearInterval(stepTimer)
+  }, [])
+
+  return (
+    <div className="assistant-loading-indicator animate-fade-in">
+      <div className="loading-spinner-wrap">
+        <Loader2 size={16} className="spin-anim" />
+      </div>
+      <span className="loading-text" key={stepIndex}>
+        {LOADING_STEPS[stepIndex]}
+      </span>
+      <span className="loading-timer-badge">
+        ⏱️ {elapsed.toFixed(1)}s
+      </span>
+    </div>
+  )
+}
+
+
 
 interface MessageListProps {
   turns: ChatTurn[]
@@ -117,14 +161,8 @@ export const MessageList: React.FC<MessageListProps> = ({
         />
       ))}
 
-      {isLoading && (
-        <div className="assistant-loading-indicator animate-fade-in">
-          <div className="loading-spinner-wrap">
-            <Loader2 size={15} className="spin-anim" />
-          </div>
-          <span className="loading-text">Đang tổng hợp thông tin & xử lý yêu cầu...</span>
-        </div>
-      )}
+      {isLoading && <LoadingIndicator />}
+
 
       <div ref={bottomRef} />
     </div>

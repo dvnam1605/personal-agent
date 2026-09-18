@@ -9,12 +9,22 @@ interface MarkdownContentProps {
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
   // Helper to render inline formatting: bold, italic, code, links
   const renderInline = (text: string): React.ReactNode[] => {
-    // Regex for inline tokens: `code`, **bold**, *italic*, [label](url)
-    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g
+    // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] citation badge
+    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+\])/g
     const parts = text.split(tokenRegex)
 
     return parts.map((part, index) => {
       if (!part) return null
+
+      // Citation badge: [1], [2]
+      if (/^\[\d+\]$/.test(part)) {
+        const num = part.slice(1, -1)
+        return (
+          <span key={index} className="md-citation-badge" title={`Nguồn dẫn chứng [${num}]`}>
+            {num}
+          </span>
+        )
+      }
 
       // Inline code: `code`
       if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {

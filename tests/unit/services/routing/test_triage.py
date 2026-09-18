@@ -352,3 +352,53 @@ def test_triage_latency_under_10ms() -> None:
 
     assert avg_ms < 5.0, f"Average triage latency too high: {avg_ms:.3f}ms"
     assert p95_ms < 10.0, f"P95 triage latency exceeded 10ms: {p95_ms:.3f}ms"
+
+
+def test_doc_summarization_with_meeting_title_stays_knowledge() -> None:
+    """Regression: 'cuộc họp' inside a document title is the TOPIC, not a calendar action.
+
+    The knowledge "Tóm tắt" button sends e.g. "Tìm trong tài liệu nội bộ: Tóm tắt
+    nội dung văn bản Quy chế tổ chức cuộc họp..." — without the guard this gained
+    a spurious calendar domain and bounced to the supervisor stub on POST /query.
+    """
+    triage = FastTriage()
+    decision = triage.triage(
+        "Tìm trong tài liệu nội bộ: Tóm tắt nội dung văn bản Quy chế tổ chức cuộc họp "
+        "và nguyên tắc gửi tài liệu trước 24 giờ"
+    )
+
+    assert decision.route_type == RouteType.DIRECT_SPECIALIST
+    assert decision.target_agent == "KnowledgeResearchAgent"
+    assert decision.domains == [Domain.KNOWLEDGE_RESEARCH]
+
+
+def test_doc_summarization_without_lookup_verb_stays_knowledge() -> None:
+    """The guard does not depend on lookup verbs like 'tìm' being present."""
+    triage = FastTriage()
+    decision = triage.triage("Tóm tắt nội dung văn bản Quy chế tổ chức cuộc họp")
+
+    assert decision.route_type == RouteType.DIRECT_SPECIALIST
+    assert decision.target_agent == "KnowledgeResearchAgent"
+    assert decision.domains == [Domain.KNOWLEDGE_RESEARCH]
+
+
+def test_doc_summarization_with_ke_hoach_title_stays_knowledge() -> None:
+    """'Kế hoạch' inside a document title is the TOPIC, not a calendar action."""
+    triage = FastTriage()
+    decision = triage.triage(
+        "Tóm tắt nội dung Quyết định 3398 về kế hoạch Ngày Chuyển đổi số quốc gia"
+    )
+
+    assert decision.route_type == RouteType.DIRECT_SPECIALIST
+    assert decision.target_agent == "KnowledgeResearchAgent"
+    assert decision.domains == [Domain.KNOWLEDGE_RESEARCH]
+
+
+def test_real_calendar_action_with_docs_stays_supervisor() -> None:
+    """Genuine cross-domain requests (docs + schedule action) still need the supervisor."""
+    triage = FastTriage()
+    decision = triage.triage("Tìm quy chế và xếp lịch họp")
+
+    assert decision.route_type == RouteType.SUPERVISOR_DAG
+    assert Domain.CALENDAR in decision.domains
+    assert Domain.KNOWLEDGE_RESEARCH in decision.domains

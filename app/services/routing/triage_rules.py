@@ -66,6 +66,12 @@ NON_MEETING_HOP = re.compile(
     re.IGNORECASE,
 )
 
+NON_CALENDAR_KE_HOACH = re.compile(
+    r"\b(ban\s+ke\s+hoach|ke\s+hoach\s+(tai\s+chinh|ngan\s+sach|thu\s+chi|tiet\s+kiem|khoa\s+hoc|cong\s+tac|phat\s+trien|nam))\b",
+    re.IGNORECASE,
+)
+
+
 CALENDAR_CORE = re.compile(
     r"\b(lich|calendar|hop|cuoc hop|meeting|su kien|event|cuoc hen|lich trinh|ke hoach|lich lam viec)\b",
     re.IGNORECASE,
@@ -137,17 +143,62 @@ INVITATION_PATTERN = re.compile(
 # 4. Knowledge / Research Domain Patterns
 # ----------------------------------------------------------------------
 
+
 RESEARCH_DOC_PATTERN = re.compile(
-    r"\b(tai lieu|quy dinh|quyet dinh|chinh sach|huong dan|nghien cuu|bao cao|van ban|noi bo|quy che|bieu mau|dieu khoan)\b",
+    r"\b("
+    r"tai lieu|quy dinh|quyet dinh|chinh sach|huong dan|nghien cuu|bao cao|van ban|noi bo|quy che|bieu mau|dieu khoan|"
+    r"du toan|dua toan|kinh phi|ngan sach|chi phi|thu chi|tiet kiem|chong lang phi|"
+    r"khen thuong|bang khen|thi dua|danh hieu|chien si thi dua|khen|"
+    r"dao tao|boi duong|tap huan|nghiep vu|"
+    r"khoa hoc|cong nghe|de tai|de an|thong tin khoa hoc|"
+    r"nhan su|tien luong|luong|phu cap|bo nhiem|thoi viec|nghi huu|hop dong lao dong|"
+    r"phat song|chuong trinh phat thanh|khung phat song|"
+    r"chi thi|cong van|thong bao|ke hoach|chuong trinh|"
+    r"dai tieng noi|tieng noi viet nam|vov|tong giam doc|pho tong giam doc|trung tam r&d|ban ke hoach|tai chinh|"
+    r"qd-tnvn|qd\s*/\s*tnvn|qd\s*\d+"
+    r")\b",
     re.IGNORECASE,
 )
 
 RESEARCH_LOOKUP_PATTERN = re.compile(
-    r"\b(tim kiem|tim hieu|tra cuu|tra van)\b",
+    r"\b("
+    r"tim kiem|tim hieu|tra cuu|tra van|"
+    r"la bao nhieu|bao nhieu|bao nhieu tien|het bao nhieu|"
+    r"nhu the nao|nhu nao|the nao|ra sao|"
+    r"ai|nhung ai|ai duoc|don vi nao|tap the nao|ca nhan nao|phong nao|ban nao|"
+    r"cho biet|cho toi biet|hoi ve|thong tin ve|noi ve|noi dung ve|quy dinh ve"
+    r")\b",
     re.IGNORECASE,
 )
 
 TIM_PREFIX_PATTERN = re.compile(r"\btim\s+", re.IGNORECASE)
+
+# ----------------------------------------------------------------------
+# 7. Document-topic guard (meeting nouns inside document titles)
+# ----------------------------------------------------------------------
+
+# Calendar noise that frequently appears inside a DOCUMENT TITLE or topic
+# ("Quy chế tổ chức cuộc họp...", "Kế hoạch chuyển đổi số...") rather than as
+# a calendar action.
+DOC_TITLE_CALENDAR_NOISE_PATTERN = re.compile(
+    r"\b(cuoc hop|hop|meeting|ke hoach)\b", re.IGNORECASE
+)
+
+# Read/summarize verbs: the request is about document CONTENT.
+DOC_READ_PATTERN = re.compile(
+    r"\b("
+    r"tim|tra cuu|tra van|tim kiem|tim hieu|"
+    r"tom tat|tom luoc|tom gon|tong hop|trich yeu|trich dan|briefing|"
+    r"noi dung|doc"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Duration phrases ("trước 24 giờ/ngày") are deadlines, not calendar time signals.
+DOC_DURATION_PATTERN = re.compile(
+    r"\b(truoc|sau|trong|toi da|it nhat|toi thieu)\s+\d+\s*(gio|h|phut|giay|ngay|tuan|thang|nam)\b",
+    re.IGNORECASE,
+)
 
 # ----------------------------------------------------------------------
 # 5. Casual / Chit-chat Patterns
@@ -174,6 +225,6 @@ STAGE2_MESSAGING = re.compile(
 )
 
 STAGE2_LOOKUP = re.compile(
-    r"\b(hoi ve|thong tin ve|tim hieu ve|dinh nghia|huong dan su dung)\b",
+    r"\b(hoi ve|thong tin ve|tim hieu ve|dinh nghia|huong dan su dung|la bao nhieu|nhu the nao|nhu nao|ai duoc)\b",
     re.IGNORECASE,
 )

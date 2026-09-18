@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Protocol, runtime_checkable
+from collections.abc import AsyncGenerator
+from typing import Any, Protocol, runtime_checkable
 
 from app.domain.models.retrieval import (
     EvidenceBundle,
@@ -163,6 +164,59 @@ class RetrievalPipeline:
             missing_documents=missing_docs if missing_docs else None,
             verdict_status=verdict.status,
         )
+
+    async def run_with_streaming_synthesis(
+        self,
+        query: RetrievalQuery,
+        *,
+        internal_only: bool = True,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Full path with real-time token streaming: retrieval → sufficiency → streaming synthesis.
+
+        Yields dicts with:
+        - `{"type": "token", "delta": "..."}`
+        - `{"type": "citations", "citations": [...], "status": "..."}`
+        """
+        bundle, verdict, compare_result = await self.run_with_sufficiency(query)
+
+        if not bundle.items:
+            empty_msg = (
+                "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này."
+                if internal_only
+                else "Không có tài liệu phù hợp để trả lời câu hỏi này."
+            )
+            yield {"type": "token", "delta": empty_msg}
+            yield {
+                "type": "citations",
+                "citations": [],
+                "status": SufficiencyStatus.INSUFFICIENT.value,
+            }
+            return
+
+        if verdict.status is SufficiencyStatus.INSUFFICIENT and internal_only:
+            yield {
+                "type": "token",
+                "delta": "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này.",
+            }
+            yield {
+                "type": "citations",
+                "citations": [],
+                "status": SufficiencyStatus.INSUFFICIENT.value,
+            }
+            return
+
+        missing_docs: list[str] = list(verdict.missing_document_ids)
+        if compare_result and compare_result.missing_documents:
+            missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
+
+        async for item in self._synthesizer.synthesize_stream(
+            query.original_query,
+            bundle,
+            internal_only=internal_only,
+            missing_documents=missing_docs if missing_docs else None,
+            verdict_status=verdict.status,
+        ):
+            yield item
 
     # ------------------------------------------------------------------
     # Internal: single retrieval round

@@ -166,8 +166,15 @@ class TransformersPoolingBackend:
             if self._device is None:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
-            self._model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
+            except Exception:
+                self._tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)
+
+            try:
+                self._model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
+            except Exception:
+                self._model = AutoModel.from_pretrained(self._local_path, local_files_only=False)
             self._model.to(self._device)
             self._model.eval()
         assert self._tokenizer is not None and self._model is not None

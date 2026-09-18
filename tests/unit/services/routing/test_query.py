@@ -460,6 +460,38 @@ async def test_orchestrator_drafts_meeting_followup(db_session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_summarizes_doc_with_meeting_title(
+    db_session: AsyncSession,
+) -> None:
+    """End-to-end regression: the knowledge "Tóm tắt" button query must run RAG.
+
+    "cuộc họp" here is part of the document title, not a calendar action, so the
+    request must complete via KnowledgeResearchAgent instead of the supervisor stub.
+    """
+
+    async def retrieve(query: str, user_id: str) -> SynthesisResult:
+        assert user_id == "user_bob"
+        return SynthesisResult(
+            answer="Văn bản quy định gửi agenda trước 24 giờ.",
+            status=SufficiencyStatus.SUFFICIENT,
+        )
+
+    orchestrator = QueryOrchestrator(
+        retrieve=retrieve,
+        new_run_id=lambda: "run-doc-meeting-1",
+    )
+    result = await orchestrator.handle(
+        db_session,
+        "user_bob",
+        "Tìm trong tài liệu nội bộ: Tóm tắt nội dung văn bản Quy chế tổ chức cuộc họp "
+        "và nguyên tắc gửi tài liệu trước 24 giờ",
+    )
+    assert result.status == "completed"
+    assert result.route.target_agent == "KnowledgeResearchAgent"
+    assert "24 giờ" in result.message
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_leaves_document_briefing_routed(db_session: AsyncSession) -> None:
     orchestrator = QueryOrchestrator(new_run_id=lambda: "run-wf02-1")
     result = await orchestrator.handle(

@@ -89,10 +89,8 @@ class SkillRegistry:
         """Load every skill subdirectory that contains ``SKILL.md``."""
         root = Path(directory)
         if not root.is_dir():
-            raise ValidationError(
-                "Skill directory does not exist.",
-                details={"directory": str(root)},
-            )
+            root.mkdir(parents=True, exist_ok=True)
+            return 0
         loaded = 0
         for child in sorted(path for path in root.iterdir() if path.is_dir()):
             markdown = child / SKILL_MARKDOWN_NAME

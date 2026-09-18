@@ -21,7 +21,9 @@ export interface QueryResult {
     | 'casual_response'
     | 'rejected'
     | 'routed'
-    | 'failed';
+    | 'failed'
+    | 'processing'
+    | (string & {});
   message: string;
   route: QueryRouteInfo;
   data: Record<string, any>;

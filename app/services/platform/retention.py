@@ -15,6 +15,7 @@ from app.infrastructure.db.models import (
     WorkflowRun,
 )
 from app.services.approvals import ApprovalRequestService
+from app.services.platform.audit import is_db_connection_closed_error
 
 logger = structlog.get_logger(__name__)
 
@@ -137,9 +138,12 @@ class RetentionWorker:
                 deleted["expired_approval_requests"] = expired_approvals
                 await session.commit()
                 return deleted
-            except Exception:  # noqa: BLE001 - worker iteration isolation
+            except Exception as exc:  # noqa: BLE001 - worker iteration isolation
                 await session.rollback()
-                logger.exception("retention_worker_iteration_failed")
+                if is_db_connection_closed_error(exc):
+                    logger.warning("retention_worker_db_closed")
+                else:
+                    logger.exception("retention_worker_iteration_failed")
                 return {}
 
     async def run(self, stop_event: asyncio.Event) -> None:

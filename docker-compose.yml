@@ -45,18 +45,27 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "8000:8000"
+    # Requires NVIDIA Container Toolkit + Docker GPU support (GTX 1650 / etc.).
+    # Without toolkit, compose still starts but torch.cuda.is_available() stays False.
+    gpus: all
     environment:
+      - PYTHONPATH=/app
       - DATABASE__URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS__URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - ENVIRONMENT=development
       - DEPLOY_TARGET=local
       - DEBUG=true
-    ports:
-      - "8000:8000"
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.18.160.1"
     volumes:
+      - ./app:/app/app
+      - ./docker-entrypoint.sh:/app/docker-entrypoint.sh
       - ./.secrets:/app/.secrets
+      - ./models:/app/models
     depends_on:
       postgres:
         condition: service_healthy

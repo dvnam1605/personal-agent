@@ -104,6 +104,20 @@
   color: var(--color-text-muted);
 }
 
+.assistant-ttft-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-primary);
+  background-color: var(--color-primary-subtle);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+}
+
 .assistant-body-markdown {
   font-size: var(--text-base);
   color: var(--color-text);

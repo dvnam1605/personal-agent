@@ -79,6 +79,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     await _configure_consumed_token_store(logger)
     checkpointer_cm = await configure_checkpointer_lifespan(logger)
+
+    # Warmup LocalEmbeddingService in background (pre-loads weights into RAM without blocking startup)
+    if settings.environment is not Environment.TESTING:
+        async def _warmup_embedding() -> None:
+            try:
+                from app.services.retrieval.factory import get_shared_embedding_service
+
+                logger.info("embedding.model_warmup_start")
+                embedding_svc = get_shared_embedding_service()
+                await embedding_svc.embed_query("khởi động mô hình kiểm tra")
+                logger.info("embedding.model_warmup_complete")
+            except Exception as exc:  # noqa: BLE001 - warmup error should not block boot
+                logger.warning("embedding.model_warmup_failed", error=str(exc))
+
+        asyncio.create_task(_warmup_embedding(), name="embedding-warmup")
+
     try:
         yield
     finally:
