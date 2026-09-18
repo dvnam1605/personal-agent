@@ -129,6 +129,7 @@ class ViRankerReranker:
         local_dir = settings_to_use.local_path
         if local_dir:
             from app.core.config import resolve_project_path
+
             path_or_name = str(resolve_project_path(local_dir))
         else:
             path_or_name = model_name

@@ -116,7 +116,7 @@ async def test_internal_only_synthesis() -> None:
     assert result.output["internal_only"] is True
     cited = [citation["evidence_id"] for citation in result.output["citations"]]
     assert len(cited) == 1
-    assert f"[{cited[0]}]" in result.output["answer"]
+    assert "[1]" in result.output["answer"]
 
 
 async def test_insufficient_evidence_reports_clean_no_answer() -> None:

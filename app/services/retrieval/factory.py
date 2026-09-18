@@ -64,7 +64,7 @@ def resolve_embedding_snapshot_path(settings_obj: Settings | None = None) -> str
 
     try:
         return snapshot_download(cfg.model, local_files_only=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - fallback to remote download when local snapshot misses
         logger.warning(
             "Local embedding snapshot for '%s' not found. Falling back to HuggingFace Hub download: %s",
             cfg.model,

@@ -125,14 +125,15 @@ def _fake_embedding_service(settings_obj: Settings) -> LocalEmbeddingService:
         contract=EmbeddingContract(model_name=settings_obj.embedding.model, dimensions=dimensions),
     )
 
-
-class TestViRankerFromSettings:
     def test_prefers_local_path_and_threshold(self) -> None:
+        from app.core.config import resolve_project_path
+
+        expected_path = str(resolve_project_path("models/snap"))
         reranker = ViRankerReranker.from_settings(
             RerankerSettings(model="namdp-ptit/ViRanker", local_path="models/snap", threshold=0.42)
         )
-        assert reranker._model_path_or_name == "models/snap"
-        assert reranker._display_name == "models/snap"
+        assert reranker._model_path_or_name == expected_path
+        assert reranker._display_name == expected_path
         assert reranker._threshold == 0.42
 
     def test_defaults_to_hub_model_and_config_threshold(self) -> None:

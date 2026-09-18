@@ -222,6 +222,19 @@ class FastTriage:
             has_calendar = False
             has_research = has_doc_terms or has_effective_lookup
 
+        # 3. Casual conversation or greeting (when no explicit work domain terms are present)
+        if CASUAL_PATTERN.search(unaccented) and not (has_comm or has_calendar or has_doc_terms):
+            decision = RouteDecision(
+                route_type=RouteType.CASUAL_RESPONSE,
+                confidence=0.95,
+                reasoning="Casual conversation or greeting detected.",
+                domains=[Domain.GENERAL],
+                complexity=Complexity.DIRECT,
+                reason_code="CASUAL_CONVERSATION",
+            )
+            self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
+            return decision
+
         # 4. Known Static Workflow trigger match (WF-01, WF-02, WF-05)
         # Compiled static workflows take precedence over uncompiled dynamic skills (§5.3 / P19).
         # Schedule inquiries (e.g. "có lịch gì không", "mấy giờ", "rảnh không") preserve CalendarAgent fast-path.

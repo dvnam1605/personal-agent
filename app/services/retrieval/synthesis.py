@@ -12,17 +12,25 @@ prompt-building logic (tests, offline evaluation) can use
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.config import settings
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.retrieval.prompts import (
+    SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
+    SYNTHESIS_SYSTEM_PROMPT,
+    build_synthesis_user_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +61,7 @@ class AnswerSynthesizer(Protocol):
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
     ) -> SynthesisResult: ...
 
-    async def synthesize_stream(
+    def synthesize_stream(
         self,
         question: str,
         bundle: EvidenceBundle,
@@ -77,7 +85,9 @@ def format_document_title(raw_title: str | None, text_content: str | None = None
         return "Văn bản nội bộ"
 
     if text_content:
-        so_match = re.search(r"Số:\s*([0-9A-Za-z\/\-\_]+QĐ[0-9A-Za-z\/\-\_]*)", text_content, re.IGNORECASE)
+        so_match = re.search(
+            r"Số:\s*([0-9A-Za-z\/\-\_]+QĐ[0-9A-Za-z\/\-\_]*)", text_content, re.IGNORECASE
+        )
         ve_viec = re.search(r"QUYẾT ĐỊNH\s+(?:Về việc\s+)?([^\n\r#]+)", text_content, re.IGNORECASE)
         if so_match and ve_viec:
             clean_so = so_match.group(1).strip()
@@ -123,12 +133,18 @@ def build_citations_from_bundle(
                 logger.debug("cited_evidence_not_in_bundle", extra={"evidence_id": eid})
             continue
         seen.add(item.evidence_id)
-        raw_title = item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
+        raw_title = (
+            item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
+        )
         title = format_document_title(raw_title, item.content_raw)
         source_type = item.source_type or item.anchors.get("source_type") or "Văn bản"
         page_start = item.anchors.get("page_start")
         page_end = item.anchors.get("page_end")
-        section_title = " > ".join(item.heading_path) if item.heading_path else item.anchors.get("section_title")
+        section_title = (
+            " > ".join(item.heading_path)
+            if item.heading_path
+            else item.anchors.get("section_title")
+        )
         citations.append(
             Citation(
                 evidence_id=item.evidence_id,
@@ -182,14 +198,9 @@ class PromptAnswerSynthesizer:
     @staticmethod
     def _build_default_generate() -> GenerateCallback | None:
         try:
-            from app.core.config import settings
-
             api_key = settings.llm.openai_api_key
             if not api_key:
                 return None
-            import json
-            import httpx
-
 
             async def _openai_generate(system: str, user: str) -> str:
                 target_url = settings.llm.chat_completions_url()
@@ -234,9 +245,9 @@ class PromptAnswerSynthesizer:
                                         delta = choices[0].get("delta", {}).get("content")
                                         if delta:
                                             chunks.append(delta)
-                                except Exception:
+                                except Exception:  # noqa: BLE001 - malformed chunk should not abort stream
                                     continue
-                except Exception as stream_err:
+                except Exception as stream_err:  # noqa: BLE001 - stream failure falls back to standard POST
                     logger.warning("synthesis_stream_accumulation_failed error=%s", stream_err)
 
                 content = "".join(chunks).strip()
@@ -262,8 +273,7 @@ class PromptAnswerSynthesizer:
 
                 if not content or not str(content).strip():
                     raise ValueError(
-                        "LLM returned empty content "
-                        f"(model={settings.llm.primary_model})"
+                        f"LLM returned empty content (model={settings.llm.primary_model})"
                     )
                 return str(content)
 
@@ -275,10 +285,6 @@ class PromptAnswerSynthesizer:
     @staticmethod
     def _build_default_stream_generate() -> StreamGenerateCallback | None:
         try:
-            import json
-            import httpx
-            from app.core.config import settings
-
             api_key = settings.llm.openai_api_key
             if not api_key:
                 return None
@@ -322,7 +328,7 @@ class PromptAnswerSynthesizer:
                                     delta = choices[0].get("delta", {}).get("content")
                                     if delta:
                                         yield delta
-                            except Exception:
+                            except Exception:  # noqa: BLE001 - malformed chunk should not abort stream
                                 continue
 
             return _openai_stream_generate
@@ -339,12 +345,6 @@ class PromptAnswerSynthesizer:
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
     ) -> SynthesisResult:
-        from app.services.retrieval.prompts import (
-            SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
-            SYNTHESIS_SYSTEM_PROMPT,
-            build_synthesis_user_message,
-        )
-
         if not bundle.items:
             return SynthesisResult(
                 answer=(
@@ -363,7 +363,7 @@ class PromptAnswerSynthesizer:
 
         try:
             answer_text = await self._generate(system_msg, user_msg)
-        except Exception as gen_err:
+        except Exception as gen_err:  # noqa: BLE001 - fallback to raw evidence on LLM failure
             logger.error("synthesis_generate_failed error=%s", gen_err)
             fallback_eids = [it.evidence_id for it in bundle.items[:3]]
             citations = build_citations_from_bundle(fallback_eids, bundle)
@@ -373,7 +373,9 @@ class PromptAnswerSynthesizer:
                     "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
                 ),
                 citations=citations,
-                status=SufficiencyStatus.SUFFICIENT if citations else SufficiencyStatus.INSUFFICIENT,
+                status=SufficiencyStatus.SUFFICIENT
+                if citations
+                else SufficiencyStatus.INSUFFICIENT,
             )
 
         cited_ids = extract_cited_ids(answer_text)
@@ -418,12 +420,6 @@ class PromptAnswerSynthesizer:
         - `{"type": "token", "delta": "..."}`
         - `{"type": "citations", "citations": [...], "status": "..."}`
         """
-        from app.services.retrieval.prompts import (
-            SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
-            SYNTHESIS_SYSTEM_PROMPT,
-            build_synthesis_user_message,
-        )
-
         if not bundle.items:
             empty_msg = (
                 "Tôi không tìm thấy tài liệu nội bộ nào phù hợp để trả lời câu hỏi này."
@@ -438,9 +434,7 @@ class PromptAnswerSynthesizer:
             }
             return
 
-        system_msg = (
-            SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
-        )
+        system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
         user_msg = build_synthesis_user_message(
             question, bundle, missing_documents=missing_documents
         )
@@ -498,7 +492,7 @@ class PromptAnswerSynthesizer:
                 emitted = _process_buffer(force=False)
                 if emitted:
                     yield {"type": "token", "delta": emitted}
-        except Exception as stream_err:
+        except Exception as stream_err:  # noqa: BLE001 - fallback gracefully on LLM stream failure
             logger.error("synthesis_stream_generate_failed error=%s", stream_err)
             yield {
                 "type": "token",

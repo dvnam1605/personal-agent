@@ -177,12 +177,12 @@ class TransformersPoolingBackend:
 
             try:
                 tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
-            except Exception:
+            except Exception:  # noqa: BLE001 - fallback to remote hub when local cache misses
                 tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)
 
             try:
                 model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
-            except Exception:
+            except Exception:  # noqa: BLE001 - fallback to remote hub when local cache misses
                 model = AutoModel.from_pretrained(self._local_path, local_files_only=False)
             model.to(self._device)
             model.eval()

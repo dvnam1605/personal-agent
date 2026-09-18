@@ -71,9 +71,7 @@ class LLMProviderSettings(BaseModel):
         description="Kira OpenAI-compatible base URL",
     )
     router_api_key: str | None = Field(default=None, description="Local router API key")
-    router_model: str = Field(
-        default="cu/default", description="Local router model id"
-    )
+    router_model: str = Field(default="cu/default", description="Local router model id")
     router_base_url: str = Field(
         default="http://localhost:20128/v1",
         description="Local OpenAI-compatible router base URL",

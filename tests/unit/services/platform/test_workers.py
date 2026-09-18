@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.infrastructure.db.base import Base
@@ -129,7 +129,7 @@ async def test_retention_worker_runs_authorized_purge(
     assert deleted["messages"] == 0
 
 
-def _invalidated_disconnect() -> DBAPIError:
+def _invalidated_disconnect() -> StatementError:
     """Build a pool-invalidated disconnect like a Postgres torn down on shutdown."""
     return DBAPIError.instance(
         "SELECT 1",

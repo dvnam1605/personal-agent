@@ -82,6 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Warmup LocalEmbeddingService in background (pre-loads weights into RAM without blocking startup)
     if settings.environment is not Environment.TESTING:
+
         async def _warmup_embedding() -> None:
             try:
                 from app.services.retrieval.factory import get_shared_embedding_service
