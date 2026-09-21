@@ -81,6 +81,87 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     return rawError
   }
 
+  // Determine if clarification belongs to calendar creation or email drafting
+  const isCalendarCreation =
+    result?.route?.target_agent === 'CalendarAgent' ||
+    domains.includes('calendar') ||
+    Boolean(result?.message?.includes('Để tạo lịch')) ||
+    Boolean(result?.message?.includes('thời gian bắt đầu'))
+
+  const isEmailDraft =
+    result?.route?.target_agent === 'CommunicationAgent' ||
+    domains.includes('communication') ||
+    Boolean(result?.message?.includes('soạn') && result?.message?.includes('email'))
+
+  const suggestedChoices = isCalendarCreation
+    ? ['10h sáng mai', '14h chiều nay', '9h sáng thứ Hai', 'Huỷ yêu cầu']
+    : isEmailDraft
+      ? ['Xin nghỉ phép', 'Báo cáo tiến độ', 'Gửi đối tác', 'Huỷ yêu cầu']
+      : ['Hôm nay', 'Ngày mai', 'Tuần này', 'Huỷ yêu cầu']
+
+  const handleClarifySubmit = (answer: string) => {
+    const trimmed = answer.trim()
+    if (!trimmed) return
+
+    // If user explicitly asks to cancel
+    if (trimmed.toLowerCase() === 'huỷ yêu cầu' || trimmed.toLowerCase() === 'hủy yêu cầu') {
+      onClarifyAnswer('Huỷ yêu cầu')
+      return
+    }
+
+    if (isCalendarCreation) {
+      // If user typed a complete command like "Tạo cuộc họp ...", send directly
+      const hasCreationVerb = /\b(tạo|đặt|book|create|schedule|lên lịch|xếp lịch)\b/i.test(trimmed)
+      if (hasCreationVerb) {
+        onClarifyAnswer(trimmed)
+        return
+      }
+
+      // Preserve the user's initial creation intent
+      const baseQuery = (turn.userQuery || '').replace(/[.,;:!?]+$/, '').trim()
+      const baseHasCreationVerb = /\b(tạo|đặt|book|create|schedule|lên lịch|xếp lịch)\b/i.test(baseQuery)
+      const queryPrefix = baseHasCreationVerb ? baseQuery : `Tạo cuộc họp ${baseQuery}`
+      const separator = /^(lúc|vao|vào|ngày|ngay)\b/i.test(trimmed) ? ' ' : ' lúc '
+      onClarifyAnswer(`${queryPrefix}${separator}${trimmed}`)
+      return
+    }
+
+    if (isEmailDraft) {
+      const hasDraftVerb = /\b(soạn|viết|gửi|email|mail|thư)\b/i.test(trimmed)
+      if (hasDraftVerb) {
+        onClarifyAnswer(trimmed)
+        return
+      }
+      const baseQuery = (turn.userQuery || '').replace(/[.,;:!?]+$/, '').trim()
+      const separator = /^(về|ve|cho|gui|gửi)\b/i.test(trimmed) ? ' ' : ' về '
+      onClarifyAnswer(`${baseQuery}${separator}${trimmed}`)
+      return
+    }
+
+    onClarifyAnswer(trimmed)
+  }
+
+  // Fallback effective approval request constructed from streamed proposal if API fetch is delayed
+  const effectiveApproval: ApprovalRequestResponse | null =
+    turn.pendingApproval ||
+    (result?.status === 'needs_approval' && (result?.approval_id || result?.data?.proposal)
+      ? {
+        id: result.approval_id || 'pending-approval',
+        run_id: result.run_id,
+        action_type: result.data?.proposal?.action_type || 'create_event',
+        description:
+          result.data?.proposal?.description ||
+          (result.message
+            ? result.message.replace(/\.\s*Vui lòng xác nhận bên dưới.*$/i, '.')
+            : 'Yêu cầu phê duyệt hành động ghi Google Calendar'),
+        important_arguments: result.data?.proposal?.important_arguments || {},
+        tool_name: result.data?.proposal?.tool_name || 'calendar.create_event',
+        risk_level: result.data?.proposal?.risk_level || 'SENSITIVE',
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      }
+      : null)
+
   return (
     <div className="chat-turn animate-slide-in">
       {/* 1. User Message */}
@@ -102,7 +183,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
         <div className="assistant-content-container">
           <div className="assistant-header">
-            <span className="assistant-name">Namm Agent</span>
+            <span className="assistant-name">Naot</span>
             <div className="assistant-domain-pill">
               {domain.icon}
               <span>{domain.label}</span>
@@ -189,14 +270,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           {result?.status === 'clarification_needed' && (
             <QuestionPlaneCard
               questionText={result.message}
-              onAnswer={onClarifyAnswer}
+              suggestedChoices={suggestedChoices}
+              onAnswer={handleClarifySubmit}
             />
           )}
 
           {/* HITL Approval Card */}
-          {turn.pendingApproval && (
+          {effectiveApproval && (
             <ApprovalCard
-              approval={turn.pendingApproval}
+              approval={effectiveApproval}
               onApprove={onApproveAction}
               onDeny={onDenyAction}
             />

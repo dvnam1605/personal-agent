@@ -356,6 +356,20 @@ class TestCitationExtraction:
         ids = extract_cited_ids("No citations here")
         assert ids == []
 
+    def test_extract_comma_separated_citations(self) -> None:
+        eid1 = "a" * 32
+        eid2 = "b" * 32
+        text = f"Quy chế chi tiêu nội bộ [{eid1}, {eid2}]."
+        ids = extract_cited_ids(text)
+        assert ids == [eid1, eid2]
+
+    def test_extract_semicolon_separated_citations(self) -> None:
+        eid1 = "a" * 32
+        eid2 = "b" * 32
+        text = f"Quy chế chi tiêu nội bộ [{eid1}; {eid2}]."
+        ids = extract_cited_ids(text)
+        assert ids == [eid1, eid2]
+
     def test_build_citations_from_bundle(self) -> None:
         eid = "a" * 32
         item = make_evidence(
@@ -375,14 +389,26 @@ class TestCitationExtraction:
         assert c.heading_path == ["Chapter 1", "Section 2"]
         assert c.source_type == "pdf"
 
-    def test_build_citations_unknown_id_skipped(self) -> None:
-        bundle = make_bundle([make_evidence(eid="a" * 32)])
-        citations = build_citations_from_bundle(["b" * 32], bundle)
+    def test_build_citations_deduplicates(self) -> None:
+        eid = "a" * 32
+        item = make_evidence(eid=eid)
+        bundle = make_bundle([item])
+        citations = build_citations_from_bundle([eid, eid], bundle)
+        assert len(citations) == 1
+
+    def test_build_citations_missing_id_dropped(self) -> None:
+        bundle = make_bundle([])
+        citations = build_citations_from_bundle(["non-existent-id"], bundle)
         assert citations == []
 
 
-class TestSynthesisProtocol:
-    """P10-18 answer synthesis."""
+# ===========================================================================
+# P10-20: Answer synthesis
+# ===========================================================================
+
+
+class TestAnswerSynthesis:
+    """P10-20 answer synthesiser contract."""
 
     @pytest.mark.asyncio
     async def test_empty_bundle_no_answer(self) -> None:
@@ -407,6 +433,52 @@ class TestSynthesisProtocol:
         assert "42" in result.answer
         assert len(result.citations) == 1
         assert result.citations[0].evidence_id == eid
+
+    @pytest.mark.asyncio
+    async def test_multi_evidence_citations_synthesize(self) -> None:
+        eid1 = "c" * 32
+        eid2 = "d" * 32
+        item1 = make_evidence(eid=eid1, content="answer part 1")
+        item2 = make_evidence(eid=eid2, content="answer part 2")
+        bundle = make_bundle([item1, item2])
+
+        async def fake_generate(system: str, user: str) -> str:
+            return f"Quy chế chi tiêu [{eid1}, {eid2}]."
+
+        synth = PromptAnswerSynthesizer(generate=fake_generate)
+        result = await synth.synthesize("Quy chế?", bundle)
+        assert result.status is SufficiencyStatus.SUFFICIENT
+        assert "[1][2]" in result.answer
+        assert eid1 not in result.answer
+        assert eid2 not in result.answer
+        assert len(result.citations) == 2
+
+    @pytest.mark.asyncio
+    async def test_multi_evidence_citations_stream(self) -> None:
+        eid1 = "c" * 32
+        eid2 = "d" * 32
+        item1 = make_evidence(eid=eid1, content="answer part 1")
+        item2 = make_evidence(eid=eid2, content="answer part 2")
+        bundle = make_bundle([item1, item2])
+
+        async def fake_stream(system: str, user: str):
+            yield "Quy chế chi tiêu ["
+            yield f"{eid1}, "
+            yield f"{eid2}]."
+
+        synth = PromptAnswerSynthesizer(stream_generate=fake_stream)
+        tokens = []
+        citations = []
+        async for event in synth.synthesize_stream("Quy chế?", bundle):
+            if event["type"] == "token":
+                tokens.append(event["delta"])
+            elif event["type"] == "citations":
+                citations = event.get("citations", [])
+        full_text = "".join(tokens)
+        assert "[1][2]" in full_text
+        assert eid1 not in full_text
+        assert eid2 not in full_text
+        assert len(citations) == 2
 
 
 # ===========================================================================

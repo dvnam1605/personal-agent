@@ -1,7 +1,7 @@
 # TẬP 4: BẢO MẬT, POLICY ENGINE & HUMAN-IN-THE-LOOP (SECURITY & HITL)
 
 > **Cấp độ tài liệu**: Sách tham khảo kỹ thuật chuyên sâu - Tập 4/6 (Technical Architecture Manual - Volume 4).
-> **Thành phần liên quan**: [`app/services/approvals/`](file:///d:/Code/personal_ai_assistant/app/services/approvals), [`CapabilityGate`](file:///d:/Code/personal_ai_assistant/app/agents/specialist/guard.py).
+> **Thành phần liên quan**: [`app/services/approvals/`](file:///d:/Code/personal_ai_assistant/app/services/approvals), [`CapabilityGate`](file:///d:/Code/personal_ai_assistant/app/agents/specialist/guard.py), [`app/services/google/auth/`](file:///d:/Code/personal_ai_assistant/app/services/google/auth).
 
 ---
 
@@ -110,6 +110,37 @@ sequenceDiagram
 `CapabilityGate` đóng vai trò là một màng lọc công cụ động:
 * **Filtered Tool View**: Trước khi giao danh sách Tool Schema cho LLM, `CapabilityGate` lọc sạch các công cụ không thuộc miền tác vụ của Agent đó.
 * **Read-Only Enforcement**: Nếu một Task được đánh dấu `permit_mutations = False` (chế độ tra cứu an toàn), `CapabilityGate` sẽ loại bỏ toàn bộ các công cụ loại `MUTATION` và `DESTRUCTIVE` khỏi danh sách Schema, ngăn LLM nảy sinh ý định gọi công cụ ghi dữ liệu ngay từ vòng nhắc (Prompting level).
+
+---
+
+## 5. QUẢN LÝ XÁC THỰC OAUTH2 GOOGLE & BẢO MẬT TOKEN (`app/services/google/auth/`)
+
+Nhằm tuân thủ nguyên tắc giới hạn kích thước tệp $\le 800$ dòng để bảo đảm khả năng kiểm toán an ninh (Security Auditing) độc lập, hệ thống xác thực Google OAuth2 được mô-đun hóa thành các thành phần chuyên biệt:
+
+```mermaid
+flowchart LR
+    subgraph OAuthSecurity["Kiến Trúc Bảo Mật Google OAuth2"]
+        State["state_store.py\nOAuthStateStore\nCSRF Token Protection (TTL)"]
+        Tokens["tokens.py\nGoogleOAuthToken & TokenStorage\nMã hóa Token & Chống lộ lọt"]
+        Client["client.py\nGoogleApiClient\nTự động Refresh Access Token"]
+        Service["service.py\nGoogleOAuthService\nCode Exchange, Flow & Consent Check"]
+    end
+    Service --> State
+    Service --> Tokens
+    Client --> Tokens
+```
+
+1. **Phòng chống tấn công CSRF ([`state_store.py`](file:///d:/Code/personal_ai_assistant/app/services/google/auth/state_store.py))**:
+   * Mỗi phiên ủy quyền OAuth2 bắt đầu với một chuỗi `state` ngẫu nhiên bảo mật cao được lưu trong `OAuthStateStore` kèm TTL (thời hạn hiệu lực).
+   * Khi Google callback trở về, `state` bắt buộc phải khớp và chỉ được dùng một lần (Single-use) trước khi tiến hành đổi `code` lấy token.
+
+2. **Bảo mật lưu trữ & mã hóa Token ([`tokens.py`](file:///d:/Code/personal_ai_assistant/app/services/google/auth/tokens.py))**:
+   * Lưu trữ `GoogleOAuthToken` tách biệt an toàn, hỗ trợ mã hóa các trường nhạy cảm như `refresh_token`.
+   * Cung cấp interface `TokenStorage` (hỗ trợ Persistent DB Store và `InMemoryTokenStore` cho môi trường kiểm thử/cục bộ).
+
+3. **Tự động gia hạn Access Token ([`client.py`](file:///d:/Code/personal_ai_assistant/app/services/google/auth/client.py))**:
+   * `GoogleApiClient` kiểm tra thời hạn sống của `access_token` trước mỗi yêu cầu HTTP đến Google API (Gmail, Drive, Calendar).
+   * Nếu token sắp hết hạn hoặc gặp lỗi `401 Unauthorized`, client tự động dùng `refresh_token` để xin token mới và cập nhật lại vào `TokenStorage` mà không làm gián đoạn phiên làm việc của người dùng.
 
 ---
 

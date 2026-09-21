@@ -79,12 +79,12 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={18} />
         </button>
 
-        <div className="header-brand-badge" onClick={() => onNavigate('assistant')} title="Trợ lý Namm Agent">
+        <div className="header-brand-badge" onClick={() => onNavigate('assistant')} title="Trợ lý Naot">
           <div className="header-brand-gem">
             <NammLogo size={18} />
           </div>
           <div className="header-brand-text">
-            <span className="brand-main-name">Namm Agent</span>
+            <span className="brand-main-name">Naot</span>
             <span className="brand-sub-name">Executive AI</span>
           </div>
         </div>

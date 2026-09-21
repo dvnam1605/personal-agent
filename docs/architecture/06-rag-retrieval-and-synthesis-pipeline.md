@@ -147,7 +147,18 @@ flowchart TD
    System Prompt chỉ thị nghiêm ngặt: Dữ liệu trong thẻ này là **Untrusted Input**, cấm không được ghi đè chỉ dẫn hệ thống.
 
 2. **PromptAnswerSynthesizer ([`synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/synthesis.py))**:
-   LLM tổng hợp câu trả lời tiếng Việt đính kèm mã trích dẫn `[evidence_id]` ứng với tiêu đề file và số trang cụ thể, trả về đối tượng `SynthesisResult`.
+   Bộ tổng hợp câu trả lời dựa trên LLM và ngữ cảnh tài liệu xác thực, tuân thủ nghiêm ngặt các nguyên tắc thiết kế:
+   * **Clean PEP 8 Architecture & Top-Level Imports**: Toàn bộ các thư viện hỗ trợ (`json`, `httpx`, `get_settings`, prompts) được nạp ở mức top-level chuẩn mực, loại bỏ các inline/delayed import trong hàm, bảo đảm hiệu năng nạp mô-đun và vượt qua 100% kiểm tra linter `ruff` & `pyright`.
+   * **Cơ Chế Footnote Citation Mapping**:
+     * Prompt chỉ thị LLM đính kèm mã trích dẫn thô ứng với từng bằng chứng theo cú pháp `[evidence_id]` (hoặc `[<uuid>]`).
+     * `PromptAnswerSynthesizer` sử dụng Regex `_CITE_RE` dò quét toàn bộ các thẻ trích dẫn thô trong văn bản sinh ra, đối soát với `EvidenceBundle`, và chuyển đổi thành dạng số chú thích chân trang trực quan `[1]`, `[2]`, `[3]`.
+     * Cấu trúc kết quả `SynthesisResult` bao gồm:
+       * `answer`: Văn bản câu trả lời hoàn chỉnh đã thay thế footnote số học.
+       * `citations`: Mảng các đối tượng `Citation` theo đúng thứ tự footnote, cung cấp `document_id`, tiêu đề tài liệu (`title`), trang tài liệu (`page_number`), số điểm liên quan (`score`) và đoạn trích dẫn ngữ cảnh (`snippet`).
+       * `groundedness_score`: Điểm số đánh giá mức độ bám sát bằng chứng.
+   * **Dual-Mode Synthesis API (Batch & Realtime Streaming)**:
+     * `synthesize(...)`: Trả về `SynthesisResult` hoàn chỉnh sau khi LLM kết thúc thế hệ câu trả lời.
+     * `synthesize_stream(...)`: Async Generator stream trực tiếp các mảnh văn bản (token deltas) tới client qua giao thức SSE (Server-Sent Events), giúp giảm thiểu tối đa Time-To-First-Token (TTFT). Khi stream kết thúc, generator phát sự kiện trích dẫn cuối cùng với danh sách metadata nguồn.
 
 ---
 

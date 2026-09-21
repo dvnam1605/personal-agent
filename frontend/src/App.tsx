@@ -11,7 +11,7 @@ import { Drawer } from './components/ui/Drawer'
 import { ToastProvider, useToast } from './components/ui/Toast'
 import { apiClient } from './api/client'
 import type { ChatTurn } from './components/conversation/MessageItem'
-import type { GmailMessage, RAGCitation } from './types/api'
+import type { ApprovalRequestResponse, GmailMessage, RAGCitation } from './types/api'
 import { FileText, Mail, ExternalLink } from 'lucide-react'
 import './App.css'
 
@@ -67,10 +67,12 @@ const AppContent: React.FC = () => {
 
     const startTime = Date.now()
     let firstTokenReceived = false
+    let currentRunId: string | null = null
 
     try {
       await apiClient.submitQueryStream(queryText, {
         onMetadata: (data) => {
+          currentRunId = data.run_id
           setTurns((prev) =>
             prev.map((turn) =>
               turn.id === turnId
@@ -117,16 +119,18 @@ const AppContent: React.FC = () => {
           )
         },
         onCitations: async (citeData) => {
-          let pendingApproval = null
-          if (citeData.approval_id) {
+          let pendingApproval: ApprovalRequestResponse | null = null
+          const approvalId = citeData.approval_id
+          if (approvalId) {
             try {
-              const runId = turns.find((t) => t.id === turnId)?.result?.run_id
-              if (runId) {
-                const pending = await apiClient.getPendingApprovals(runId)
-                pendingApproval = pending.find((p) => p.id === citeData.approval_id) || null
-              }
-            } catch {
-              // ignore
+              const pending = await apiClient.getPendingApprovals(currentRunId || undefined)
+              pendingApproval =
+                pending.find((p) => p.id === approvalId) ||
+                pending.find((p) => p.run_id === currentRunId) ||
+                pending[0] ||
+                null
+            } catch (err) {
+              console.error('Failed to load pending approval in onCitations:', err)
             }
           }
 
@@ -157,15 +161,34 @@ const AppContent: React.FC = () => {
             })
           )
         },
-        onDone: (doneData) => {
+        onDone: async (doneData) => {
           setIsLoading(false)
           const latency = (Date.now() - startTime) / 1000
+          const runId = doneData.run_id || currentRunId
+
+          let fetchedApproval: ApprovalRequestResponse | null = null
+          if (doneData.status === 'needs_approval') {
+            showToast('Trợ lý cần bạn xác nhận hành động ghi bảo mật.', 'warning')
+            try {
+              const pending = await apiClient.getPendingApprovals(runId || undefined)
+              fetchedApproval =
+                pending.find((p) => p.run_id === runId) ||
+                pending[0] ||
+                null
+            } catch (err) {
+              console.error('Failed to load pending approval in onDone:', err)
+            }
+          } else if (doneData.status === 'clarification_needed') {
+            showToast('Trợ lý cần bạn làm rõ thêm thông tin.', 'info')
+          }
+
           setTurns((prev) =>
             prev.map((turn) => {
               if (turn.id === turnId && turn.result) {
                 return {
                   ...turn,
                   latency,
+                  pendingApproval: fetchedApproval || turn.pendingApproval,
                   result: {
                     ...turn.result,
                     status: doneData.status,
@@ -175,12 +198,6 @@ const AppContent: React.FC = () => {
               return turn
             })
           )
-
-          if (doneData.status === 'needs_approval') {
-            showToast('Trợ lý cần bạn xác nhận hành động ghi bảo mật.', 'warning')
-          } else if (doneData.status === 'clarification_needed') {
-            showToast('Trợ lý cần bạn làm rõ thêm thông tin.', 'info')
-          }
         },
         onError: (err) => {
           const errMsg = err?.message || 'Không thể xử lý yêu cầu.'

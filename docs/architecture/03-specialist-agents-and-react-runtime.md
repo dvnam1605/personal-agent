@@ -22,6 +22,7 @@ classDiagram
 
     class CommunicationAgent {
         +Domain: COMMUNICATION
+        +Tương tác qua app/integrations/google_gmail/
         +gmail.search_messages()
         +gmail.get_thread()
         +gmail.create_draft()
@@ -32,6 +33,7 @@ classDiagram
 
     class CalendarAgent {
         +Domain: CALENDAR
+        +Tương tác qua app/integrations/google_calendar
         +calendar.list_events()
         +calendar.find_free_slots() [Số học lịch biểu]
         +calendar.create_event()* [Cần Approval]
@@ -42,14 +44,15 @@ classDiagram
 
     class KnowledgeResearchAgent {
         +Domain: KNOWLEDGE_RESEARCH
+        +Tương tác qua app/services/retrieval & google_drive/
         +retrieval.retrieve()
-        +retrieval.synthesize()
+        +retrieval.synthesize() [Footnote mapping 1, 2]
         +drive.search_files()
         +drive.download_file()
         +web.search()
         +Chế độ: INTERNAL / WEB / MIXED
         -LUÔN LUÔN READ-ONLY 100%
-        -Bảo đảm trích dẫn [evidence_id]
+        -Bảo đảm trích dẫn footnote chuẩn hóa
         -Miễn nhiễm prompt injection
     }
 

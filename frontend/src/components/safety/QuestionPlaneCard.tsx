@@ -17,15 +17,20 @@ export const QuestionPlaneCard: React.FC<QuestionPlaneCardProps> = ({
   disabled = false,
 }) => {
   const [customText, setCustomText] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+
+  const isCardDisabled = disabled || submitted
 
   const handleChoiceClick = (choice: string) => {
-    if (disabled) return
+    if (isCardDisabled) return
+    setSubmitted(true)
     onAnswer(choice)
   }
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customText.trim() || disabled) return
+    if (!customText.trim() || isCardDisabled) return
+    setSubmitted(true)
     onAnswer(customText.trim())
     setCustomText('')
   }
@@ -48,7 +53,7 @@ export const QuestionPlaneCard: React.FC<QuestionPlaneCardProps> = ({
                 type="button"
                 className="question-choice-chip"
                 onClick={() => handleChoiceClick(choice)}
-                disabled={disabled}
+                disabled={isCardDisabled}
               >
                 {choice}
               </button>
@@ -63,13 +68,13 @@ export const QuestionPlaneCard: React.FC<QuestionPlaneCardProps> = ({
             placeholder="Nhập câu trả lời hoặc thời gian cụ thể..."
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
-            disabled={disabled}
+            disabled={isCardDisabled}
           />
           <Button
             type="submit"
             size="sm"
             variant="primary"
-            disabled={!customText.trim() || disabled}
+            disabled={!customText.trim() || isCardDisabled}
             rightIcon={<Send size={12} />}
           >
             Gửi

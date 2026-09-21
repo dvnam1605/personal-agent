@@ -129,4 +129,16 @@ flowchart TD
 
 ---
 
+## 3. CẤU TRÚC MÔ-ĐUN HÓA DƯỚI 800 DÒNG (INGESTION MODULARITY STANDARDS)
+
+Để bảo đảm mã nguồn dễ bảo trì, dễ viết unit test và không vượt quá giới hạn 800 dòng/file, toàn bộ gói `app/services/ingestion/` được thiết kế theo các thư mục con và tệp chức năng cô đọng:
+
+| Gói / Mô-đun | Tệp thành phần | Trách nhiệm chính |
+| :--- | :--- | :--- |
+| **`parsing/`** | [`base.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/parsing/base.py), [`docling_parser.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/parsing/docling_parser.py), [`markdown_parser.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/parsing/markdown_parser.py), [`quality.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/parsing/quality.py) | Định nghĩa `NormalizedDocumentTree`, phân tích cú pháp PDF/DOCX/Markdown, đánh giá chất lượng parse (`evaluate_parse_quality`). |
+| **`chunking/`** | [`parents.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/chunking/parents.py), [`children.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/chunking/children.py), [`tokens.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/chunking/tokens.py), [`identity.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/chunking/identity.py) | Cắt khối phân tầng Level 0 (1600 tokens) và Level 1 (500 tokens), đếm token an toàn và gán identity phân cấp. |
+| **Core Ingestion** | [`fingerprint.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/fingerprint.py), [`embedding.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/embedding.py), [`persistence.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/persistence.py), [`orchestrator.py`](file:///d:/Code/personal_ai_assistant/app/services/ingestion/orchestrator.py) | Kiểm tra chống lặp bằng băm SHA-256, nhúng vector 1024 chiều, lưu trữ giao dịch atomic và điều phối toàn bộ pipeline. |
+
+---
+
 *Xem tiếp chi tiết Pipeline Retrieval tại Tập 6: [`06-rag-retrieval-and-synthesis-pipeline.md`](file:///d:/Code/personal_ai_assistant/docs/architecture/06-rag-retrieval-and-synthesis-pipeline.md)*

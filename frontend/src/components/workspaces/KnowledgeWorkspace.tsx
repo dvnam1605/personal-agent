@@ -513,18 +513,29 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
     const q = queryToRun || searchQuery
     if (!q.trim() || isLoading) return
 
+    if (queryToRun) {
+      setSearchQuery(queryToRun)
+    }
+
     setIsLoading(true)
     setError(null)
     setAnswer(null)
+    setCitations([])
 
     try {
-      const res = await apiClient.submitQuery(`Tìm trong tài liệu nội bộ: ${q}`)
-      setAnswer(res.message)
-      if (res.data?.citations && Array.isArray(res.data.citations)) {
-        setCitations(res.data.citations as RAGCitation[])
-      } else {
-        setCitations([])
-      }
+      await apiClient.submitQueryStream(`Tìm trong tài liệu nội bộ: ${q}`, {
+        onToken: (delta) => {
+          setAnswer((prev) => (prev !== null ? prev + delta : delta))
+        },
+        onCitations: (data) => {
+          if (data.citations && Array.isArray(data.citations)) {
+            setCitations(data.citations as RAGCitation[])
+          }
+        },
+        onError: (err) => {
+          setError(err?.message || 'Không thể tra cứu kho tri thức nội bộ.')
+        },
+      })
     } catch (err: any) {
       setError(err?.message || 'Không thể tra cứu kho tri thức nội bộ.')
     } finally {
@@ -558,7 +569,7 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
     'Danh hiệu Chiến sĩ thi đua cơ sở',
   ]
 
-  const isShowingSearchResults = Boolean(answer || citations.length > 0)
+  const isShowingSearchResults = Boolean(answer !== null || citations.length > 0)
 
   return (
     <div className="workspace-container knowledge-workspace">
@@ -621,12 +632,7 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
 
       {/* Content Area */}
       <div className="workspace-content-scroll">
-        {isLoading ? (
-          <div className="workspace-loading-state">
-            <RefreshCw size={20} className="spin-anim text-primary" />
-            <span>Đang đối chiếu cơ sở dữ liệu RAG và trích xuất dẫn chứng...</span>
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="workspace-error-card">
             <AlertCircle size={18} className="text-danger" />
             <div className="workspace-error-content">
@@ -648,11 +654,16 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
             </div>
 
             {/* AI Summarized Answer */}
-            {answer && (
+            {answer !== null && (
               <div className="knowledge-answer-card">
                 <div className="answer-header">
                   <Sparkles size={16} className="text-primary" />
                   <h4>Tổng hợp nội dung từ quy chế & tài liệu nội bộ</h4>
+                  {isLoading && (
+                    <span className="knowledge-streaming-indicator">
+                      <RefreshCw size={12} className="spin-anim" /> Đang phản hồi...
+                    </span>
+                  )}
                 </div>
                 <div className="answer-body">
                   <MarkdownContent content={answer} />
@@ -667,7 +678,9 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
               </h4>
 
               {citations.length === 0 ? (
-                <p className="no-citations-hint">Không có đoạn trích dẫn cụ thể nào.</p>
+                <p className="no-citations-hint">
+                  {isLoading ? 'Đang trích xuất dẫn chứng kèm theo...' : 'Không có đoạn trích dẫn cụ thể nào.'}
+                </p>
               ) : (
                 <div className="citations-grid">
                   {citations.map((cite, idx) => (

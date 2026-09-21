@@ -23,7 +23,7 @@ Ví dụ bạn có thể nói:
 
 ## Giao diện
 
-Ứng dụng web **Namm Agent** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu quy chế, duyệt hành động ghi. Có chế độ tối và sáng.
+Ứng dụng web **Naot** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu quy chế, duyệt hành động ghi. Có chế độ tối và sáng.
 
 **Trợ lý điều hành**
 

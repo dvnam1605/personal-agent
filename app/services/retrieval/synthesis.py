@@ -77,6 +77,10 @@ class AnswerSynthesizer(Protocol):
 # ---------------------------------------------------------------------------
 
 _CITE_RE = re.compile(r"\[(?:evidence_id=)?[\"']?([0-9a-fA-F]{32})[\"']?\]")
+_HEX_ID_RE = re.compile(r"[0-9a-fA-F]{32}")
+_BRACKET_CITE_RE = re.compile(
+    r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]"
+)
 
 
 def format_document_title(raw_title: str | None, text_content: str | None = None) -> str:
@@ -114,8 +118,13 @@ def format_document_title(raw_title: str | None, text_content: str | None = None
 
 
 def extract_cited_ids(text: str) -> list[str]:
-    """Pull unique evidence_id hex strings from ``[<hex32>]`` or ``[evidence_id=\"<hex32>\"]`` markers."""
-    return list(dict.fromkeys(_CITE_RE.findall(text)))
+    """Pull unique evidence_id hex strings from single or multi-evidence bracket markers."""
+    ids: list[str] = []
+    for bracket_match in _BRACKET_CITE_RE.finditer(text):
+        for eid in _HEX_ID_RE.findall(bracket_match.group(0)):
+            if eid not in ids:
+                ids.append(eid)
+    return ids
 
 
 def build_citations_from_bundle(
@@ -390,12 +399,19 @@ class PromptAnswerSynthesizer:
         eid_to_index = {cite.evidence_id: str(i + 1) for i, cite in enumerate(citations)}
 
         def _clean_cite(match: re.Match[str]) -> str:
-            eid = match.group(1)
-            idx = eid_to_index.get(eid)
-            return f"[{idx}]" if idx else ""
+            raw_bracket = match.group(0)
+            eids = _HEX_ID_RE.findall(raw_bracket)
+            badges: list[str] = []
+            for eid in eids:
+                idx = eid_to_index.get(eid)
+                if idx and f"[{idx}]" not in badges:
+                    badges.append(f"[{idx}]")
+            return "".join(badges)
 
-        cleaned_answer = _CITE_RE.sub(_clean_cite, answer_text)
-        # Clean up empty brackets and trailing whitespace before punctuation
+        cleaned_answer = _BRACKET_CITE_RE.sub(_clean_cite, answer_text)
+        # Clean any remaining orphan hex evidence IDs or unclosed brackets
+        cleaned_answer = re.sub(r"\[\s*[0-9a-fA-F]{32}[^\]\n]*\]?", "", cleaned_answer)
+        cleaned_answer = re.sub(r"\b[0-9a-fA-F]{32}\b", "", cleaned_answer)
         cleaned_answer = re.sub(r"\[\s*\]", "", cleaned_answer)
         cleaned_answer = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned_answer)
 
@@ -449,11 +465,11 @@ class PromptAnswerSynthesizer:
             while buf:
                 bracket_pos = buf.find("[")
                 if bracket_pos == -1:
-                    out += buf
+                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf)
                     buf = ""
                     break
                 if bracket_pos > 0:
-                    out += buf[:bracket_pos]
+                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf[:bracket_pos])
                     buf = buf[bracket_pos:]
                     continue
 
@@ -461,23 +477,36 @@ class PromptAnswerSynthesizer:
                 close_pos = buf.find("]")
                 if close_pos != -1:
                     tag = buf[: close_pos + 1]
-                    m = _CITE_RE.match(tag)
-                    if m:
-                        eid = m.group(1)
-                        if eid not in eid_to_index:
-                            idx = len(eid_to_index) + 1
-                            eid_to_index[eid] = idx
-                            cited_ids.append(eid)
-                        else:
-                            idx = eid_to_index[eid]
-                        out += f"[{idx}]"
+                    if _BRACKET_CITE_RE.fullmatch(tag):
+                        eids = _HEX_ID_RE.findall(tag)
+                        tag_out = ""
+                        for eid in eids:
+                            if eid not in eid_to_index:
+                                idx = len(eid_to_index) + 1
+                                eid_to_index[eid] = idx
+                                cited_ids.append(eid)
+                            else:
+                                idx = eid_to_index[eid]
+                            if f"[{idx}]" not in tag_out:
+                                tag_out += f"[{idx}]"
+                        out += tag_out
+                    elif _HEX_ID_RE.search(tag):
+                        # Contains hex IDs but malformed tag -> drop raw hashes
+                        out += ""
                     else:
                         out += tag
                     buf = buf[close_pos + 1 :]
                     continue
 
                 # No closing ']' yet
-                if force or len(buf) > 60:
+                if force:
+                    if _HEX_ID_RE.search(buf):
+                        buf = ""
+                    else:
+                        out += buf
+                        buf = ""
+                    break
+                if "\n" in buf or len(buf) > 300:
                     out += buf[0]
                     buf = buf[1:]
                     continue

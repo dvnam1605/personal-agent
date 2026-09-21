@@ -31,10 +31,11 @@ flowchart TD
     subgraph ContextPrep["2. Context and Routing Layer"]
         Auth --> CB["Context Builder"]
         CB --> MG["MemoryGate (Redis Short-term + PG Vector Memory)"]
-        MG --> FT["Fast Triage Router (app/services/routing)"]
+        MG --> FT["Fast Triage Router (app/services/routing/triage.py)"]
     end
 
-    subgraph ExecutionPaths["3. Three Execution Paths"]
+    subgraph ExecutionPaths["3. Execution Paths & Direct Fallbacks"]
+        FT -->|Casual Conversation| Casual["L1: CASUAL_RESPONSE (Instant chitchat < 1s)"]
         FT -->|Single Domain| PathA["Path A: DIRECT_SPECIALIST (0-3 LLM turns)"]
         FT -->|Known Workflow| PathB["Path B: KNOWN_WORKFLOW (Static LangGraph)"]
         FT -->|Multi Domain| PathC["Path C: SUPERVISOR (JSON DAG & Re-planning)"]
@@ -72,25 +73,22 @@ flowchart TD
 * **Cơ chế hoạt động**:
   1. **Correlation Tracing**: Mỗi request đi qua FastAPI Middleware sẽ được tiêm một chuỗi định danh duy nhất `X-Request-ID` (UUIDv4). Mã này được bind vào đối tượng `Structlog` context. Tất cả các thành phần downstream (Router, Agents, Tool Executors, DB Queries) đều mang vết `request_id` này trong log.
   2. **FastAPI Exception Handlers**: Bắt các ngoại lệ chuẩn hóa (`DomainError`, `ValidationError`, `PermissionDeniedError`) và chuyển đổi thành HTTP JSON response có cấu trúc nhất quán.
-  3. **Google OAuth Token Manager**: Tra cứu bảng `google_integrations`. Nếu mã OAuth Access Token hết hạn, tự động dùng `refresh_token` để xin token mới từ Google OAuth2 endpoints trước khi chuyển tiếp lệnh tới Google APIs.
+  3. **Google OAuth Subpackage ([`app/services/google/auth/`](file:///d:/Code/personal_ai_assistant/app/services/google/auth/))**: 
+     - Quản lý vòng đời xác thực Google OAuth độc lập thông qua `GoogleOAuthService` (`service.py`), `GoogleOAuthClient` (`client.py`), `GoogleScopeValidator` và `GoogleTokenSet` (`tokens.py`).
+     - Hỗ trợ lưu trữ state phiên OAuth an toàn với `InMemoryOAuthStateStore` và `RedisOAuthStateStore` (`state_store.py`).
+     - Tự động dùng `refresh_token` xin token mới nếu access token hết hạn trước khi gọi Google API.
 
-### 3.2. Tầng 2: MemoryGate & Context Preparation (`app/services/context/`)
+### 3.2. Tầng 2: MemoryGate, Routing & Query Orchestration
 
-* **Nhiệm vụ**: Tổng hợp ký ức ngắn hạn (Short-term buffer) và ký ức dài hạn (Long-term memories) để xây dựng Prompt Context cho các Agent.
-* **Cơ chế hoạt động**:
-  1. **Short-term Memory (Redis 7)**:
-     * Lưu trữ dưới dạng danh sách tin nhắn gần nhất (`List[Message]`) theo `session_id`.
-     * TTL mặc định: 24 giờ (`86400s`).
-  2. **Long-term Memory (PostgreSQL pgvector)**:
-     * Ký ức về thói quen, sở thích, người liên hệ quan trọng được lưu trong bảng `memories`.
-     * Khi có câu hỏi mới, `MemoryGate` tính vector câu hỏi và thực hiện truy vấn pgvector Cosine Distance:
-       ```sql
-       SELECT id, content, (embedding <=> :query_vector) AS distance
-       FROM memories
-       WHERE user_id = :user_id AND (embedding <=> :query_vector) < 0.35
-       ORDER BY distance ASC LIMIT 5;
-       ```
-     * Các ký ức phù hợp được tiêm trực tiếp vào System Preamble của Agent.
+* **MemoryGate & Context Preparation ([`app/services/context/`](file:///d:/Code/personal_ai_assistant/app/services/context/))**:
+  - **Short-term Memory (Redis 7)**: Danh sách tin nhắn theo `session_id`, TTL 24h.
+  - **Long-term Memory (PostgreSQL pgvector)**: Vector similarity search qua Cosine Distance (`<=>`), tiêm trực tiếp vào system context của agent.
+* **Query Orchestration Subpackage ([`app/services/routing/query/`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/))**:
+  - Module hóa thành package độc lập thay cho file đơn cồng kềnh trước đây:
+    - [`orchestrator.py`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/orchestrator.py): Class `QueryOrchestrator` điều phối toàn diện pipeline xử lý yêu cầu ngôn ngữ tự nhiên từ endpoint `POST /query`.
+    - [`models.py`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/models.py): Định nghĩa cấu trúc `QueryResult`, `QueryRouteInfo`, các interface factory và callback types.
+    - [`parsing.py`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/parsing.py): Xử lý bóc tách cửa sổ thời gian lịch (`infer_calendar_window`), phân tích giờ hẹn tiếng Việt (`parse_event_times`), phân tích câu lệnh Gmail search.
+    - [`email_synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/email_synthesis.py): Soạn thảo bản nháp email (`compose_email_draft`) và tóm tắt hòm thư (`summarize_emails`, `summarize_emails_stream`) với cơ chế heuristic fallback khi LLM offline.
 
 ### 3.3. Tầng 6: Infrastructure & Storage Engine
 
@@ -104,6 +102,21 @@ flowchart TD
   * Chạy trực tiếp trên môi trường Server mà không gọi API ngoài:
     * Embedding Model: `AITeamVN/Vietnamese_Embedding` (1024 dimensions, L2-normalized).
     * Reranker Model: `namdp-ptit/ViRanker` (Cross-Encoder đánh giá điểm tương quan query-chunk).
+
+### 3.4. Chuẩn Mực Kiến Trúc Mã Nguồn (Codebase Modularity & Subpackages)
+
+Để đảm bảo hệ thống dễ đọc, dễ bảo trì và dễ mở rộng khi phát triển lâu dài:
+1. **Giới hạn độ dài file mã nguồn (Hard limit $\le 800$ dòng)**:
+   - 100% các file mã nguồn trong thư mục `app/` đều tuân thủ nghiêm ngặt giới hạn $\le 800$ dòng code. Các module lớn vượt ngưỡng đều được tách thành các subpackage chuyên biệt.
+2. **Quy hoạch thư mục con (Subpackages) & Re-export sạch sẽ**:
+   - [`app/services/routing/query/`](file:///d:/Code/personal_ai_assistant/app/services/routing/query/): Gom cụm toàn bộ logic xử lý query orchestration.
+   - [`app/services/google/auth/`](file:///d:/Code/personal_ai_assistant/app/services/google/auth/): Gom cụm toàn bộ logic Google OAuth và token management.
+   - [`app/integrations/google_drive/`](file:///d:/Code/personal_ai_assistant/app/integrations/google_drive/): Tách biệt `adapter.py` và `parsing.py` cho Google Drive API.
+   - [`app/integrations/google_gmail/`](file:///d:/Code/personal_ai_assistant/app/integrations/google_gmail/): Tách biệt `adapter.py` và `parsing.py` cho Gmail API.
+   - Mỗi subpackage đều có `__init__.py` re-export đầy đủ public contracts, đảm bảo **100% tính tương thích ngược** với các caller bên ngoài.
+3. **Chuẩn mực Import (PEP 8 & Top-level Imports)**:
+   - Toàn bộ dependencies được khai báo rõ ràng ở top-level, loại bỏ triệt để các inline/delayed imports rải rác bên trong hàm.
+   - Sử dụng relative import nội bộ (`from .models import ...`, `from .parsing import ...`) bên trong subpackage.
 
 ---
 
@@ -122,19 +135,20 @@ sequenceDiagram
     Client->>GW: POST /query (header: X-User-ID, X-API-Key)
     GW->>GW: Gán X-Request-ID, Auth & OAuth check
     GW->>FT: triage(query)
-    FT->>FT: Tiền xử lý, Safety Filter, Domain Rules
-    FT-->>GW: RouteDecision (Path A / B / C)
+    FT->>FT: Tiền xử lý, Safety Filter, Casual Check, Domain Rules
+    FT-->>GW: RouteDecision (CASUAL_RESPONSE / Path A / B / C)
 
-    alt Path A: Direct Specialist
+    alt Tuyến L1: Casual Response (Chào hỏi / Chitchat)
+        GW-->>Client: HTTP 200 JSON Response (Trực tiếp không qua Agent, < 1s)
+    else Tuyến Path A: Direct Specialist
         GW->>Spec: run(task, DIRECT mode)
         Spec->>Policy: Evaluate Tool Call (nếu có)
         Policy-->>Spec: Auto Approve / Require Token
         Spec->>DB: Thực thi Query / Read DB
         DB-->>Spec: Tra dữ liệu
         Spec-->>GW: Trả về câu trả lời
+        GW-->>Client: HTTP 200 JSON Response (text, citations, approval_id)
     end
-
-    GW-->>Client: HTTP 200 JSON Response (text, citations, approval_id)
 ```
 
 ---

@@ -16,7 +16,7 @@ from app.services.skills.matching import unaccent_vietnamese
 from .models import GOOGLE_CONNECT_HINT
 
 _CALENDAR_CREATE = re.compile(
-    r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich)\b",
+    r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich|len\s+lich)\b",
     re.IGNORECASE,
 )
 _CALENDAR_DELETE = re.compile(r"\b(xoa|huy|delete|cancel)\b", re.IGNORECASE)
@@ -269,7 +269,7 @@ def infer_event_summary(query: str) -> str:
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(
-        r"\b(tao|dat|book|create|schedule|lich|luc|vao|cho toi|giup|toi|mot|cuoc)\b",
+        r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich|len\s+lich|lich|luc|vao|cho\s+toi|giup\s+toi|giup|cho|toi|minh|mot|cuoc|1|di|nhe|dum|nho)\b",
         " ",
         cleaned,
         flags=re.IGNORECASE,

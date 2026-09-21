@@ -131,7 +131,7 @@ async def summarize_emails_stream(
         api_key = settings.llm.openai_api_key
         if api_key:
             system_prompt = (
-                "Bạn là Namm Agent - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Bạn là Naot - trợ lý điều hành AI chuyên nghiệp.\n"
                 "Nhiệm vụ: Đọc nội dung email rồi viết BÁO CÁO TÓM TẮT tự nhiên bằng tiếng Việt.\n\n"
                 "Quy tắc bắt buộc:\n"
                 "- KHÔNG dùng heading markdown (# ## ###). Chỉ dùng emoji + **in đậm** làm đề mục.\n"
@@ -171,7 +171,9 @@ async def summarize_emails_stream(
 
             model = settings.llm.fast_model
             has_yielded = False
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout_seconds, connect=5.0)
+            ) as client:
                 async with client.stream(
                     "POST",
                     settings.llm.chat_completions_url(),
@@ -244,7 +246,7 @@ async def compose_email_draft(query: str) -> tuple[str, str, list[str]]:
         api_key = settings.llm.openai_api_key
         if api_key:
             system_prompt = (
-                "Bạn là Namm Agent - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Bạn là Naot - trợ lý điều hành AI chuyên nghiệp.\n"
                 "Nhiệm vụ: Soạn thảo một email công việc chuyên nghiệp, lịch sự bằng tiếng Việt theo yêu cầu của người dùng.\n\n"
                 "Quy tắc phản hồi:\n"
                 "Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc sau, không kèm bất kỳ lời giải thích nào khác:\n"
@@ -259,7 +261,9 @@ async def compose_email_draft(query: str) -> tuple[str, str, list[str]]:
             timeout = 35.0
             chunks: list[str] = []
 
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=5.0)
+            ) as client:
                 async with client.stream(
                     "POST",
                     settings.llm.chat_completions_url(),

@@ -11,6 +11,9 @@
 flowchart LR
     REQ[Input Query] --> FT{Fast Triage Classifier}
 
+    FT -->|Casual / Chit-chat| Casual[L1: Casual Response]
+    Casual --> OutCasual[Instant Reply < 1s, 0 Supervisor Token]
+
     FT -->|Single Domain| DirectSpec[Path A: Direct Specialist]
     DirectSpec --> OutA[Fast Response under 2-3s]
 
@@ -26,19 +29,21 @@ flowchart LR
 
 ## 2. THUẬT TOÁN CHI TIẾT CỦA FAST TRIAGE CLASSIFIER (`triage.py`)
 
-Hàm `FastTriage.triage(query: str) -> RouteDecision` thực thi phân loại trong **dưới 10ms** mà không tiêu tốn bất kỳ LLM Token nào. Quy trình gồm 6 bước đệm:
+Hàm `FastTriage.triage(query: str) -> RouteDecision` thực thi phân loại trong **dưới 10ms** mà không tiêu tốn bất kỳ LLM Token nào. Quy trình gồm 7 bước đệm:
 
 ```mermaid
 flowchart TD
     Step1[Input Query] --> Preproc[1. Strip and Cache Unaccented Text]
     Preproc --> SafetyCheck{2. Strict Safety Filter}
     SafetyCheck -->|Match Injection / Destructive| Reject[Return REJECT Route]
-    SafetyCheck -->|Safe| DomainDetect[3. Domain Predicates Detection]
-    DomainDetect --> WFMatch{4. Static Workflow Trigger Match}
+    SafetyCheck -->|Safe| CasualCheck{3. Casual / Chit-chat Check}
+    CasualCheck -->|Match Casual & No Work Terms| CasualRoute[L1: CASUAL_RESPONSE]
+    CasualCheck -->|Work Query| DomainDetect[4. Domain Predicates Detection]
+    DomainDetect --> WFMatch{5. Static Workflow Trigger Match}
     WFMatch -->|Match WF-01 / WF-02 / WF-05| PathB[Path B: KNOWN_WORKFLOW]
-    WFMatch -->|No Match| SkillMatch{5. Dynamic Skill Match}
+    WFMatch -->|No Match| SkillMatch{6. Dynamic Skill Match}
     SkillMatch -->|Multi-Domain Skill| PathC[Path C: SUPERVISOR_DAG]
-    SkillMatch -->|No Multi Skill| FinalRoute{6. Final Domain Resolution}
+    SkillMatch -->|No Multi Skill| FinalRoute{7. Final Domain Resolution}
     FinalRoute -->|1 Domain| PathA[Path A: DIRECT_SPECIALIST]
     FinalRoute -->|>=2 Domains or Conjunctions| PathC
 ```
@@ -46,7 +51,7 @@ flowchart TD
 ### 2.1. Chi Tiết Từng Bước Trong Thuật Toán `FastTriage`:
 
 #### Bước 1: Tiền Xử Lý & Unaccent Caching (M9 Optimization)
-* **Xử lý**: Chuẩn hóa chuỗi văn bản `query.strip()`.
+* **Xử lý**: Chuẩn hóa chuỗi văn bản `query.strip()`. Kiểm tra chuỗi rỗng $\rightarrow$ Trả về `CLARIFICATION`.
 * **Caching**: Chạy hàm `unaccent_vietnamese(normalized)` loại bỏ dấu tiếng Việt (vd: *"Lịch ngày mai?"* $\rightarrow$ `"Lich ngay mai?"`). Kết quả được lưu cache tạm thời trong phạm vi biến `unaccented` của hàm `triage()`, loại bỏ chi phí tính toán lại nhiều lần ở các regex matcher phía sau.
 
 #### Bước 2: Bộ Lọc An Toàn Nghiêm Ngặt (Strict Safety Filter)
@@ -60,18 +65,25 @@ flowchart TD
   Nếu khớp $\rightarrow$ Trả về `RouteDecision(RouteType.REJECT, reason_code="SAFETY_REJECT")` lập tức.
 * **Destructive Command Guard**: Kiểm tra các lệnh phá hoại DB/Hệ thống (`DESTRUCTIVE_COMMAND_PATTERN` như `DROP TABLE`, `RM -RF`). Nếu không thuộc câu hỏi định nghĩa lý thuyết (`DEFINITIONAL_INQUIRY_PATTERN`: *"là gì"*, *"nghĩa là gì"*) $\rightarrow$ Trả về `REJECT`.
 
-#### Bước 3: Nhận Diện Miền Tác Vụ (Domain Predicates Detection)
+#### Bước 3: Phân Tuyến Hội Thoại Thường Ngày (Casual / Chit-chat Early Check)
+* **Vấn đề giải quyết**: Người dùng thường hỏi các câu xã giao, hỏi thăm sức khỏe, ăn uống hoặc thời tiết (vd: *"Thời tiết hôm nay thế nào?"*, *"Trưa nay ăn gì?"*, *"Xin chào bạn"*). Các câu này có thể chứa cụm từ tra vấn (như *"thế nào"*) dễ bị nhầm thành tra cứu tài liệu nghiệp vụ (RAG).
+* **Quy tắc**: Nếu truy vấn khớp `CASUAL_PATTERN` và hoàn toàn **không chứa** từ khóa công việc (`not (has_comm or has_calendar or has_doc_terms)`):
+  $$\text{Query} \in \text{CASUAL\_PATTERN} \wedge \neg (\text{has\_comm} \vee \text{has\_calendar} \vee \text{has\_doc\_terms}) \implies \text{CASUAL\_RESPONSE}$$
+  $\rightarrow$ Lập tức trả về `RouteDecision(RouteType.CASUAL_RESPONSE, domains=[Domain.GENERAL], reason_code="CASUAL_CONVERSATION")`. 
+  Thời gian phản hồi **< 1s**, tiêu tốn **0 token Supervisor**.
+
+#### Bước 4: Nhận Diện Miền Tác Vụ (Domain Predicates Detection)
 * **Calendar Domain (`has_calendar`)**: Kết hợp kiểm tra từ khóa lịch (`CALENDAR_CORE`), câu hỏi thời gian (`CALENDAR_INQUIRY`), mốc thời gian tương đối (`CALENDAR_RELATIVE`) hoặc thứ trong tuần (`CALENDAR_WEEKDAY`).
 * **Communication Domain (`has_comm`)**: Kiểm tra từ khóa email (`COMMUNICATION_PATTERN`), thư mời (`INVITATION_PATTERN`) hoặc nhu cầu phản hồi sau họp (`FOLLOWUP_AFTER_MEETING`).
-* **Knowledge Research Domain (`has_research`)**: Kiểm tra từ khóa tài liệu (`RESEARCH_DOC_PATTERN`) kết hợp động từ tra cứu (`RESEARCH_LOOKUP_PATTERN`).
+* **Knowledge Research Domain (`has_research`)**: Kiểm tra từ khóa tài liệu (`RESEARCH_DOC_PATTERN`) kết hợp động từ tra cứu (`RESEARCH_LOOKUP_PATTERN`). Đảm bảo khử nhiễu tiêu đề cuộc họp trong văn bản (`DOC_READ_PATTERN`).
 
-#### Bước 4: Khớp Kịch Bản Cố Định (Static Workflow Matching)
+#### Bước 5: Khớp Kịch Bản Cố Định (Static Workflow Matching)
 * Tra cứu trong `StaticWorkflowRegistry`. Nếu truy vấn khớp với mẫu kích hoạt của `WF-01`, `WF-02`, hay `WF-05` $\rightarrow$ Trả về `RouteDecision(RouteType.STATIC_WORKFLOW, target_workflow_id=matched.workflow_id)`.
 
-#### Bước 5: Khớp Kỹ Năng Động (Dynamic Skill Matching)
+#### Bước 6: Khớp Kỹ Năng Động (Dynamic Skill Matching)
 * Duyệt danh sách kỹ năng trong `SkillRegistry`. Nếu một kỹ năng yêu cầu năng lực đa miền chéo (vừa cần `calendar` vừa cần `gmail`) $\rightarrow$ Chọn **Path C (Supervisor DAG)**.
 
-#### Bước 6: Quyết Định Phân Tuyến Cuối Cùng (Final Route Resolution)
+#### Bước 7: Quyết Định Phân Tuyến Cuối Cùng (Final Route Resolution)
 * Nếu chỉ nhận diện đúng 1 miền tác vụ duy nhất $\rightarrow$ Chọn **Path A (Direct Specialist)**.
 * Nếu nhận diện từ 2 miền tác vụ trở lên hoặc chứa các liên từ nối tác vụ (`_MULTI_STEP_CONJUNCTIONS`: *"rồi"*, *"sau đó"*, *"đồng thời"*) $\rightarrow$ Chọn **Path C (Supervisor DAG)**.
 
@@ -181,6 +193,33 @@ flowchart TD
 * Khi một Specialist Agent báo lỗi (vd: không tìm thấy file hoặc không gọi được API) $\rightarrow$ `SupervisorAgent` nhận lại trạng thái `FAILED`.
 * Supervisor gọi LLM phân tích nguyên nhân thất bại và sinh ra một DAG điều chỉnh (Re-plan DAG).
 * **Giới hạn cứng**: Tối đa **2 lượt Re-planning**. Nếu sau 2 lượt vẫn thất bại, Supervisor dừng lại và tổng hợp câu trả lời báo cáo rõ ràng các bước đã làm được và các bước bị tắc nghẽn cho người dùng.
+
+---
+
+## 6. CHI TIẾT TUYẾN L1: CASUAL RESPONSE (INSTANT CHITCHAT)
+
+### 6.1. Đặc Điểm & Ý Nghĩa
+* Tuyến L1 xử lý các câu chào hỏi, cảm ơn, hỏi thăm xã giao và các câu hỏi đời sống thường nhật (ăn uống, thời tiết) không dính líu đến công việc hay tài liệu nội bộ.
+* Tuyến này **hoàn toàn bỏ qua Supervisor DAG và Specialist Agent**, trả về phản hồi tự nhiên, lịch sự ngay lập tức trong **< 1s**.
+* Tiết kiệm **100% token lập kế hoạch**, triệt tiêu chi phí cho những câu hỏi không cần đến dữ liệu doanh nghiệp.
+
+---
+
+## 7. KIẾN TRÚC QUERY ORCHESTRATION SUBPACKAGE (`app/services/routing/query/`)
+
+Để đảm bảo quy chuẩn codebase sạch sẽ và tuân thủ giới hạn $\le 800$ dòng mã, module điều phối truy vấn được cấu trúc thành một package hoàn chỉnh:
+
+```
+app/services/routing/query/
+├── __init__.py           # Re-export đầy đủ public contracts (QueryOrchestrator, QueryResult...)
+├── orchestrator.py       # Core class QueryOrchestrator (791 dòng) điều phối luồng /query
+├── models.py             # Data models (QueryResult, QueryRouteInfo, factory callback types)
+├── parsing.py            # Regex bóc tách thời gian, lịch hẹn, gmail query parameters
+└── email_synthesis.py    # Soạn thảo bản nháp email & tóm tắt inbox (LLM + heuristic fallback)
+```
+
+* **Relative Imports Nội Bộ**: Các module con trao đổi dữ liệu qua relative import (`from .models import ...`, `from .parsing import ...`), không làm ô nhiễm namespace cha.
+* **Tính tương thích ngược**: Mọi file trong codebase và test suite đều tiếp tục import qua `from app.services.routing.query import QueryOrchestrator, QueryResult` mà không bị gián đoạn.
 
 ---
 

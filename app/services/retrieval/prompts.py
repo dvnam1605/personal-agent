@@ -34,6 +34,7 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "     * In đậm (**...**) các tên cơ quan/đơn vị, cá nhân, số hiệu quyết định, mốc thời gian để làm nổi bật thông tin then chốt.\n"
     "4. CITATION RULES (QUY TẮC TRÍCH DẪN NGUỒN):\n"
     "   - Every material claim about a specific document must cite the evidence using [evidence_id] (e.g. [9c93baaeddda4e70917f5ad906a907d1]).\n"
+    "   - Nếu một câu hoặc ý dựa trên nhiều dẫn chứng, có thể viết liền nhau dạng [id1][id2] hoặc [id1, id2].\n"
     "   - TUYỆT ĐỐI KHÔNG chèn chữ 'evidence_id=' vào trong dấu ngoặc vuông.\n"
     "5. When evidence is insufficient, say so explicitly — never fabricate.\n"
     "6. If the evidence contains contradictions, note them.\n\n"
@@ -99,7 +100,7 @@ def build_synthesis_user_message(
         "Answer the question above using the retrieved evidence.\n"
         "- Trình bày câu trả lời bằng tiếng Việt chuyên nghiệp, dùng định dạng Markdown đẹp mắt (tiêu đề ###, gạch đầu dòng -, in đậm các từ khóa quan trọng).\n"
         "- BẮT BUỘC ghi rõ tên hoặc số hiệu Quyết định/Văn bản cho từng Điều/Khoản trích dẫn (ví dụ: 'Theo Điều 1 Quyết định số 1119/QĐ-TNVN...'). TUYỆT ĐỐI KHÔNG để 'Điều 1:' cộc lốc hoặc rời rạc không rõ văn bản nào.\n"
-        "- Trích dẫn nguồn bằng [evidence_id] (ví dụ: [9c93baaeddda4e70917f5ad906a907d1]). Không viết chữ 'evidence_id='.\n"
+        "- Trích dẫn nguồn bằng [evidence_id] (ví dụ: [9c93baaeddda4e70917f5ad906a907d1] hoặc [id1, id2]). Không viết chữ 'evidence_id='.\n"
         "- Nếu thông tin chưa đủ, nêu rõ điểm còn thiếu."
     )
     return "\n".join(parts)

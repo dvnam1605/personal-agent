@@ -9,21 +9,34 @@ interface MarkdownContentProps {
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
   // Helper to render inline formatting: bold, italic, code, links
   const renderInline = (text: string): React.ReactNode[] => {
-    // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] citation badge
-    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+\])/g
+    // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] or [1, 2] citation badges, or raw hex hashes
+    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
     const parts = text.split(tokenRegex)
 
     return parts.map((part, index) => {
       if (!part) return null
 
-      // Citation badge: [1], [2]
-      if (/^\[\d+\]$/.test(part)) {
-        const num = part.slice(1, -1)
+      // Citation badge: [1], [2], or multi [1, 2]
+      if (/^\[\d+(?:\s*,\s*\d+)*\]$/.test(part)) {
+        const nums = part
+          .slice(1, -1)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
         return (
-          <span key={index} className="md-citation-badge" title={`Nguồn dẫn chứng [${num}]`}>
-            {num}
-          </span>
+          <React.Fragment key={index}>
+            {nums.map((num, nIdx) => (
+              <span key={`${index}-${nIdx}`} className="md-citation-badge" title={`Nguồn dẫn chứng [${num}]`}>
+                {num}
+              </span>
+            ))}
+          </React.Fragment>
         )
+      }
+
+      // Hide any raw evidence hash brackets that may have escaped backend replacement
+      if (/^\[?[0-9a-fA-F]{32}/.test(part)) {
+        return null
       }
 
       // Inline code: `code`
@@ -75,8 +88,15 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
     })
   }
 
+  // Sanitize any raw evidence hash brackets (e.g. [5e294642...]) before parsing
+  const cleanContent = content
+    .replace(/\[\s*[0-9a-fA-F]{32}[^\]\n]*\]?/g, '')
+    .replace(/\b[0-9a-fA-F]{32}\b/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/[ \t]+([.,;:])/, '$1')
+
   // Parse markdown blocks
-  const lines = content.split('\n')
+  const lines = cleanContent.split('\n')
   const elements: React.ReactNode[] = []
 
   let inCodeBlock = false
