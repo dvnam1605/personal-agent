@@ -35,6 +35,8 @@ export interface ChatTurn {
   error?: string
   ttft?: number
   latency?: number
+  tokPerSec?: number
+  tokenCount?: number
 }
 
 interface MessageItemProps {
@@ -61,10 +63,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const data = result?.data || {}
 
   const getDomainLabel = () => {
+    if (result?.route?.route_type === 'supervisor_dag' || domains.length > 1) {
+      return { icon: <Sparkles size={12} />, label: 'Đa tác vụ (Supervisor)' }
+    }
+    if (result?.route?.target_workflow_id === 'WF-05') return { icon: <Users size={12} />, label: 'Hồ sơ họp WF-05' }
+    if (result?.route?.target_workflow_id === 'WF-01') return { icon: <Mail size={12} />, label: 'Tổng hợp họp WF-01' }
     if (domains.includes('calendar')) return { icon: <Calendar size={12} />, label: 'Lịch Google' }
     if (domains.includes('communication')) return { icon: <Mail size={12} />, label: 'Gmail' }
-    if (domains.includes('internal_doc')) return { icon: <FileText size={12} />, label: 'Văn bản nội bộ' }
-    if (result?.route?.target_workflow_id === 'WF-05') return { icon: <Users size={12} />, label: 'Hồ sơ họp' }
+    if (domains.includes('knowledge_research') || domains.includes('internal_doc')) {
+      return { icon: <FileText size={12} />, label: 'Kho tri thức' }
+    }
     return { icon: <Sparkles size={12} />, label: 'Trợ lý' }
   }
 
@@ -183,14 +191,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
         <div className="assistant-content-container">
           <div className="assistant-header">
-            <span className="assistant-name">Naot</span>
+            <span className="assistant-name">Noat</span>
             <div className="assistant-domain-pill">
               {domain.icon}
               <span>{domain.label}</span>
             </div>
             {turn.ttft != null && (
-              <span className="assistant-ttft-badge" title="Thời gian nhận token đầu tiên (TTFT)">
+              <span
+                className="assistant-ttft-badge"
+                title={`Thời gian nhận token đầu (TTFT): ${turn.ttft.toFixed(2)}s${turn.tokPerSec ? ` | Tốc độ: ${turn.tokPerSec.toFixed(1)} tok/s` : ''}${turn.tokenCount ? ` (${turn.tokenCount} tokens)` : ''}`}
+              >
                 ⚡ TTFT: {turn.ttft.toFixed(2)}s
+                {turn.tokPerSec != null && turn.tokPerSec > 0 && (
+                  <span className="assistant-tok-badge-stat"> • {turn.tokPerSec.toFixed(1)} tok/s</span>
+                )}
               </span>
             )}
           </div>

@@ -22,6 +22,7 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("query")
     @classmethod

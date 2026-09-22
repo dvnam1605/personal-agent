@@ -50,7 +50,7 @@ export const SettingsWorkspace: React.FC = () => {
   }
 
   const handleConnectGoogle = () => {
-    window.location.href = '/auth/google/start'
+    window.location.href = apiClient.getGoogleConnectUrl()
   }
 
   const isConnected = Boolean(googleStatus?.connected && googleStatus?.healthy)

@@ -118,6 +118,12 @@
   border-radius: var(--radius-pill);
 }
 
+.assistant-tok-badge-stat {
+  font-weight: 500;
+  color: var(--color-text);
+  opacity: 0.85;
+}
+
 .assistant-body-markdown {
   font-size: var(--text-base);
   color: var(--color-text);

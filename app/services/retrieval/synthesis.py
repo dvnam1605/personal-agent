@@ -103,8 +103,6 @@ def format_document_title(raw_title: str | None, text_content: str | None = None
     fn_match = re.search(r"_(\d+)QD_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
     if fn_match:
         so, day, month, year = fn_match.groups()
-        if so == "427":
-            so = "42"
         return f"Quyết định số {so}/QĐ-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
 
     ct_match = re.search(r"_CT(\d+)_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)

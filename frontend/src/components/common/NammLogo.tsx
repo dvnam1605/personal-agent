@@ -7,7 +7,7 @@ interface NammLogoProps {
 }
 
 /**
- * Bespoke geometric monogram logo for "Naot".
+ * Bespoke geometric monogram logo for "Noat".
  * Combines an architectural "N" prism with dynamic gradient stems
  * and a glowing central neural core representing executive AI intelligence.
  */
@@ -28,7 +28,7 @@ export const NammLogo: React.FC<NammLogoProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       className={`namm-logo-svg ${animated ? 'namm-logo-animated' : ''} ${className}`}
       style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
-      aria-label="Naot Logo"
+      aria-label="Noat Logo"
     >
       <defs>
         <linearGradient id={`namm-stem-l-${id}`} x1="5.5" y1="5" x2="11" y2="27" gradientUnits="userSpaceOnUse">

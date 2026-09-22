@@ -279,15 +279,17 @@
 }
 
 .citation-pill-btn:hover {
-  background-color: var(--color-surface-hover);
+  background-color: var(--color-safe-subtle, rgba(16, 185, 129, 0.08));
   border-color: var(--color-safe);
-  color: #FFFFFF;
+  color: var(--color-text);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+  transform: translateY(-1px);
 }
 
 .citation-pill-btn__index {
   font-size: 10px;
   font-weight: 700;
-  background-color: rgba(16, 185, 129, 0.2);
+  background-color: rgba(16, 185, 129, 0.18);
   color: var(--color-safe);
   width: 16px;
   height: 16px;
@@ -295,19 +297,44 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.citation-pill-btn:hover .citation-pill-btn__index {
+  background-color: var(--color-safe);
+  color: #FFFFFF;
 }
 
 .citation-pill-btn__title {
   font-weight: 500;
+  color: var(--color-text);
+  transition: color var(--transition-fast);
+}
+
+.citation-pill-btn:hover .citation-pill-btn__title {
+  color: var(--color-text);
 }
 
 .citation-pill-btn__page {
   color: var(--color-text-dim);
   font-size: 11px;
+  transition: color var(--transition-fast);
+}
+
+.citation-pill-btn:hover .citation-pill-btn__page {
+  color: var(--color-text-secondary);
 }
 
 .citation-pill-btn__arrow {
   color: var(--color-text-dim);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.citation-pill-btn:hover .citation-pill-btn__arrow {
+  color: var(--color-safe);
+  transform: translateX(2px);
 }
 
 /* Meeting Dossier */

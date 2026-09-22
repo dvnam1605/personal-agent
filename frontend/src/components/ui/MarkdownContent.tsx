@@ -220,30 +220,58 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       flushTable()
     }
 
-    // Check headings
-    if (line.startsWith('### ')) {
+    // Check headings (from h6 down to h1, supports optional leading spaces)
+    const trimmedHeading = line.trimStart()
+    if (trimmedHeading.startsWith('###### ')) {
+      flushList()
+      elements.push(
+        <h6 key={`h6-${elements.length}`} className="md-h6">
+          {renderInline(trimmedHeading.slice(7))}
+        </h6>
+      )
+      continue
+    }
+    if (trimmedHeading.startsWith('##### ')) {
+      flushList()
+      elements.push(
+        <h5 key={`h5-${elements.length}`} className="md-h5">
+          {renderInline(trimmedHeading.slice(6))}
+        </h5>
+      )
+      continue
+    }
+    if (trimmedHeading.startsWith('#### ')) {
+      flushList()
+      elements.push(
+        <h4 key={`h4-${elements.length}`} className="md-h4">
+          {renderInline(trimmedHeading.slice(5))}
+        </h4>
+      )
+      continue
+    }
+    if (trimmedHeading.startsWith('### ')) {
       flushList()
       elements.push(
         <h3 key={`h3-${elements.length}`} className="md-h3">
-          {renderInline(line.slice(4))}
+          {renderInline(trimmedHeading.slice(4))}
         </h3>
       )
       continue
     }
-    if (line.startsWith('## ')) {
+    if (trimmedHeading.startsWith('## ')) {
       flushList()
       elements.push(
         <h2 key={`h2-${elements.length}`} className="md-h2">
-          {renderInline(line.slice(3))}
+          {renderInline(trimmedHeading.slice(3))}
         </h2>
       )
       continue
     }
-    if (line.startsWith('# ')) {
+    if (trimmedHeading.startsWith('# ')) {
       flushList()
       elements.push(
         <h1 key={`h1-${elements.length}`} className="md-h1">
-          {renderInline(line.slice(2))}
+          {renderInline(trimmedHeading.slice(2))}
         </h1>
       )
       continue

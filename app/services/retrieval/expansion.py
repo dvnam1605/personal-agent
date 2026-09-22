@@ -59,17 +59,16 @@ MAX_EXPANSION_PARENTS = 32
 
 
 def resolve_expansion_policy(query: RetrievalQuery) -> ExpansionPolicy:
-    """Deterministic NONE/PARENT default; explicit override wins (P10-08).
+    """Deterministic PARENT default; explicit override wins (Small-to-Big retrieval).
 
-    Hint matching folds case AND strips diacritics (mirroring the FTS unaccent
-    posture) so unaccented Vietnamese questions still route to PARENT.
+    Small-to-Big retrieval pattern: search on child chunks for fine-grained semantic
+    matching, then expand to parent sections/tables to ensure comprehensive context
+    without truncation of tables, lists, or clauses.
+    Explicit query.expansion_policy (e.g. NONE, NEIGHBORS) always overrides.
     """
     if query.expansion_policy is not None:
         return query.expansion_policy
-    haystack = _strip_marks(query.search_query.casefold())
-    if any(_strip_marks(hint) in haystack for hint in _QUESTION_HINTS):
-        return ExpansionPolicy.PARENT
-    return ExpansionPolicy.NONE
+    return ExpansionPolicy.PARENT
 
 
 def _strip_marks(text: str) -> str:
@@ -117,29 +116,45 @@ class ExpansionService:
             )
             return units
 
-        table_scored: list[tuple[float, int, Evidence]] = [
-            (_chunk_score(chunk), idx, unit_for_chunk(chunk, kind="TABLE_CHILD"))
-            for idx, chunk in enumerate(ranked)
-            if is_table_child(chunk)
-        ]
-        orphan_scored: list[tuple[float, int, Evidence]] = [
-            (_chunk_score(chunk), idx, unit_for_chunk(chunk, kind="CHILD"))
-            for idx, chunk in enumerate(ranked)
-            if not is_table_child(chunk) and chunk.parent_id is None
-        ]
-        core = [
-            (idx, chunk)
-            for idx, chunk in enumerate(ranked)
-            if not is_table_child(chunk) and chunk.parent_id is not None
-        ]
-
         if policy is ExpansionPolicy.PARENT:
+            orphan_scored: list[tuple[float, int, Evidence]] = [
+                (
+                    _chunk_score(chunk),
+                    idx,
+                    unit_for_chunk(
+                        chunk, kind="TABLE_CHILD" if is_table_child(chunk) else "CHILD"
+                    ),
+                )
+                for idx, chunk in enumerate(ranked)
+                if chunk.parent_id is None
+            ]
+            core = [
+                (idx, chunk)
+                for idx, chunk in enumerate(ranked)
+                if chunk.parent_id is not None
+            ]
             expanded_scored = await self._parent_units(core, query)
+            all_scored = [*orphan_scored, *expanded_scored]
         else:  # NEIGHBORS
+            table_scored: list[tuple[float, int, Evidence]] = [
+                (_chunk_score(chunk), idx, unit_for_chunk(chunk, kind="TABLE_CHILD"))
+                for idx, chunk in enumerate(ranked)
+                if is_table_child(chunk)
+            ]
+            orphan_scored = [
+                (_chunk_score(chunk), idx, unit_for_chunk(chunk, kind="CHILD"))
+                for idx, chunk in enumerate(ranked)
+                if not is_table_child(chunk) and chunk.parent_id is None
+            ]
+            core = [
+                (idx, chunk)
+                for idx, chunk in enumerate(ranked)
+                if not is_table_child(chunk) and chunk.parent_id is not None
+            ]
             expanded_scored = await self._neighbor_units(core, query)
+            all_scored = [*table_scored, *orphan_scored, *expanded_scored]
 
         # Merge and sort all units by (priority_score DESC, original_rank_index ASC)
-        all_scored = [*table_scored, *orphan_scored, *expanded_scored]
         all_scored.sort(key=lambda item: (-item[0], item[1]))
         units = [item[2] for item in all_scored]
 
@@ -203,6 +218,15 @@ class ExpansionService:
             row = payload_by_pid.get(pid)
             if row is None:
                 logger.warning("parent_payload_missing", extra={"parent_id": pid})
+                best_hit = max(entry["hits"], key=_chunk_score)
+                evidences.append((
+                    _priority(entry["best"], len(entry["hits"])),
+                    entry["min_index"],
+                    unit_for_chunk(
+                        best_hit,
+                        kind="TABLE_CHILD" if is_table_child(best_hit) else "CHILD",
+                    ),
+                ))
                 continue
             best_hit = max(entry["hits"], key=_chunk_score)
             content_raw = str(row["content_raw"])

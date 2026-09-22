@@ -175,3 +175,29 @@ async def test_query_reads_gmail(db_session: AsyncSession) -> None:
     assert body["route"]["target_agent"] == "CommunicationAgent"
     assert body["data"]["count"] == 1
     assert "Invoice" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_query_supervisor_dag_execution(db_session: AsyncSession) -> None:
+    async def retrieve(query: str, user_id: str) -> SynthesisResult:
+        return SynthesisResult(
+            answer="Quy chế chi tiêu quy định hạn mức công tác phí tối đa 1.000.000 VNĐ/ngày.",
+            status=SufficiencyStatus.SUFFICIENT,
+        )
+
+    app = _app(db_session, QueryOrchestrator(retrieve=retrieve, clock=lambda: NOW))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/query",
+            json={"query": "tìm quy chế chi tiêu và xem lịch để soạn email báo cáo"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "needs_approval"
+    assert body["approval_id"] is not None
+    assert body["route"]["route_type"] == "supervisor_dag"
+    assert "Supervisor DAG" in body["message"]
+    assert "quy định hạn mức" in body["message"]
+    assert "Bản nháp email" in body["message"]
+

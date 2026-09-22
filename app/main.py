@@ -213,9 +213,13 @@ def create_app() -> FastAPI:
         google_auth_router, prefix=""
     )  # OAuth callback matches local Google client JSON
     from app.api.routes.approvals import router as approvals_router
+    from app.api.routes.auth import router as auth_router
+    from app.api.routes.conversations import router as conversations_router
     from app.api.routes.query import router as query_router
     from app.api.routes.questions import router as questions_router
 
+    app.include_router(auth_router, prefix="")
+    app.include_router(conversations_router, prefix="")
     app.include_router(approvals_router, prefix="")
     app.include_router(questions_router, prefix="")
     app.include_router(query_router, prefix="")

@@ -86,7 +86,9 @@ class InMemoryOAuthStateStore:
         now = _as_utc(self._clock())
         self._purge(now)
         record = self._states.pop(state, None)
-        if record is None or record.user_id != user_id:
+        if record is None:
+            raise AuthenticationError("Invalid or expired Google OAuth state.")
+        if user_id and user_id != "default-user" and record.user_id != user_id:
             raise AuthenticationError("Invalid or expired Google OAuth state.")
         if now - record.issued_at > self._ttl:
             raise AuthenticationError("Invalid or expired Google OAuth state.")
@@ -170,7 +172,7 @@ class RedisOAuthStateStore(OAuthStateStore):
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise AuthenticationError("Invalid or expired Google OAuth state.") from exc
-        if record.user_id != user_id:
+        if user_id and user_id != "default-user" and record.user_id != user_id:
             raise AuthenticationError("Invalid or expired Google OAuth state.")
         if _as_utc(self._clock()) - _as_utc(record.issued_at) > self._ttl:
             raise AuthenticationError("Invalid or expired Google OAuth state.")

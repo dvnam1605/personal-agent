@@ -7,6 +7,7 @@ from fastapi import Header
 
 from app.core.config import settings
 from app.domain.errors import AuthenticationError
+from app.services.auth.service import verify_access_token
 
 DEFAULT_USER_ID = "default-user"
 API_KEY_HEADER = "X-API-Key"
@@ -37,14 +38,22 @@ def _authorize_request(x_api_key: str | None) -> bool:
 
 
 async def get_current_user_id(
+    authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
 ) -> str:
     """Resolve the local user identity only after the request is authorized.
 
-    The shared API key is bound to ``security.api_key_user_id`` in staging/production.
-    A free ``X-User-ID`` header cannot select another tenant (H3).
+    If an Authorization: Bearer <token> header is present, it takes precedence
+    and resolves the authenticated account. Otherwise, falls back to API Key / X-User-ID.
     """
+    if isinstance(authorization, str) and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+        payload = verify_access_token(token)
+        if payload and "sub" in payload:
+            return str(payload["sub"])
+        raise AuthenticationError("Phiên đăng nhập đã hết hạn hoặc không hợp lệ.")
+
     api_key_authenticated = _authorize_request(x_api_key)
     bound = (settings.security.api_key_user_id or "").strip() or None
     if x_user_id is not None and not x_user_id.strip():

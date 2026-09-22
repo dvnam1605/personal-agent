@@ -12,9 +12,6 @@ from app.services.retrieval.injection_boundary import (
     sanitize_evidence_for_prompt,
 )
 
-# ---------------------------------------------------------------------------
-# System prompt — framing + injection boundary
-# ---------------------------------------------------------------------------
 
 SYNTHESIS_SYSTEM_PROMPT = (
     "You are a professional, highly articulate AI research assistant for Đài Tiếng nói Việt Nam (VOV).  "
@@ -32,12 +29,16 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "     * Phân chia bố cục rõ ràng với tiêu đề cấp 3 (###).\n"
     "     * Dùng gạch đầu dòng (-) hoặc danh sách số để phân tách từng nội dung, đối tượng hoặc quyết định. Tuyệt đối không viết thành một đoạn văn dài liền tù tì.\n"
     "     * In đậm (**...**) các tên cơ quan/đơn vị, cá nhân, số hiệu quyết định, mốc thời gian để làm nổi bật thông tin then chốt.\n"
-    "4. CITATION RULES (QUY TẮC TRÍCH DẪN NGUỒN):\n"
+    "4. TABLES & FINANCIAL BREAKDOWNS (QUY ĐỊNH BẮT BUỘC VỀ BẢNG BIỂU VÀ DỰ TOÁN KINH PHÍ):\n"
+    "   - Khi câu hỏi hoặc bằng chứng đề cập đến bảng biểu, dự toán ngân sách/chi phí, kế hoạch kinh phí hoặc danh mục nhiệm vụ/hoạt động, BẮT BUỘC PHẢI LIỆT KÊ ĐẦY ĐỦ TẤT CẢ các hạng mục/hoạt động có trong bằng chứng kèm số lượng, đơn giá và thành tiền tương ứng (nếu có).\n"
+    "   - TUYỆT ĐỐI KHÔNG tóm tắt làm mất các dòng/hạng mục chi phí, không được chỉ liệt kê một vài hạng mục mẫu rồi bỏ lửng.\n"
+    "   - Trình bày dưới dạng bảng Markdown hoàn chỉnh (hoặc danh sách chi tiết có số tiền cụ thể từng khoản) và nêu rõ tổng mức kinh phí theo đúng văn bản phê duyệt.\n"
+    "5. CITATION RULES (QUY TẮC TRÍCH DẪN NGUỒN):\n"
     "   - Every material claim about a specific document must cite the evidence using [evidence_id] (e.g. [9c93baaeddda4e70917f5ad906a907d1]).\n"
     "   - Nếu một câu hoặc ý dựa trên nhiều dẫn chứng, có thể viết liền nhau dạng [id1][id2] hoặc [id1, id2].\n"
     "   - TUYỆT ĐỐI KHÔNG chèn chữ 'evidence_id=' vào trong dấu ngoặc vuông.\n"
-    "5. When evidence is insufficient, say so explicitly — never fabricate.\n"
-    "6. If the evidence contains contradictions, note them.\n\n"
+    "6. When evidence is insufficient, say so explicitly — never fabricate.\n"
+    "7. If the evidence contains contradictions, note them.\n\n"
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )
 
@@ -53,10 +54,13 @@ SYNTHESIS_EXTERNAL_SYSTEM_PROMPT = (
     "2. FORMATTING & PRESENTATION GUIDELINES (VĂN PHONG VÀ ĐỊNH DẠNG BẮT BUỘC):\n"
     "   - Trả lời bằng tiếng Việt chuẩn mực, mạch lạc, trình bày khoa học và dễ theo dõi.\n"
     "   - Bắt buộc sử dụng Markdown chuyên nghiệp (tiêu đề ###, gạch đầu dòng -, in đậm **tên riêng/số hiệu quyết định**).\n"
-    "3. Clearly separate claims based on internal evidence from external knowledge.\n"
-    "4. Cite internal evidence by [evidence_id] for each claim.\n"
-    "5. Never contradict verified internal evidence with external assumptions.\n"
-    "6. If internal evidence is missing or insufficient for certain parts, "
+    "3. TABLES & FINANCIAL BREAKDOWNS (QUY ĐỊNH BẮT BUỘC VỀ BẢNG BIỂU VÀ DỰ TOÁN KINH PHÍ):\n"
+    "   - Liệt kê đầy đủ mọi hạng mục chi phí, dự toán, số tiền từ các bảng biểu trong bằng chứng mà không tóm tắt làm mất số liệu.\n"
+    "   - Ưu tiên bảng Markdown hoặc danh sách số liệu cụ thể kèm tổng dự toán.\n"
+    "4. Clearly separate claims based on internal evidence from external knowledge.\n"
+    "5. Cite internal evidence by [evidence_id] for each claim.\n"
+    "6. Never contradict verified internal evidence with external assumptions.\n"
+    "7. If internal evidence is missing or insufficient for certain parts, "
     "state that explicitly and label any supplemental external info clearly.\n\n"
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )

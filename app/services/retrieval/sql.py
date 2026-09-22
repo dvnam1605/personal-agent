@@ -15,15 +15,25 @@ active-version guard.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
 SEARCHABLE_LEVEL = 1  # CHILD and TABLE_CHILD rows (spec P10-03/04)
 
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
+
 
 def uuid_literal(value: str) -> str:
     """Canonical quoted UUID literal; raises ValueError on invalid input."""
     return f"'{uuid.UUID(value)}'"
+
+
+def identifier_literal(value: str) -> str:
+    """Canonical quoted identifier literal; validates format to prevent SQL injection."""
+    if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
+        raise ValueError(f"Invalid identifier literal: {value!r}")
+    return f"'{value}'"
 
 
 def vector_literal(vector: list[float]) -> str:
@@ -48,7 +58,7 @@ def document_scope_sql(document_ids: list[str]) -> str:
     """Optional per-document restriction for DOCUMENT_SEARCH / COMPARE modes."""
     if not document_ids:
         return "TRUE"
-    literals = ", ".join(uuid_literal(document_id) for document_id in document_ids)
+    literals = ", ".join(identifier_literal(document_id) for document_id in document_ids)
     return f"d.id IN ({literals})"
 
 
@@ -184,7 +194,7 @@ def parent_scope_sql(parent_ids: list[str]) -> str:
     """Restrict a fetch to explicit parent chunk ids; validates every id."""
     if not parent_ids:
         return "FALSE"
-    literals = ", ".join(uuid_literal(parent_id) for parent_id in parent_ids)
+    literals = ", ".join(identifier_literal(parent_id) for parent_id in parent_ids)
     return f"c.id IN ({literals})"
 
 
@@ -192,5 +202,5 @@ def sibling_scope_sql(parent_ids: list[str]) -> str:
     """IN-list over parent ids for sibling windows; validates every id."""
     if not parent_ids:
         return "FALSE"
-    literals = ", ".join(uuid_literal(parent_id) for parent_id in parent_ids)
+    literals = ", ".join(identifier_literal(parent_id) for parent_id in parent_ids)
     return f"c.parent_id IN ({literals})"

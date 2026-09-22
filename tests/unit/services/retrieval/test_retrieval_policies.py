@@ -402,10 +402,6 @@ class TestCitationExtraction:
         assert citations == []
 
 
-# ===========================================================================
-# P10-20: Answer synthesis
-# ===========================================================================
-
 
 class TestAnswerSynthesis:
     """P10-20 answer synthesiser contract."""

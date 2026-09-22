@@ -4,9 +4,9 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Clock,
   X,
   MessageSquare,
+  Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { WorkspaceType } from './Header'
@@ -21,6 +21,10 @@ interface SidebarProps {
   activeWorkspace: WorkspaceType
   onSelectWorkspace: (workspace: WorkspaceType) => void
   onNewSession: () => void
+  sessions?: Array<{ id: string; title: string; [key: string]: any }>
+  activeSessionId?: string
+  onSelectSession?: (sessionId: string) => void
+  onDeleteSession?: (sessionId: string) => void
   historyTitles?: string[]
   onSelectHistory?: (title: string) => void
 }
@@ -33,9 +37,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeWorkspace,
   onSelectWorkspace,
   onNewSession,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onDeleteSession,
   historyTitles = [],
   onSelectHistory,
 }) => {
+  const displaySessions: Array<{ id: string; title: string }> = sessions
+    ? sessions.map((s) => ({ id: s.id, title: s.title }))
+    : historyTitles.map((title, idx) => ({ id: String(idx), title }))
+
   return (
     <>
       {/* Mobile backdrop */}
@@ -60,8 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             {!isCollapsed && (
               <div className="brand-info">
-                <span className="brand-title">Naot</span>
-                <span className="brand-badge">Executive</span>
+                <span className="brand-title">Noat</span>
+                {/* <span className="brand-badge">Executive</span> */}
               </div>
             )}
           </div>
@@ -95,11 +107,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!isCollapsed && (
             <div className="sidebar-history-header">
               <span className="sidebar-section-title">Lịch sử hội thoại</span>
-              <span className="history-count-badge">{historyTitles.length}</span>
+              <span className="history-count-badge">{displaySessions.length}</span>
             </div>
           )}
 
-          {historyTitles.length === 0 ? (
+          {displaySessions.length === 0 ? (
             !isCollapsed && (
               <div className="sidebar-empty-history">
                 <MessageSquare size={20} className="empty-history-icon" />
@@ -108,21 +120,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )
           ) : (
             <div className="sidebar-recent-list">
-              {historyTitles.slice(-12).reverse().map((title, idx) => (
-                <button
-                  key={idx}
-                  className="sidebar-recent-item"
-                  onClick={() => {
-                    onSelectHistory?.(title)
-                    onSelectWorkspace('assistant')
-                    if (window.innerWidth < 1024) onClose()
-                  }}
-                  title={title}
-                >
-                  <Clock size={13} className="recent-item-icon" />
-                  {!isCollapsed && <span className="recent-item-text">{title}</span>}
-                </button>
-              ))}
+              {displaySessions.map((session) => {
+                const isActive = session.id === activeSessionId
+                return (
+                  <div
+                    key={session.id}
+                    className={clsx(
+                      'sidebar-recent-item-wrapper',
+                      isActive && 'sidebar-recent-item-wrapper--active'
+                    )}
+                  >
+                    <button
+                      className={clsx(
+                        'sidebar-recent-item',
+                        isActive && 'sidebar-recent-item--active'
+                      )}
+                      onClick={() => {
+                        if (onSelectSession) {
+                          onSelectSession(session.id)
+                        } else if (onSelectHistory) {
+                          onSelectHistory(session.title)
+                        }
+                        onSelectWorkspace('assistant')
+                        if (window.innerWidth < 1024) onClose()
+                      }}
+                      title={session.title}
+                    >
+                      <MessageSquare size={13} className="recent-item-icon" />
+                      {!isCollapsed && <span className="recent-item-text">{session.title}</span>}
+                    </button>
+                    {!isCollapsed && onDeleteSession && (
+                      <button
+                        className="sidebar-recent-item__delete"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onDeleteSession(session.id)
+                        }}
+                        title="Xóa cuộc trò chuyện"
+                        aria-label={`Xóa cuộc trò chuyện ${session.title}`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

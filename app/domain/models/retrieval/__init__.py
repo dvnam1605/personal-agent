@@ -53,7 +53,7 @@ class RetrievalQuery(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
     # Caller-supplied packing budget (spec P10-08/13: expansion + packing under
     # an explicit token/latency budget; hard max respected byte-exact).
-    context_token_budget: int = Field(default=4096, ge=128, le=100_000)
+    context_token_budget: int = Field(default=8192, ge=128, le=100_000)
     require_source_diversity: bool = False
     expansion_policy: ExpansionPolicy | None = None
 

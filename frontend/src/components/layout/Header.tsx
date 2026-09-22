@@ -11,9 +11,11 @@ import {
   AlertTriangle,
   Sun,
   Moon,
+  LogOut,
+  LogIn,
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
-import type { GoogleIntegrationStatus } from '../../types/api'
+import type { GoogleIntegrationStatus, UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
 import './Header.css'
 
@@ -26,6 +28,9 @@ interface HeaderProps {
   onNavigate: (workspace: WorkspaceType) => void
   theme?: 'dark' | 'light'
   onToggleTheme?: () => void
+  currentUser?: UserProfile | null
+  onOpenAuth?: () => void
+  onLogout?: () => void
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,6 +39,9 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   theme = 'dark',
   onToggleTheme,
+  currentUser,
+  onOpenAuth,
+  onLogout,
 }) => {
   const [googleStatus, setGoogleStatus] = useState<GoogleIntegrationStatus | null>(null)
 
@@ -53,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [])
 
   const handleConnectGoogle = () => {
-    window.location.href = '/auth/google/start'
+    window.location.href = apiClient.getGoogleConnectUrl()
   }
 
   const isConnected = Boolean(googleStatus?.connected && googleStatus?.healthy)
@@ -79,13 +87,13 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={18} />
         </button>
 
-        <div className="header-brand-badge" onClick={() => onNavigate('assistant')} title="Trợ lý Naot">
+        <div className="header-brand-badge" onClick={() => onNavigate('assistant')} title="Trợ lý Noat">
           <div className="header-brand-gem">
             <NammLogo size={18} />
           </div>
           <div className="header-brand-text">
-            <span className="brand-main-name">Naot</span>
-            <span className="brand-sub-name">Executive AI</span>
+            <span className="brand-main-name">Noat</span>
+            {/* <span className="brand-sub-name">Executive AI</span> */}
           </div>
         </div>
       </div>
@@ -134,13 +142,36 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* User Identity Chip */}
-        <div className="header-user-badge" title={`Người dùng: ${apiClient.getDisplayName()}`}>
-          <div className="header-user-avatar">
-            <User size={13} />
+        {/* User Identity Chip or Login Button */}
+        {currentUser ? (
+          <div className="header-user-badge" title={`Đã đăng nhập: ${currentUser.email}`}>
+            <div className="header-user-avatar">
+              <User size={13} />
+            </div>
+            <span className="header-user-name">
+              {currentUser.full_name || currentUser.email.split('@')[0]}
+            </span>
+            {onLogout && (
+              <button
+                className="header-logout-btn"
+                onClick={onLogout}
+                title="Đăng xuất khỏi tài khoản"
+                aria-label="Đăng xuất"
+              >
+                <LogOut size={13} />
+              </button>
+            )}
           </div>
-          <span className="header-user-name">{apiClient.getDisplayName()}</span>
-        </div>
+        ) : (
+          <button
+            className="header-login-btn"
+            onClick={onOpenAuth}
+            title="Đăng nhập tài khoản"
+          >
+            <LogIn size={13} />
+            <span>Đăng nhập</span>
+          </button>
+        )}
 
         {/* Theme Toggle (Light / Dark) */}
         {onToggleTheme && (

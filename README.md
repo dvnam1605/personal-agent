@@ -11,6 +11,7 @@ Hỏi lịch, đọc mail, tìm quyết định, chuẩn bị họp, soạn foll
 - **Tài liệu nội bộ** — trả lời từ kho văn bản đã nạp, kèm dẫn chứng thay vì đoán.
 - **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
 - **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
+- **Lịch sử hội thoại** — lưu trữ toàn bộ các phiên trò chuyện theo tài khoản người dùng.
 
 Ví dụ bạn có thể nói:
 
@@ -23,7 +24,7 @@ Ví dụ bạn có thể nói:
 
 ## Giao diện
 
-Ứng dụng web **Naot** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu quy chế, duyệt hành động ghi. Có chế độ tối và sáng.
+Ứng dụng web **Noat** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu quy chế, duyệt hành động ghi. Có chế độ tối và sáng.
 
 **Trợ lý điều hành**
 
@@ -57,7 +58,7 @@ Câu hỏi đơn giản (một việc, một nguồn) được xử lý thẳng.
 
 Mọi hành động ghi — tạo/sửa/xóa lịch, gửi hay xóa mail, đổi file trên Drive — đều cần bạn xác nhận. Token duyệt dùng một lần, không gửi lại được.
 
-Dữ liệu được tách theo người dùng. Log không giữ nguyên email hay khóa API.
+Dữ liệu và phiên hội thoại được lưu trữ và tách biệt theo từng tài khoản người dùng.
 
 ## Chạy trên máy bạn
 
@@ -71,9 +72,22 @@ cp .env.example .env
 
 Điền `.env`: khóa API (`SECURITY__API_KEY`), khóa ký duyệt (`SECURITY__APPROVAL_SIGNING_KEY`, tối thiểu 32 ký tự), mật khẩu Postgres/Redis, và nếu dùng Google thì `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. Không commit file `.env`.
 
+Khởi động các dịch vụ:
+
 ```bash
 docker compose up -d
 uv run alembic upgrade head
+```
+
+Tạo tài khoản quản trị viên:
+
+```bash
+uv run python scripts/create_admin.py
+```
+
+Khởi chạy backend (nếu không chạy qua Docker):
+
+```bash
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -88,27 +102,20 @@ npm install
 npm run dev
 ```
 
-Mở `http://localhost:5173`. `docker compose up -d` cũng dựng frontend tại cổng đó.
+Mở `http://localhost:5173`. `docker compose up -d` cũng dựng sẵn frontend tại cổng đó.
 
 ## Kết nối Google
 
-Mở trình duyệt:
-
-```
-http://127.0.0.1:8000/auth/google/start
-```
-
-Đăng nhập Google, cấp quyền lịch / Gmail / Drive tùy việc bạn dùng. Redirect mặc định: `http://localhost:8000/auth/google/callback`.
+Đăng nhập vào tài khoản trên giao diện web `http://localhost:5173`, sau đó bấm nút **"Kết nối"** trên thanh tiêu đề hoặc trong mục **Cài đặt**. Trình duyệt sẽ đưa bạn tới Google để cấp quyền truy cập Lịch / Gmail / Drive / Danh bạ và tự động đồng bộ trở lại ứng dụng.
 
 ## Nói chuyện với trợ lý
 
-Mọi câu hỏi đi qua `POST /query`. Trong môi trường local, gửi kèm `X-API-Key` (nếu đã cấu hình) và `X-User-ID`.
+Mọi câu hỏi đi qua `POST /query`. Gửi kèm token đăng nhập hoặc `X-API-Key`:
 
 ```bash
 curl -s http://127.0.0.1:8000/query \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: default-user" \
-  -H "X-API-Key: $SECURITY__API_KEY" \
+  -H "Authorization: Bearer <token>" \
   -d '{"query": "Lịch ngày mai?"}'
 ```
 
@@ -117,8 +124,7 @@ Khi cần duyệt, phản hồi có `approval_id`. Tạo sự kiện hoặc nhá
 ```bash
 curl -s -X POST "http://127.0.0.1:8000/approvals/<approval_id>/approve" \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: default-user" \
-  -H "X-API-Key: $SECURITY__API_KEY" \
+  -H "Authorization: Bearer <token>" \
   -d '{"execute": true}'
 ```
 
@@ -126,7 +132,7 @@ Không gửi `execute` thì bạn chỉ nhận token một lần; lần sau dùn
 
 ## Kho tài liệu
 
-Nạp PDF/DOCX vào Postgres (pgvector + tìm kiếm đầy đủ). Trợ lý trả lời từ kho này, không bịa nguồn. Embedding tiếng Việt chạy local nếu bạn cài extra `ml` và trỏ đường dẫn model trong `.env`.
+Nạp PDF/DOCX vào Postgres (pgvector + tìm kiếm đầy đủ). Trợ lý trả lời từ kho này, kèm trích dẫn văn bản cụ thể. Embedding tiếng Việt chạy local nếu bạn cài extra `ml` và trỏ đường dẫn model trong `.env`.
 
 File scan (PDF ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi mới nạp markdown:
 
@@ -147,4 +153,4 @@ uv run ruff check .
 
 ## Stack
 
-FastAPI · PostgreSQL 16 + pgvector · Redis 7 · Google Calendar / Gmail / Drive · mô hình embedding/rerank tiếng Việt.
+FastAPI · React (Vite) · PostgreSQL 16 + pgvector · Redis 7 · Google Calendar / Gmail / Drive · mô hình embedding/rerank tiếng Việt.

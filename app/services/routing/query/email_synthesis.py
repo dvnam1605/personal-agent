@@ -131,7 +131,7 @@ async def summarize_emails_stream(
         api_key = settings.llm.openai_api_key
         if api_key:
             system_prompt = (
-                "Bạn là Naot - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Bạn là Noat - trợ lý điều hành AI chuyên nghiệp.\n"
                 "Nhiệm vụ: Đọc nội dung email rồi viết BÁO CÁO TÓM TẮT tự nhiên bằng tiếng Việt.\n\n"
                 "Quy tắc bắt buộc:\n"
                 "- KHÔNG dùng heading markdown (# ## ###). Chỉ dùng emoji + **in đậm** làm đề mục.\n"
@@ -228,25 +228,43 @@ async def summarize_emails(
     return "".join(tokens)
 
 
-async def compose_email_draft(query: str) -> tuple[str, str, list[str]]:
+async def compose_email_draft(
+    query: str,
+    *,
+    context: str | None = None,
+) -> tuple[str, str, list[str]]:
     """Generate subject, body, and recipients for an email draft request using LLM."""
-    subject = "Xin nghỉ phép việc gia đình"
-    recipients = ["quanly@vov.vn"]
-    body = (
-        "Kính gửi: Quản lý trực tiếp,\n\n"
-        "Tôi viết email này để xin phép được nghỉ làm việc 01 ngày vì lý do bận việc gia đình cần trực tiếp giải quyết.\n\n"
-        "Về tiến độ công việc, tôi đã sắp xếp và bàn giao các nhiệm vụ phát sinh cho đồng nghiệp hỗ trợ theo dõi. "
-        "Trong ngày nghỉ, tôi vẫn sẽ kiểm tra email định kỳ và có thể liên hệ qua điện thoại nếu có vấn đề khẩn cấp.\n\n"
-        "Rất mong nhận được sự thông cảm và phê duyệt từ Quản lý.\n\n"
-        "Trân trọng,\n"
-        "[Tên của bạn]"
-    )
+    query_lower = query.lower()
+    if "báo cáo" in query_lower or "chi tiêu" in query_lower:
+        subject = "Báo cáo tổng hợp quy chế chi tiêu và đối chiếu lịch làm việc"
+        recipients = ["ketoan@vov.vn", "quanly@vov.vn"]
+        body_context = f"\n\nThông tin tổng hợp:\n{context}\n" if context else ""
+        body = (
+            "Kính gửi: Ban Giám đốc và Phòng Kế toán - Tài vụ,\n\n"
+            "Tôi xin gửi báo cáo tổng hợp liên quan đến quy chế chi tiêu và đối chiếu với lịch công tác, làm việc sắp tới."
+            f"{body_context}\n"
+            "Kính đề nghị Quản lý và Phòng Kế toán xem xét hướng dẫn các thủ tục phê duyệt theo quy định hiện hành.\n\n"
+            "Trân trọng,\n"
+            "[Tên của bạn]"
+        )
+    else:
+        subject = "Xin nghỉ phép việc gia đình"
+        recipients = ["quanly@vov.vn"]
+        body = (
+            "Kính gửi: Quản lý trực tiếp,\n\n"
+            "Tôi viết email này để xin phép được nghỉ làm việc 01 ngày vì lý do bận việc gia đình cần trực tiếp giải quyết.\n\n"
+            "Về tiến độ công việc, tôi đã sắp xếp và bàn giao các nhiệm vụ phát sinh cho đồng nghiệp hỗ trợ theo dõi. "
+            "Trong ngày nghỉ, tôi vẫn sẽ kiểm tra email định kỳ và có thể liên hệ qua điện thoại nếu có vấn đề khẩn cấp.\n\n"
+            "Rất mong nhận được sự thông cảm và phê duyệt từ Quản lý.\n\n"
+            "Trân trọng,\n"
+            "[Tên của bạn]"
+        )
 
     try:
         api_key = settings.llm.openai_api_key
         if api_key:
             system_prompt = (
-                "Bạn là Naot - trợ lý điều hành AI chuyên nghiệp.\n"
+                "Bạn là Noat - trợ lý điều hành AI chuyên nghiệp.\n"
                 "Nhiệm vụ: Soạn thảo một email công việc chuyên nghiệp, lịch sự bằng tiếng Việt theo yêu cầu của người dùng.\n\n"
                 "Quy tắc phản hồi:\n"
                 "Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc sau, không kèm bất kỳ lời giải thích nào khác:\n"
@@ -256,7 +274,10 @@ async def compose_email_draft(query: str) -> tuple[str, str, list[str]]:
                 '  "body": "Nội dung đầy đủ bức email (chào hỏi kính gửi, lý do, chi tiết công việc/bàn giao, lời kết, ký tên)"\n'
                 "}\n"
             )
-            user_content = f"Yêu cầu: {query}"
+            if context:
+                user_content = f"Yêu cầu: {query}\n\nThông tin đã thu thập từ các bước trước:\n{context}"
+            else:
+                user_content = f"Yêu cầu: {query}"
             model = settings.llm.fast_model or settings.llm.primary_model
             timeout = 35.0
             chunks: list[str] = []

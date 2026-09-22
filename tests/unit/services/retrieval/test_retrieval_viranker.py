@@ -21,7 +21,7 @@ from tests.fixtures.retrieval_benchmark_dataset import BENCHMARK_CORPUS, BENCHMA
 def make_chunk(cid: str, score: float = 0.5) -> RetrievedChunk:
     return RetrievedChunk(
         chunk_id=cid,
-        parent_id="par-1",
+        parent_id=None,
         document_id="doc-1",
         content_raw=f"noi dung {cid}",
         score=score,

@@ -41,7 +41,7 @@ def chunk(
     score: float = 0.5,
     *,
     doc: str = "doc-1",
-    parent: str | None = "par-1",
+    parent: str | None = None,
     node: str | None = None,
     content: str | None = None,
 ) -> RetrievedChunk:
@@ -78,7 +78,7 @@ class FixedHybrid:
 class TestQueryBudget:
     def test_default_and_bounds(self) -> None:
         q = make_query()
-        assert q.context_token_budget == 4096
+        assert q.context_token_budget == 8192
         with pytest.raises(ValueError):
             make_query(context_token_budget=64)
 
@@ -188,10 +188,16 @@ class TestExpansionDecision:
     def test_question_hints_trigger_parent(self, text: str) -> None:
         assert resolve_expansion_policy(make_query(search_query=text)) is ExpansionPolicy.PARENT
 
-    def test_plain_fact_defaults_none(self) -> None:
+    def test_plain_fact_defaults_parent(self) -> None:
         assert resolve_expansion_policy(make_query(search_query="ngay ban hanh van ban")) is (
-            ExpansionPolicy.NONE
+            ExpansionPolicy.PARENT
         )
+
+    def test_explicit_none_override(self) -> None:
+        q = make_query(
+            search_query="ngay ban hanh van ban", expansion_policy=ExpansionPolicy.NONE
+        )
+        assert resolve_expansion_policy(q) is ExpansionPolicy.NONE
 
 
 def _parent_row(pid: str, doc: str, content: str, heading: list[str] | str) -> dict:
@@ -276,19 +282,30 @@ class TestParentExpansion:
 
     async def test_table_children_interleaved_by_score_not_appended_last(self) -> None:
         p1 = str(uuid.uuid4())
-        rows = [_parent_row(p1, "doc-1", "noi dung cha", [])]
+        rows = [_sibling_row("c1", p1, 0, content="noi dung c1")]
         provider = FakeProvider(rows)
         service = ExpansionService(provider)
         # Table child has highest score (0.95), regular child has score 0.5 under parent p1
         table_hit = chunk("t1", 0.95, parent=p1, node="TABLE_CHILD")
         reg_hit = chunk("c1", 0.5, parent=p1)
         units = await service.build_units(
-            [table_hit, reg_hit], ExpansionPolicy.PARENT, make_query()
+            [table_hit, reg_hit], ExpansionPolicy.NEIGHBORS, make_query()
         )
         assert len(units) == 2
-        # TABLE_CHILD has score 0.95 > parent p1 priority (0.5), so TABLE_CHILD is first!
+        # TABLE_CHILD has score 0.95 > regular child score (0.5), so TABLE_CHILD is first!
         assert units[0].kind == "TABLE_CHILD" and units[0].primary_chunk_id == "t1"
-        assert units[1].kind == "PARENT" and units[1].parent_id == p1
+
+    async def test_table_children_expand_to_parent_under_parent_policy(self) -> None:
+        p1 = str(uuid.uuid4())
+        rows = [_parent_row(p1, "doc-1", "noi dung bang hoan chinh", [])]
+        provider = FakeProvider(rows)
+        service = ExpansionService(provider)
+        table_hit = chunk("t1", 0.95, parent=p1, node="TABLE_CHILD")
+        units = await service.build_units(
+            [table_hit], ExpansionPolicy.PARENT, make_query()
+        )
+        assert len(units) == 1
+        assert units[0].kind == "PARENT" and units[0].parent_id == p1
 
     def test_table_detection_helpers(self) -> None:
         assert is_table_child(chunk("x", node="TABLE_CHILD")) is True
@@ -417,7 +434,7 @@ class TestPipelineEndToEnd:
         ]
         provider = FakeProvider()
         pipeline = RetrievalPipeline(FixedHybrid(seq), provider)
-        bundle = await pipeline.run(make_query())
+        bundle = await pipeline.run(make_query(expansion_policy=ExpansionPolicy.NONE))
         assert [item.primary_chunk_id for item in bundle.items] == ["c1", "c2", "dup-c1"]
         assert all(item.kind == "CHILD" for item in bundle.items)
         assert provider.sqls == []  # NONE policy touches no extra storage

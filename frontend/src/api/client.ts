@@ -9,6 +9,9 @@ import type {
   ApprovalRequestResponse,
   ApproveRequestBody,
   ApproveResponse,
+  AuthResponse,
+  DBConversationDetail,
+  DBConversationSummary,
   DenyRequestBody,
   DenyResponse,
   ExecuteApprovalBody,
@@ -18,6 +21,7 @@ import type {
   QueryRequest,
   QueryResult,
   ReadinessResponse,
+  UserProfile,
   UserQuestionAnswer,
 } from '../types/api'
 
@@ -25,9 +29,11 @@ class ApiClient {
   private userId: string = 'default-user'
   private apiKey: string = ''
   private displayName: string = 'namm'
+  private token: string | null = null
 
   constructor() {
-    // Read optional overrides from localStorage
+    // Read optional overrides and auth token from localStorage
+    this.token = localStorage.getItem('personal_ai_auth_token')
     const storedUser = localStorage.getItem('personal_ai_user_id')
     const storedKey = localStorage.getItem('personal_ai_api_key')
     const storedDisplayName = localStorage.getItem('personal_ai_display_name')
@@ -42,9 +48,21 @@ class ApiClient {
       this.apiKey = storedKey
       if (storedUser) this.userId = storedUser
     } else {
-      // In local dev without an API key, the backend strictly requires 'default-user'
-      this.userId = 'default-user'
+      this.userId = storedUser || 'default-user'
     }
+  }
+
+  setToken(token: string | null) {
+    this.token = token
+    if (token) {
+      localStorage.setItem('personal_ai_auth_token', token)
+    } else {
+      localStorage.removeItem('personal_ai_auth_token')
+    }
+  }
+
+  getToken(): string | null {
+    return this.token
   }
 
   setDisplayName(name: string) {
@@ -77,8 +95,11 @@ class ApiClient {
   private getHeaders(): HeadersInit {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      // In development without an API key, the backend requires 'default-user' to prevent 401 UNAUTHENTICATED
-      'X-User-ID': this.apiKey ? this.userId : 'default-user',
+    }
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    } else {
+      headers['X-User-ID'] = this.userId || 'default-user'
     }
     if (this.apiKey) {
       headers['X-API-Key'] = this.apiKey
@@ -143,10 +164,21 @@ class ApiClient {
       onToken?: (delta: string) => void
       onCitations?: (data: { citations?: any[]; sufficiency?: string; data?: any; approval_id?: string }) => void
       onError?: (err: Error) => void
-      onDone?: (data: { run_id: string; status: string }) => void
-    }
+      onDone?: (data: {
+        run_id: string
+        status: string
+        ttft?: number
+        token_count?: number
+        duration?: number
+        tok_per_sec?: number
+      }) => void
+    },
+    conversationId?: string
   ): Promise<void> {
-    const payload: QueryRequest = { query }
+    const payload: QueryRequest & { conversation_id?: string } = {
+      query,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    }
     const url = '/query/stream'
     const headers = {
       ...this.getHeaders(),
@@ -279,6 +311,14 @@ class ApiClient {
   }
 
   /* 4. Google Workspace Integration */
+  getGoogleConnectUrl(): string {
+    const token = this.getToken()
+    if (token) {
+      return `/auth/google/start?token=${encodeURIComponent(token)}`
+    }
+    return '/auth/google/start'
+  }
+
   async getGoogleStatus(): Promise<GoogleIntegrationStatus> {
     return this.request<GoogleIntegrationStatus>('/auth/google/status')
   }
@@ -296,6 +336,94 @@ class ApiClient {
 
   async getReadiness(): Promise<ReadinessResponse> {
     return this.request<ReadinessResponse>('/ready')
+  }
+
+  /* 6. User Authentication */
+  async register(email: string, password: string, fullName?: string): Promise<AuthResponse> {
+    const resp = await this.request<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, full_name: fullName || null }),
+    })
+    if (resp.access_token) {
+      this.setToken(resp.access_token)
+      if (resp.user.full_name) this.setDisplayName(resp.user.full_name)
+      else if (resp.user.email) this.setDisplayName(resp.user.email.split('@')[0])
+      this.setUserId(resp.user.id)
+    }
+    return resp
+  }
+
+  async login(email: string, password: string): Promise<AuthResponse> {
+    const resp = await this.request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+    if (resp.access_token) {
+      this.setToken(resp.access_token)
+      if (resp.user.full_name) this.setDisplayName(resp.user.full_name)
+      else if (resp.user.email) this.setDisplayName(resp.user.email.split('@')[0])
+      this.setUserId(resp.user.id)
+    }
+    return resp
+  }
+
+  async getMe(): Promise<UserProfile> {
+    return this.request<UserProfile>('/auth/me')
+  }
+
+  logout() {
+    this.setToken(null)
+  }
+
+  /* 7. Conversations & Messages Persistence */
+  async listConversations(): Promise<DBConversationSummary[]> {
+    return this.request<DBConversationSummary[]>('/conversations')
+  }
+
+  async createConversation(title?: string): Promise<DBConversationSummary> {
+    return this.request<DBConversationSummary>('/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ title: title || null }),
+    })
+  }
+
+  async getConversation(id: string): Promise<DBConversationDetail> {
+    return this.request<DBConversationDetail>(`/conversations/${encodeURIComponent(id)}`)
+  }
+
+  async updateConversationTitle(id: string, title: string): Promise<DBConversationSummary> {
+    return this.request<DBConversationSummary>(`/conversations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    })
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    await this.request<void>(`/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async saveTurn(
+    conversationId: string,
+    turn: {
+      userQuery: string
+      assistantResponse: string
+      turnId?: string
+      runId?: string
+      metadata?: Record<string, any>
+    }
+  ): Promise<void> {
+    await this.request<void>(`/conversations/${encodeURIComponent(conversationId)}/turn`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_query: turn.userQuery,
+        assistant_response: turn.assistantResponse,
+        turn_id: turn.turnId || null,
+        run_id: turn.runId || null,
+        metadata: turn.metadata || {},
+      }),
+    })
   }
 }
 

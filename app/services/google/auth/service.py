@@ -86,6 +86,7 @@ class GoogleOAuthService:
     ) -> GoogleIntegrationStatus:
         """Consume OAuth state, exchange the code, validate scopes, and persist encrypted tokens."""
         record = await self.state_store.consume(state, user_id)
+        effective_user_id = record.user_id if record.user_id and record.user_id != "default-user" else user_id
         if error:
             raise AuthenticationError("Google authorization was denied.")
         if not code or not code.strip():
@@ -100,7 +101,7 @@ class GoogleOAuthService:
         )
         GoogleScopeValidator.require(token_set.scopes, record.scopes)
 
-        integration = await self._get_integration(session, user_id)
+        integration = await self._get_integration(session, effective_user_id)
         refresh_token = token_set.refresh_token
         if not refresh_token and integration is None:
             raise AuthenticationError(
@@ -124,7 +125,7 @@ class GoogleOAuthService:
                     "Google did not return a refresh token. Revoke the app access and authorize again."
                 )
             integration = GoogleIntegration(
-                user_id=user_id,
+                user_id=effective_user_id,
                 refresh_token_encrypted=cipher.encrypt(refresh_token),
             )
             session.add(integration)
@@ -142,7 +143,7 @@ class GoogleOAuthService:
         if google_subject:
             integration.google_subject = google_subject
 
-        await self._ensure_user(session, user_id, email)
+        await self._ensure_user(session, effective_user_id, email)
         await session.flush()
         return self._status_from_integration(integration)
 

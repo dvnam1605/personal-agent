@@ -7,7 +7,9 @@ Mutations never hit Google directly: they become approval requests.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -185,8 +187,84 @@ class QueryOrchestrator:
             goal=query,
         )
 
+        stream_started_at = time.perf_counter()
+        first_token_at: float | None = None
+        last_token_at: float | None = None
+        total_tokens: int = 0
+
         def _sse(event: str, data: dict[str, Any]) -> str:
             return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        async def _yield_token(delta: str) -> AsyncGenerator[str, None]:
+            nonlocal first_token_at, last_token_at, total_tokens
+            if not delta:
+                return
+            now = time.perf_counter()
+            if first_token_at is None:
+                first_token_at = now
+            last_token_at = now
+            # Vietnamese / English token approximation: count non-whitespace word chunks
+            tok_count = max(1, len(re.findall(r"\S+", delta)))
+            total_tokens += tok_count
+            yield _sse("token", {"delta": delta})
+
+        async def _stream_text(text: str) -> AsyncGenerator[str, None]:
+            if not text:
+                return
+            # Split into chunks of word + trailing whitespace or standalone whitespace:
+            chunks = re.findall(r"\S+|\s+", text)
+            if not chunks:
+                return
+            # Adaptive delay: fast for long answers, comfortable typewriter pacing for short answers
+            delay = min(0.018, max(0.004, 3.2 / max(1, len(chunks))))
+            for chunk in chunks:
+                async for sse_event in _yield_token(chunk):
+                    yield sse_event
+                if delay > 0:
+                    await asyncio.sleep(delay)
+
+        def _emit_done(status: str, extra: dict[str, Any] | None = None) -> str:
+            now = time.perf_counter()
+            ttft = (first_token_at - stream_started_at) if first_token_at is not None else (now - stream_started_at)
+            stream_duration = (last_token_at - first_token_at) if (first_token_at is not None and last_token_at is not None and last_token_at > first_token_at) else max(0.001, now - stream_started_at)
+            tok_per_sec = (total_tokens / max(0.001, stream_duration)) if total_tokens > 0 else 0.0
+
+            route_name = getattr(route, "route_type", None)
+            if hasattr(route_name, "value"):
+                route_name = route_name.value
+
+            logger.info(
+                "streaming_token_metrics",
+                extra={
+                    "run_id": run_id,
+                    "route": str(route_name),
+                    "ttft_seconds": round(ttft, 3),
+                    "total_tokens": total_tokens,
+                    "stream_duration_seconds": round(stream_duration, 3),
+                    "tok_per_sec": round(tok_per_sec, 1),
+                },
+            )
+            logger.info(
+                "⚡ [STREAM PERF] run_id=%s | Route: %s | TTFT: %.3fs | Tokens: %d | Stream Time: %.2fs | Speed: %.1f tok/s",
+                run_id,
+                str(route_name),
+                ttft,
+                total_tokens,
+                stream_duration,
+                tok_per_sec,
+            )
+
+            done_payload: dict[str, Any] = {
+                "run_id": run_id,
+                "status": status,
+                "ttft": round(ttft, 3),
+                "token_count": total_tokens,
+                "duration": round(stream_duration, 3),
+                "tok_per_sec": round(tok_per_sec, 1),
+            }
+            if extra:
+                done_payload.update(extra)
+            return _sse("done", done_payload)
 
         # 1. Yield route metadata event
         yield _sse(
@@ -204,8 +282,9 @@ class QueryOrchestrator:
         try:
             if decision.route_type is RouteType.REJECT:
                 msg = "Yêu cầu bị từ chối vì vi phạm ranh giới an toàn."
-                yield _sse("token", {"delta": msg})
-                yield _sse("done", {"run_id": run_id, "status": "rejected"})
+                async for item in _stream_text(msg):
+                    yield item
+                yield _emit_done("rejected")
                 return
 
             if decision.route_type is RouteType.CLARIFICATION:
@@ -213,14 +292,16 @@ class QueryOrchestrator:
                     "Bạn có thể nói rõ hơn được không? Ví dụ: xem lịch ngày mai, "
                     "hỏi tài liệu nội bộ, hoặc tạo một cuộc họp."
                 )
-                yield _sse("token", {"delta": msg})
-                yield _sse("done", {"run_id": run_id, "status": "clarification_needed"})
+                async for item in _stream_text(msg):
+                    yield item
+                yield _emit_done("clarification_needed")
                 return
 
             if decision.route_type is RouteType.CASUAL_RESPONSE:
                 msg = "Xin chào. Bạn cần tôi giúp gì?"
-                yield _sse("token", {"delta": msg})
-                yield _sse("done", {"run_id": run_id, "status": "casual_response"})
+                async for item in _stream_text(msg):
+                    yield item
+                yield _emit_done("casual_response")
                 return
 
             agent = decision.target_agent
@@ -231,7 +312,8 @@ class QueryOrchestrator:
                     if ev_type == "token":
                         delta = event.get("delta", "")
                         if delta:
-                            yield _sse("token", {"delta": delta})
+                            async for item in _yield_token(delta):
+                                yield item
                     elif ev_type == "citations":
                         yield _sse(
                             "citations",
@@ -240,7 +322,7 @@ class QueryOrchestrator:
                                 "sufficiency": event.get("status"),
                             },
                         )
-                yield _sse("done", {"run_id": run_id, "status": "completed"})
+                yield _emit_done("completed")
                 return
 
             # For other routes (Calendar, Email, Workflows), execute specialist
@@ -249,12 +331,7 @@ class QueryOrchestrator:
                 handled = await self._handle_workflow(
                     session, user_id, query, run_id, decision, route
                 )
-                result = handled or QueryResult(
-                    run_id=run_id,
-                    status="routed",
-                    message="Yêu cầu được định tuyến tới workflow nhưng chưa thực thi trên luồng này.",
-                    route=route,
-                )
+                result = handled or self._fallback_workflow_result(run_id, decision, route)
             elif agent == CALENDAR_AGENT_NAME:
                 result = await self._handle_calendar(session, user_id, query, run_id, route)
             elif agent == COMMUNICATION_AGENT_NAME:
@@ -279,19 +356,21 @@ class QueryOrchestrator:
                     summaries = list(getattr(page, "items", []) or [])
                     messages = await _load_gmail_details(service, summaries)
                     if not messages:
-                        yield _sse("token", {"delta": "Không có email nào khớp trong hộp thư đến."})
+                        async for item in _stream_text("Không có email nào khớp trong hộp thư đến."):
+                            yield item
                     else:
                         async for delta in summarize_emails_stream(
                             query, messages, timeout_seconds=45.0
                         ):
-                            yield _sse("token", {"delta": delta})
+                            async for item in _yield_token(delta):
+                                yield item
                     yield _sse(
                         "citations",
                         {
                             "data": {"query": gmail_query, "count": len(messages)},
                         },
                     )
-                    yield _sse("done", {"run_id": run_id, "status": "completed"})
+                    yield _emit_done("completed")
                     return
             else:
                 result = QueryResult(
@@ -303,7 +382,8 @@ class QueryOrchestrator:
 
             # Stream message
             if result.message:
-                yield _sse("token", {"delta": result.message})
+                async for item in _stream_text(result.message):
+                    yield item
 
             # Stream citations/data/approval
             if result.data or result.approval_id:
@@ -315,7 +395,12 @@ class QueryOrchestrator:
                     },
                 )
 
-            yield _sse("done", {"run_id": run_id, "status": result.status})
+            if result.status == "needs_approval":
+                final_status = RunStatus.WAITING_APPROVAL
+            else:
+                final_status = RunStatus.COMPLETED
+
+            yield _emit_done(result.status)
 
         except (
             AuthenticationError,
@@ -325,8 +410,9 @@ class QueryOrchestrator:
         ) as exc:
             final_status = RunStatus.COMPLETED
             blocked_msg = _blocked_message(exc)
-            yield _sse("token", {"delta": blocked_msg})
-            yield _sse("done", {"run_id": run_id, "status": "blocked", "error_code": exc.code})
+            async for item in _stream_text(blocked_msg):
+                yield item
+            yield _emit_done("blocked", {"error_code": exc.code})
         except Exception as exc:
             final_status = RunStatus.FAILED
             final_error = str(exc)
@@ -334,9 +420,10 @@ class QueryOrchestrator:
             raise
         finally:
             try:
-                await self._complete(
-                    session, run_id, started, status=final_status, error_summary=final_error
-                )
+                if final_status != RunStatus.WAITING_APPROVAL:
+                    await self._complete(
+                        session, run_id, started, status=final_status, error_summary=final_error
+                    )
             except Exception:
                 logger.warning("stream_complete_run_failed", exc_info=True)
 
@@ -377,16 +464,7 @@ class QueryOrchestrator:
             handled = await self._handle_workflow(session, user_id, query, run_id, decision, route)
             if handled is not None:
                 return handled
-            target = decision.target_workflow_id or decision.route_type.value
-            return QueryResult(
-                run_id=run_id,
-                status="routed",
-                message=(
-                    f"Yêu cầu được định tuyến tới {target}, nhưng POST /query "
-                    "chưa thực thi workflow/supervisor trên đường HTTP này."
-                ),
-                route=route,
-            )
+            return self._fallback_workflow_result(run_id, decision, route)
         if decision.route_type is not RouteType.DIRECT_SPECIALIST:
             return QueryResult(
                 run_id=run_id,
@@ -469,7 +547,59 @@ class QueryOrchestrator:
                 list_events=list_events,
                 search_messages=search_messages,
             )
+        if is_supervisor_route(decision.route_type) or len(route.domains) > 1:
+            from app.services.routing.live_workflows import run_supervisor_dag
+
+            async def retrieve(topic: str) -> Any:
+                return await self._run_retrieval(topic, user_id)
+
+            return await run_supervisor_dag(
+                session=session,
+                user_id=user_id,
+                query=query,
+                run_id=run_id,
+                route=route,
+                now=now,
+                list_events=list_events,
+                search_messages=search_messages,
+                retrieve=retrieve,
+            )
         return None
+
+    def _fallback_workflow_result(
+        self, run_id: str, decision: RouteDecision, route: QueryRouteInfo
+    ) -> QueryResult:
+        if is_supervisor_route(decision.route_type) or len(route.domains) > 1:
+            domain_labels = {
+                "calendar": "Lịch Google",
+                "communication": "Email",
+                "knowledge_research": "Kho tri thức",
+                "internal_doc": "Tài liệu nội bộ",
+            }
+            detected = [domain_labels.get(d, d) for d in route.domains]
+            detected_str = " + ".join(detected) if detected else "đa tác vụ"
+            message = (
+                f"Hệ thống đã nhận diện yêu cầu đa tác vụ liên quan đến: {detected_str}.\n\n"
+                "Hiện tại trên luồng hội thoại trực tiếp, bạn nên thực hiện tuần tự các bước để đạt hiệu quả cao nhất:\n"
+                "1. Tra cứu thông tin (ví dụ: 'Tìm quy chế chi tiêu công tác trong kho tài liệu')\n"
+                "2. Tra cứu lịch (ví dụ: 'Xem lịch tuần này của tôi')\n"
+                "3. Soạn thảo email (ví dụ: 'Soạn email báo cáo chi tiêu gửi phòng kế toán')"
+            )
+            return QueryResult(
+                run_id=run_id,
+                status="routed",
+                message=message,
+                route=route,
+            )
+        target = decision.target_workflow_id or decision.route_type.value
+        return QueryResult(
+            run_id=run_id,
+            status="routed",
+            message=(
+                f"Yêu cầu được định tuyến tới {target}, nhưng quy trình này chưa được kích hoạt trực tiếp trên luồng hội thoại này."
+            ),
+            route=route,
+        )
 
     async def _handle_calendar(
         self,
@@ -714,7 +844,7 @@ class QueryOrchestrator:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=4)
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=12)
         from app.domain.models.retrieval import RetrievalQuery
 
         retrieval_query = RetrievalQuery(
@@ -723,6 +853,7 @@ class QueryOrchestrator:
             requester_id=retrieval_requester_id(user_id),
             top_k_dense=25,
             top_k_sparse=25,
+            context_token_budget=8192,
         )
         return await self._pipeline.run_with_synthesis(retrieval_query, internal_only=True)
 
@@ -732,7 +863,7 @@ class QueryOrchestrator:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=4)
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=12)
         from app.domain.models.retrieval import RetrievalQuery
 
         retrieval_query = RetrievalQuery(
@@ -741,6 +872,7 @@ class QueryOrchestrator:
             requester_id=retrieval_requester_id(user_id),
             top_k_dense=25,
             top_k_sparse=25,
+            context_token_budget=8192,
         )
         async for event in self._pipeline.run_with_streaming_synthesis(
             retrieval_query, internal_only=True

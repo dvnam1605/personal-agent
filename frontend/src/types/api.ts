@@ -238,3 +238,42 @@ export interface AppErrorEnvelope {
     details?: Record<string, any>;
   };
 }
+
+/* Authentication */
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  is_active: boolean;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserProfile;
+}
+
+/* Database Conversations */
+export interface DBMessageItem {
+  id: string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  metadata: Record<string, any>;
+  created_at: string;
+}
+
+export interface DBConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface DBConversationDetail {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: DBMessageItem[];
+}

@@ -79,9 +79,9 @@ export const AssistantWorkspace: React.FC<AssistantWorkspaceProps> = ({
               <div className="cockpit-hero-banner">
                 <div className="hero-status-pill">
                   <NammLogo size={14} />
-                  <span>Naot — Sẵn sàng phục vụ</span>
+                  <span>Noat — Sẵn sàng phục vụ</span>
                 </div>
-                <h2 className="cockpit-hero-title">Xin chào, tôi là Naot</h2>
+                <h2 className="cockpit-hero-title">Xin chào, tôi là Noat</h2>
                 <p className="cockpit-hero-desc">
                   Trợ lý điều hành thông minh kết nối an toàn với Google Calendar, Gmail và kho dữ liệu quy chế nội bộ. Mọi thao tác gửi email hay thay đổi lịch trình đều được chuẩn bị kỹ lưỡng và có sự phê duyệt bảo vệ của bạn.
                 </p>
