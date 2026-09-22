@@ -74,6 +74,76 @@ from .parsing import (
 
 logger = logging.getLogger(__name__)
 
+FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"^\s*(còn|tiếp|thế còn|vậy còn|ngoài ra|chi tiết hơn|xem thêm|nữa không|hết chưa)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(còn\s+văn\s+bản\s+nào|còn\s+quyết\s+định\s+nào|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không|tiếp\s+tục|tiếp\s+đi)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(ông\s+ấy|bà\s+ấy|văn\s+bản\s+đó|quyết\s+định\s+đó|người\s+đó)\b",
+        re.IGNORECASE,
+    ),
+]
+
+
+def is_followup_query(query: str) -> bool:
+    """Detect if a user turn is a conversational follow-up depending on prior context."""
+    q = query.strip().lower()
+    for pattern in FOLLOWUP_PATTERNS:
+        if pattern.search(q):
+            return True
+    words = q.split()
+    if len(words) <= 5 and ("còn" in words or "nữa" in words or "tiếp" in words or "hết" in words):
+        return True
+    return False
+
+
+def condense_query_with_history(query: str, history: list[dict[str, str]]) -> str:
+    """Condense a follow-up query with the prior conversation subject/entities."""
+    if not history or not is_followup_query(query):
+        return query
+
+    last_user_query = ""
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            last_user_query = msg.get("content", "").strip()
+            break
+
+    if not last_user_query:
+        return query
+
+    lower_last = last_user_query.lower()
+    subject = ""
+    for name in [
+        "đỗ tiến sỹ",
+        "đỗ tiến sĩ",
+        "vũ hải quang",
+        "ngô minh hiển",
+        "phạm mạnh hùng",
+        "trần minh hùng",
+    ]:
+        if name in lower_last:
+            subject = f"ông {name.title()}"
+            break
+
+    if not subject:
+        m = re.search(
+            r"\b(?:ông|bà|đồng chí|đ/c)\s+([A-ZÀ-Ỹa-zà-ỹ\s]+?)(?=\s+(?:đã|ký|kí|ban hành|\?|$))",
+            last_user_query,
+            re.IGNORECASE,
+        )
+        if m:
+            subject = m.group(0).strip()
+
+    if subject:
+        return f"các văn bản quyết định khác do {subject} ký còn lại trong hệ thống"
+
+    return f"{last_user_query} ({query})"
+
 
 class QueryOrchestrator:
     """Triage a natural-language query and execute the matching live specialist."""
@@ -100,6 +170,31 @@ class QueryOrchestrator:
         self._summarize_emails_fn = summarize_emails_fn
         self._pipeline: Any | None = None
 
+    @staticmethod
+    async def _load_conversation_history(
+        session: AsyncSession,
+        conversation_id: str | None,
+        user_id: str,
+        limit: int = 6,
+    ) -> list[dict[str, str]]:
+        if not conversation_id:
+            return []
+        try:
+            from app.infrastructure.db.models import Message
+
+            stmt = (
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+            )
+            res = await session.execute(stmt)
+            msgs = list(reversed(res.scalars().all()))
+            return [{"role": m.role, "content": m.content} for m in msgs]
+        except Exception:
+            logger.warning("load_conversation_history_failed", exc_info=True)
+            return []
+
     async def handle(
         self,
         session: AsyncSession,
@@ -107,10 +202,20 @@ class QueryOrchestrator:
         query: str,
         *,
         correlation_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> QueryResult:
         """Persist a run, execute the routed specialist, and return a QueryResult."""
         started = time.perf_counter()
-        decision = self._triage.triage(query)
+        history = await self._load_conversation_history(session, conversation_id, user_id)
+        effective_query = query
+        if history and is_followup_query(query):
+            effective_query = condense_query_with_history(query, history)
+            logger.info(
+                "condensed_followup_query",
+                extra={"original": query, "condensed": effective_query},
+            )
+
+        decision = self._triage.triage(effective_query)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(
@@ -128,7 +233,14 @@ class QueryOrchestrator:
         )
 
         try:
-            result = await self._dispatch(session, user_id, query, run_id, decision)
+            result = await self._dispatch(
+                session,
+                user_id,
+                effective_query,
+                run_id,
+                decision,
+                conversation_history=history,
+            )
         except (
             AuthenticationError,
             ExternalServiceError,
@@ -164,12 +276,22 @@ class QueryOrchestrator:
         query: str,
         *,
         correlation_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Triage a query, persist run, stream tokens via SSE, and finalize run status."""
         import json
 
         started = time.perf_counter()
-        decision = self._triage.triage(query)
+        history = await self._load_conversation_history(session, conversation_id, user_id)
+        effective_query = query
+        if history and is_followup_query(query):
+            effective_query = condense_query_with_history(query, history)
+            logger.info(
+                "condensed_followup_query",
+                extra={"original": query, "condensed": effective_query},
+            )
+
+        decision = self._triage.triage(effective_query)
         route = route_info(decision)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
@@ -306,8 +428,10 @@ class QueryOrchestrator:
 
             agent = decision.target_agent
             if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
-                # Real LLM token streaming from RAG pipeline
-                async for event in self._run_retrieval_stream(query, user_id):
+                # Real LLM token streaming from RAG pipeline with multi-turn conversation history
+                async for event in self._run_retrieval_stream(
+                    effective_query, user_id, conversation_history=history
+                ):
                     ev_type = event.get("type")
                     if ev_type == "token":
                         delta = event.get("delta", "")
@@ -434,6 +558,7 @@ class QueryOrchestrator:
         query: str,
         run_id: str,
         decision: RouteDecision,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> QueryResult:
         route = route_info(decision)
         if decision.route_type is RouteType.REJECT:
@@ -477,7 +602,9 @@ class QueryOrchestrator:
         if agent == CALENDAR_AGENT_NAME:
             return await self._handle_calendar(session, user_id, query, run_id, route)
         if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
-            return await self._handle_knowledge(user_id, query, run_id, route)
+            return await self._handle_knowledge(
+                user_id, query, run_id, route, conversation_history=conversation_history
+            )
         if agent == COMMUNICATION_AGENT_NAME:
             return await self._handle_communication(session, user_id, query, run_id, route)
         return QueryResult(
@@ -708,8 +835,11 @@ class QueryOrchestrator:
         query: str,
         run_id: str,
         route: QueryRouteInfo,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> QueryResult:
-        synthesis = await self._run_retrieval(query, user_id)
+        synthesis = await self._run_retrieval(
+            query, user_id, conversation_history=conversation_history
+        )
         citations = [
             citation.model_dump(mode="json")
             for citation in list(getattr(synthesis, "citations", []))
@@ -838,44 +968,58 @@ class QueryOrchestrator:
         )
         return CommunicationService.from_client(client)
 
-    async def _run_retrieval(self, query: str, user_id: str) -> Any:
+    async def _run_retrieval(
+        self,
+        query: str,
+        user_id: str,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> Any:
         if self._retrieve is not None:
             return await self._retrieve(query, user_id)
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=12)
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
         from app.domain.models.retrieval import RetrievalQuery
 
         retrieval_query = RetrievalQuery(
             original_query=query,
             search_query=query,
             requester_id=retrieval_requester_id(user_id),
-            top_k_dense=25,
-            top_k_sparse=25,
-            context_token_budget=8192,
+            top_k_dense=50,
+            top_k_sparse=60,
+            context_token_budget=16384,
         )
-        return await self._pipeline.run_with_synthesis(retrieval_query, internal_only=True)
+        return await self._pipeline.run_with_synthesis(
+            retrieval_query,
+            internal_only=True,
+            conversation_history=conversation_history,
+        )
 
     async def _run_retrieval_stream(
-        self, query: str, user_id: str
+        self,
+        query: str,
+        user_id: str,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=12)
+            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
         from app.domain.models.retrieval import RetrievalQuery
 
         retrieval_query = RetrievalQuery(
             original_query=query,
             search_query=query,
             requester_id=retrieval_requester_id(user_id),
-            top_k_dense=25,
-            top_k_sparse=25,
-            context_token_budget=8192,
+            top_k_dense=50,
+            top_k_sparse=60,
+            context_token_budget=16384,
         )
         async for event in self._pipeline.run_with_streaming_synthesis(
-            retrieval_query, internal_only=True
+            retrieval_query,
+            internal_only=True,
+            conversation_history=conversation_history,
         ):
             yield event
 

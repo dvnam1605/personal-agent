@@ -127,6 +127,7 @@ class RetrievalPipeline:
         query: RetrievalQuery,
         *,
         internal_only: bool = True,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> SynthesisResult:
         """Full path: retrieval → sufficiency → retry → synthesis (P10-18).
 
@@ -163,6 +164,7 @@ class RetrievalPipeline:
             internal_only=internal_only,
             missing_documents=missing_docs if missing_docs else None,
             verdict_status=verdict.status,
+            conversation_history=conversation_history,
         )
 
     async def run_with_streaming_synthesis(
@@ -170,6 +172,7 @@ class RetrievalPipeline:
         query: RetrievalQuery,
         *,
         internal_only: bool = True,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Full path with real-time token streaming: retrieval → sufficiency → streaming synthesis.
 
@@ -215,6 +218,7 @@ class RetrievalPipeline:
             internal_only=internal_only,
             missing_documents=missing_docs if missing_docs else None,
             verdict_status=verdict.status,
+            conversation_history=conversation_history,
         ):
             yield item
 

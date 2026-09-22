@@ -59,6 +59,7 @@ async def submit_query(
         user_id,
         body.query,
         correlation_id=correlation_id,
+        conversation_id=body.conversation_id,
     )
 
 
@@ -80,6 +81,7 @@ async def submit_query_stream(
             user_id,
             body.query,
             correlation_id=correlation_id,
+            conversation_id=body.conversation_id,
         ),
         media_type="text/event-stream",
         headers={

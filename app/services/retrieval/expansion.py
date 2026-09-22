@@ -19,6 +19,7 @@ interleaved seamlessly with other units according to their ranked score.
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
 from typing import Any
 
@@ -58,16 +59,31 @@ _PARENT_BONUS_CAP_HITS = 5  # avoids runaway inflation on huge sections
 MAX_EXPANSION_PARENTS = 32
 
 
-def resolve_expansion_policy(query: RetrievalQuery) -> ExpansionPolicy:
-    """Deterministic PARENT default; explicit override wins (Small-to-Big retrieval).
+_LISTING_PATTERNS = re.compile(
+    r"\b(nhung\s+van\s+ban|cac\s+van\s+ban|van\s+ban\s+nao|quyet\s+dinh\s+nao|liet\s+ke|danh\s+sach|da\s+ki|da\s+ky|ki\s+nhung|ky\s+nhung|ai\s+ky|ai\s+ki|tat\s+ca|toan\s+bo|tong\s+hop|con\s+van\s+ban|con\s+quyet\s+dinh)\b",
+    re.IGNORECASE,
+)
 
-    Small-to-Big retrieval pattern: search on child chunks for fine-grained semantic
-    matching, then expand to parent sections/tables to ensure comprehensive context
-    without truncation of tables, lists, or clauses.
-    Explicit query.expansion_policy (e.g. NONE, NEIGHBORS) always overrides.
+
+def resolve_expansion_policy(query: RetrievalQuery) -> ExpansionPolicy:
+    """Resolve expansion policy: Small-to-Big for deep dives, NONE for multi-document listings.
+
+    Small-to-Big retrieval (PARENT) expands child chunks to root document sections for
+    deep semantic understanding of clauses/tables.
+    However, for catalog/listing/signer queries across multiple documents, expanding to
+    full root parents causes context pack overflow and drops most documents. Keeping
+    child units (NONE) allows all matching documents to be packed within the token budget.
+    Explicit query.expansion_policy always overrides.
     """
     if query.expansion_policy is not None:
         return query.expansion_policy
+
+    # Check if query is a catalog / inventory / listing query
+    combined_query = f"{query.original_query} {query.search_query}"
+    unaccented = _strip_marks(combined_query).lower()
+    if _LISTING_PATTERNS.search(combined_query) or _LISTING_PATTERNS.search(unaccented):
+        return ExpansionPolicy.NONE
+
     return ExpansionPolicy.PARENT
 
 

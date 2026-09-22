@@ -205,7 +205,7 @@ class MarkdownDocumentParser:
             block_index += 1
             parse_warnings.append("unclosed code fence flushed as paragraph at EOF")
 
-        admin_meta = AdministrativeMetadataExtractor.extract(text, filename=source.filename)
+        admin_meta = await AdministrativeMetadataExtractor.aextract(text, filename=source.filename)
 
         return ParsedDocument(
             metadata=ParsedDocumentMetadata(

@@ -420,7 +420,7 @@ class LLMBudgetSettings(BaseModel):
 class TimeoutsSettings(BaseModel):
     google_api_seconds: float = Field(default=10.0, description="Google API request timeout")
     web_search_seconds: float = Field(default=8.0, description="Web search provider timeout")
-    llm_request_seconds: float = Field(default=30.0, description="LLM provider request timeout")
+    llm_request_seconds: float = Field(default=90.0, description="LLM provider request timeout")
     database_query_seconds: float = Field(default=5.0, description="Database query timeout")
 
 

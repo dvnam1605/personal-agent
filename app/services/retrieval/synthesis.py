@@ -59,6 +59,7 @@ class AnswerSynthesizer(Protocol):
         internal_only: bool = True,
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> SynthesisResult: ...
 
     def synthesize_stream(
@@ -69,6 +70,7 @@ class AnswerSynthesizer(Protocol):
         internal_only: bool = True,
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
 
@@ -351,6 +353,7 @@ class PromptAnswerSynthesizer:
         internal_only: bool = True,
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> SynthesisResult:
         if not bundle.items:
             return SynthesisResult(
@@ -365,7 +368,10 @@ class PromptAnswerSynthesizer:
 
         system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
         user_msg = build_synthesis_user_message(
-            question, bundle, missing_documents=missing_documents
+            question,
+            bundle,
+            missing_documents=missing_documents,
+            conversation_history=conversation_history,
         )
 
         try:
@@ -427,6 +433,7 @@ class PromptAnswerSynthesizer:
         internal_only: bool = True,
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream token-by-token synthesis from LLM, then emit citations.
 
@@ -450,7 +457,10 @@ class PromptAnswerSynthesizer:
 
         system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
         user_msg = build_synthesis_user_message(
-            question, bundle, missing_documents=missing_documents
+            question,
+            bundle,
+            missing_documents=missing_documents,
+            conversation_history=conversation_history,
         )
 
         eid_to_index: dict[str, int] = {}

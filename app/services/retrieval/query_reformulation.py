@@ -1,117 +1,204 @@
-"""Query reformulation and normalization for Vietnamese RAG retrieval.
+"""Extensible Query Reformulation and Normalization for Multi-Domain RAG Retrieval.
 
-Provides deterministic query cleaning, typo correction, conversational stopword removal,
-and compound phrase extraction for PostgreSQL FTS websearch_to_tsquery.
+Provides deterministic query cleaning, universal Vietnamese spelling variant generation,
+conversational noise removal, dynamic entity-aware full-text search formulation,
+and intelligent LLM query rewriting fallback.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 
-# Common typos in Vietnamese search queries
-TYPO_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\bdựa\s+toán\b", re.IGNORECASE), "dự toán"),
-    (re.compile(r"\bdua\s+toan\b", re.IGNORECASE), "dự toán"),
-    (re.compile(r"\bkinh\s+phi\b", re.IGNORECASE), "kinh phí"),
-    (re.compile(r"\bbang\s+khen\b", re.IGNORECASE), "bằng khen"),
-    (re.compile(r"\bkhen\s+thuong\b", re.IGNORECASE), "khen thưởng"),
-    (re.compile(r"\bquyet\s+dinh\b", re.IGNORECASE), "quyết định"),
-    (re.compile(r"\btong\s+giam\s+doc\b", re.IGNORECASE), "tổng giám đốc"),
-    (re.compile(r"\bdai\s+tieng\s+noi\b", re.IGNORECASE), "đài tiếng nói"),
-]
+import httpx
 
-# Conversational question filler patterns to remove from lexical search
-CONVERSATIONAL_FILLERS: list[re.Pattern[str]] = [
-    re.compile(
-        r"\b(la\s+bao\s+nhieu|bao\s+nhieu\s+tien|bao\s+nhieu|het\s+bao\s+nhieu)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(nhu\s+the\s+nao|nhu\s+nao|the\s+nao|ra\s+sao)\b", re.IGNORECASE),
-    re.compile(
-        r"\b(cho\s+toi\s+biet|cho\s+biet|hay\s+cho\s+biet|hay\s+tim|tim\s+cho\s+toi|tim\s+kiem|tra\s+cuu)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(thong\s+tin\s+ve|chi\s+tiet\s+ve|noi\s+dung\s+ve|hoi\s+ve)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(da\s+co|co\s+nhung|nhung\s+ai|ai\s+duoc|duoc\s+khong|giup\s+toi|co\s+gi|co\s+khong)\b",
-        re.IGNORECASE,
-    ),
-]
+from app.core.config import settings
+from app.services.retrieval.conversational_filter import (
+    UNIVERSAL_TYPOS,
+    clean_conversational_phrasing,
+    extract_potential_honorific_names,
+)
+from app.services.retrieval.entity_catalog import (
+    DynamicEntityCatalog,
+    get_entity_catalog,
+)
+from app.services.retrieval.vietnamese_orthography import (
+    generate_orthographic_variants,
+    normalize_unicode,
+)
 
-# Key compound phrases in VOV administrative documents for high-precision FTS OR-matching
-KEY_PHRASES: list[str] = [
-    "dự toán kinh phí",
-    "dự toán",
-    "kinh phí",
-    "ngân sách",
-    "tặng bằng khen",
-    "khen thưởng",
-    "bằng khen",
-    "thi đua",
-    "chiến sĩ thi đua",
-    "tiết kiệm chống lãng phí",
-    "thông tin khoa học",
-    "nghiên cứu khoa học",
-    "khoa học và công nghệ",
-    "tiền lương",
-    "phụ cấp",
-    "bổ nhiệm",
-    "tổng giám đốc",
-    "phó tổng giám đốc",
-    "đài tiếng nói việt nam",
-    "đài tiếng nói",
-    "TNVN",
-    "R&D",
-]
+logger = logging.getLogger(__name__)
+
+# Export for backward compatibility
+TYPO_REPLACEMENTS = UNIVERSAL_TYPOS
+
+# Regex patterns for administrative and document identifiers (generic)
+_DOC_NUMBER_PATTERN = re.compile(
+    r"\b(?:số\s+)?(\d{1,5}(?:\s*/\s*[A-ZĐa-zđ\-_]+)?)\b",
+    re.IGNORECASE,
+)
+_YEAR_PATTERN = re.compile(r"\b(19\d\d|20\d\d)\b")
 
 
-def reformulate_query(query: str) -> tuple[str, str]:
-    """Reformulate a user query for both dense and sparse retrieval.
+def reformulate_query(
+    query: str,
+    catalog: DynamicEntityCatalog | None = None,
+) -> tuple[str, str]:
+    """Reformulate a user query for both dense vector and sparse lexical retrieval deterministically.
+
+    This function operates dynamically without hardcoding specific dataset entities:
+    1. Normalizes Unicode to standard NFC.
+    2. Corrects common typographical errors.
+    3. Matches entities dynamically from the DB Entity Catalog (signers, doc types, authorities).
+    4. Dynamically extracts any person names with honorifics/titles and generates
+       their full Vietnamese spelling variants (e.g. y/i interchangeability) on the fly.
+    5. Extracts specific document numbers and years.
+    6. Strips conversational question noise to produce a clean semantic query for embeddings.
+
+    Args:
+        query: The raw query from the user.
+        catalog: Optional custom DynamicEntityCatalog. If None, uses the global singleton.
 
     Returns:
         tuple[str, str]: (cleaned_semantic_query, fts_search_query)
-        - cleaned_semantic_query: Corrected typos, suitable for dense embeddings.
-        - fts_search_query: High-recall, high-precision websearch string for PostgreSQL FTS.
     """
-    normalized = query.strip()
+    normalized = normalize_unicode(query)
 
-    # 1. Apply typo corrections
-    for pattern, replacement in TYPO_REPLACEMENTS:
+    # 1. Apply typos
+    for pattern, replacement in UNIVERSAL_TYPOS:
         normalized = pattern.sub(replacement, normalized)
 
-    # 2. Strip conversational fillers to produce a cleaner semantic query
-    cleaned = normalized
-    for filler in CONVERSATIONAL_FILLERS:
-        cleaned = filler.sub(" ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
-    # 3. Extract matched key phrases for PostgreSQL FTS OR-combination
     matched_phrases: list[str] = []
-    lower_norm = normalized.lower()
-    for kp in KEY_PHRASES:
-        if kp.lower() in lower_norm:
-            phrase = f'"{kp}"'
+
+    # 2. Dynamic Entity Matching from Catalog (if loaded)
+    cat = catalog or get_entity_catalog()
+    if cat:
+        entity_matches = cat.match_entities(normalized)
+        for _, variants in entity_matches:
+            for v in variants:
+                phrase = f'"{v}"'
+                if phrase not in matched_phrases:
+                    matched_phrases.append(phrase)
+
+    # 3. Dynamic Honorific / Person Name Extraction
+    detected_names = extract_potential_honorific_names(normalized)
+    for raw_name in detected_names:
+        variants = generate_orthographic_variants(raw_name)
+        for v in variants:
+            phrase = f'"{v}"'
             if phrase not in matched_phrases:
                 matched_phrases.append(phrase)
 
-    # 4. Extract years (e.g. 2026) and decision numbers
-    for num in re.findall(r"\b\d{4}\b", normalized):
-        item = f'"{num}"'
-        if item not in matched_phrases:
-            matched_phrases.append(item)
+    # 4. Extract specific document numbers (e.g. "số 427", "1367/QĐ", "4351")
+    for m in _DOC_NUMBER_PATTERN.finditer(normalized):
+        token = m.group(1).strip()
+        if "/" in token or (token.isdigit() and len(token) <= 4 and int(token) > 0):
+            clean_num = re.sub(r"\s*/\s*", "/", token)
+            phrase = f'"{clean_num}"'
+            if phrase not in matched_phrases:
+                matched_phrases.append(phrase)
 
-    # 5. Extract decision numbers like "số 42", "42/QĐ", "90/QĐ"
-    for qd_match in re.findall(r"\b(\d{1,4})\s*/\s*qđ", normalized, re.IGNORECASE):
-        item = f'"{qd_match}"'
-        if item not in matched_phrases:
-            matched_phrases.append(item)
+    # 5. Extract 4-digit years (e.g. 2024, 2025, 2026)
+    for m in _YEAR_PATTERN.finditer(normalized):
+        year = m.group(1)
+        phrase = f'"{year}"'
+        if phrase not in matched_phrases:
+            matched_phrases.append(phrase)
 
+    # 6. Strip conversational noise for clean semantic embedding query
+    cleaned_semantic = clean_conversational_phrasing(normalized)
+
+    # 7. Construct PostgreSQL FTS websearch query
     if matched_phrases:
-        fts_query = " OR ".join(matched_phrases)
+        fts_search_query = " OR ".join(matched_phrases)
     else:
-        fts_query = cleaned or normalized
+        fts_search_query = cleaned_semantic or normalized
 
-    return cleaned or normalized, fts_query
+    return cleaned_semantic or normalized, fts_search_query
+
+
+async def areformulate_with_llm(query: str) -> tuple[str, str]:
+    """Rewrite and expand query using LLM for difficult, ambiguous, or multi-faceted queries."""
+    api_key = str(settings.llm.openai_api_key or "")
+    url = settings.llm.chat_completions_url()
+    timeout = settings.timeouts.llm_request_seconds
+
+    prompt = (
+        "Bạn là chuyên gia xử lý truy vấn cho hệ thống tìm kiếm văn bản hành chính RAG.\n"
+        "Hãy phân tích câu hỏi sau của người dùng và trả về JSON:\n"
+        "- semantic_query: câu hỏi chuẩn hóa ngắn gọn để tìm kiếm vector embeddings (loại bỏ từ đàm thoại, giữ ý định chính)\n"
+        "- keywords: danh sách các từ/cụm từ khóa quan trọng để tìm kiếm từ khóa FTS (gồm tên người, chức vụ, loại văn bản, từ khóa chính)\n\n"
+        f'Câu hỏi: "{query}"\n\n'
+        "Chỉ trả lời đúng định dạng JSON trong cặp ```json ``` hoặc thuần JSON:\n"
+        '{"semantic_query": "...", "keywords": ["..."]}\n'
+    )
+
+    chunks: list[str] = []
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream(
+            "POST",
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": settings.llm.primary_model,
+                "messages": [
+                    {"role": "system", "content": "Bạn là chuyên gia trích xuất truy vấn RAG. Chỉ trả về JSON duy nhất."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.0,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data_str)
+                    choices = payload.get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta", {}).get("content")
+                        if delta:
+                            chunks.append(delta)
+                except Exception:
+                    continue
+
+    raw = "".join(chunks).strip()
+    clean_json = re.sub(r"^```(?:json)?\s*", "", raw)
+    clean_json = re.sub(r"\s*```$", "", clean_json.strip())
+    data = json.loads(clean_json)
+
+    semantic = data.get("semantic_query") or query
+    keywords = data.get("keywords") or []
+    phrases = [f'"{kw}"' for kw in keywords if kw]
+    fts_query = " OR ".join(phrases) if phrases else semantic
+
+    return semantic, fts_query
+
+
+async def areformulate_query(
+    query: str,
+    catalog: DynamicEntityCatalog | None = None,
+    use_llm_fallback: bool = True,
+) -> tuple[str, str]:
+    """Asynchronously reformulate query with deterministic rules first, falling back to LLM rewriting."""
+    cleaned_semantic, fts_query = reformulate_query(query, catalog=catalog)
+
+    # If deterministic reformulation matched concrete entities/phrases, return immediately (0ms, 0 tokens)
+    has_exact_phrases = '"' in fts_query
+
+    if has_exact_phrases or not use_llm_fallback:
+        return cleaned_semantic, fts_query
+
+    # Fallback to LLM query reformulation when no specific entities or keywords were extracted
+    try:
+        llm_semantic, llm_fts = await areformulate_with_llm(query)
+        return llm_semantic or cleaned_semantic, llm_fts or fts_query
+    except Exception as exc:
+        logger.warning("llm_query_reformulation_fallback_failed error=%s", exc)
+        return cleaned_semantic, fts_query
