@@ -7,9 +7,11 @@ and intelligent LLM query rewriting fallback.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import time
 
 import httpx
 
@@ -118,6 +120,19 @@ def reformulate_query(
     return cleaned_semantic or normalized, fts_search_query
 
 
+def _extract_json_object(raw: str) -> dict:
+    """Parse the first JSON object in an LLM reply (fences/prose tolerated)."""
+    text = raw.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("LLM reformulation reply contains no JSON object")
+    data = json.loads(text[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("LLM reformulation reply is not a JSON object")
+    return data
+
+
 async def areformulate_with_llm(query: str) -> tuple[str, str]:
     """Rewrite and expand query using LLM for difficult, ambiguous, or multi-faceted queries."""
     api_key = str(settings.llm.openai_api_key or "")
@@ -135,7 +150,8 @@ async def areformulate_with_llm(query: str) -> tuple[str, str]:
     )
 
     chunks: list[str] = []
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # httpx timeouts are per read; bound the whole streamed call as well.
+    async with asyncio.timeout(timeout), httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream(
             "POST",
             url,
@@ -168,17 +184,120 @@ async def areformulate_with_llm(query: str) -> tuple[str, str]:
                 except Exception:
                     continue
 
-    raw = "".join(chunks).strip()
-    clean_json = re.sub(r"^```(?:json)?\s*", "", raw)
-    clean_json = re.sub(r"\s*```$", "", clean_json.strip())
-    data = json.loads(clean_json)
+    data = _extract_json_object("".join(chunks))
 
-    semantic = data.get("semantic_query") or query
+    semantic = str(data.get("semantic_query") or query)
     keywords = data.get("keywords") or []
+    if not isinstance(keywords, list):
+        keywords = []
+    keywords = [str(kw).replace('"', " ").strip() for kw in keywords]
     phrases = [f'"{kw}"' for kw in keywords if kw]
     fts_query = " OR ".join(phrases) if phrases else semantic
 
     return semantic, fts_query
+
+
+# Function syllables that match almost every chunk; OR-ing them only adds noise.
+_FTS_STOPWORDS = frozenset(
+    {
+        "của", "là", "và", "các", "những", "cho", "với", "trong", "có", "được",
+        "này", "đó", "thì", "mà", "về", "theo", "từ", "tại", "một", "nào",
+        "gì", "không", "như", "khi", "đã", "sẽ", "đang", "hay", "hoặc", "bị",
+        "ra", "vào", "để", "ở", "nhé", "vậy", "sao", "the", "of", "and", "or",
+    }
+)
+
+
+def fallback_fts_query(text: str) -> str:
+    """OR adjacent-syllable phrases of a free-text question for FTS.
+
+    ``websearch_to_tsquery`` ANDs every bare word, so a full Vietnamese
+    question (one token per syllable) almost never matches a single chunk.
+    Single syllables OR-ed together match most of the corpus instead
+    ("báo" / "cáo"), so the unit is the syllable bigram: Vietnamese compound
+    words are mostly two syllables, and a quoted pair is a phrase match.
+    Code-like tokens (``80/QĐ``, ``2026``) are kept as standalone terms; lone
+    short digits are dropped as noise. Measured on the live corpus: 0 hits
+    (AND) vs. relevant top-5 with bigram OR.
+    """
+    tokens = [raw.strip("/_'") for raw in re.findall(r"[\w'/]+", text)]
+    tokens = [tok for tok in tokens if len(tok) >= 2 or tok.isdigit()]
+
+    terms: list[str] = []
+
+    def _add(term: str) -> None:
+        quoted = f'"{term}"'
+        if quoted not in terms:
+            terms.append(quoted)
+
+    for left, right in zip(tokens, tokens[1:], strict=False):
+        if left.lower() in _FTS_STOPWORDS or right.lower() in _FTS_STOPWORDS:
+            continue
+        _add(f"{left} {right}")
+    for tok in tokens:
+        if any(ch.isdigit() for ch in tok) and ("/" in tok or len(tok) >= 3):
+            _add(tok)
+    if not terms:  # one-word question: plain significant terms
+        for tok in tokens:
+            if tok.lower() not in _FTS_STOPWORDS and (len(tok) >= 2 or tok.isdigit()):
+                _add(tok)
+    return " OR ".join(terms) if terms else text
+
+
+# LLM rewrites are shared by the dense and sparse branches (which run
+# concurrently) and by retry rounds, so one question costs at most one call.
+_LLM_CACHE_TTL_SECONDS = 600.0
+_LLM_FAILURE_TTL_SECONDS = 30.0
+_LLM_CACHE_MAX = 256
+_llm_cache: dict[str, tuple[float, tuple[str, str] | None]] = {}
+_llm_inflight: dict[tuple[int, str], asyncio.Future[tuple[str, str] | None]] = {}
+
+
+def clear_reformulation_cache() -> None:
+    """Drop cached LLM rewrites (tests, config reloads)."""
+    _llm_cache.clear()
+    _llm_inflight.clear()
+
+
+async def _cached_llm_reformulation(query: str) -> tuple[str, str] | None:
+    """Single-flight + TTL cache around :func:`areformulate_with_llm`.
+
+    Returns ``None`` when the LLM failed; failures are cached briefly so a
+    flaky gateway (429 / timeout) is not hammered by the parallel branches
+    and the retry round.
+    """
+    now = time.monotonic()
+    cached = _llm_cache.get(query)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
+    loop = asyncio.get_running_loop()
+    key = (id(loop), query)
+    pending = _llm_inflight.get(key)
+    if pending is not None:
+        return await asyncio.shield(pending)
+
+    future: asyncio.Future[tuple[str, str] | None] = loop.create_future()
+    _llm_inflight[key] = future
+    result: tuple[str, str] | None = None
+    settled = False
+    try:
+        result = await areformulate_with_llm(query)
+        settled = True
+    except Exception as exc:
+        logger.warning("llm_query_reformulation_fallback_failed error=%s", exc)
+        settled = True
+    finally:
+        # A cancelled caller is not an LLM verdict: release waiters, cache nothing.
+        if settled:
+            ttl = _LLM_CACHE_TTL_SECONDS if result is not None else _LLM_FAILURE_TTL_SECONDS
+            if len(_llm_cache) >= _LLM_CACHE_MAX:
+                _llm_cache.pop(next(iter(_llm_cache)))
+            _llm_cache[query] = (time.monotonic() + ttl, result)
+        _llm_inflight.pop(key, None)
+        if not future.done():
+            future.set_result(result)
+    return result
 
 
 async def areformulate_query(
@@ -192,13 +311,18 @@ async def areformulate_query(
     # If deterministic reformulation matched concrete entities/phrases, return immediately (0ms, 0 tokens)
     has_exact_phrases = '"' in fts_query
 
-    if has_exact_phrases or not use_llm_fallback:
+    if has_exact_phrases:
         return cleaned_semantic, fts_query
 
+    fts_fallback = fallback_fts_query(fts_query)
+    if not use_llm_fallback:
+        return cleaned_semantic, fts_fallback
+
     # Fallback to LLM query reformulation when no specific entities or keywords were extracted
-    try:
-        llm_semantic, llm_fts = await areformulate_with_llm(query)
-        return llm_semantic or cleaned_semantic, llm_fts or fts_query
-    except Exception as exc:
-        logger.warning("llm_query_reformulation_fallback_failed error=%s", exc)
-        return cleaned_semantic, fts_query
+    rewritten = await _cached_llm_reformulation(query)
+    if rewritten is None:
+        return cleaned_semantic, fts_fallback
+    llm_semantic, llm_fts = rewritten
+    if llm_fts and '"' not in llm_fts:
+        llm_fts = fallback_fts_query(llm_fts)
+    return llm_semantic or cleaned_semantic, llm_fts or fts_fallback

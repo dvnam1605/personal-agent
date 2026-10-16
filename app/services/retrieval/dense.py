@@ -27,6 +27,12 @@ from app.services.retrieval.sql import (
 
 logger = logging.getLogger(__name__)
 
+# pgvector's HNSW scan yields at most ``hnsw.ef_search`` (default 40) rows
+# *before* the active-version / owner / document filters apply, so a
+# ``LIMIT 50`` or a document-scoped search could come back short or empty.
+_EF_SEARCH_MIN = 100
+_EF_SEARCH_MAX = 1000
+
 _DENSE_SQL_TEMPLATE = f"""
 SELECT c.id AS chunk_id,
        c.parent_id AS parent_id,
@@ -67,7 +73,7 @@ class DenseRetrievalService:
             filters=filters,
             limit=query.top_k_dense,
         )
-        rows = await self._provider.fetch(sql)
+        rows = await self._fetch(sql, query)
         results = [
             RetrievedChunk(
                 chunk_id=str(row["chunk_id"]),
@@ -83,3 +89,21 @@ class DenseRetrievalService:
         ]
         logger.debug("dense_retrieval_done", extra={"count": len(results)})
         return results
+
+    async def _fetch(self, sql: str, query: RetrievalQuery) -> list[dict]:
+        fetch_with_settings = getattr(self._provider, "fetch_with_settings", None)
+        if fetch_with_settings is None:  # test fakes / minimal providers
+            return await self._provider.fetch(sql)
+        ef_search = min(max(_EF_SEARCH_MIN, 2 * query.top_k_dense), _EF_SEARCH_MAX)
+        settings: dict[str, str] = {"hnsw.ef_search": str(ef_search)}
+        if query.mode is not RetrievalMode.CORPUS_SEARCH and query.document_ids:
+            # A handful of documents: exact distance over their chunks beats an
+            # approximate global scan that filters most candidates away.
+            settings["enable_indexscan"] = "off"
+        return await fetch_with_settings(
+            sql,
+            settings,
+            # pgvector >= 0.8 keeps scanning until LIMIT rows survive filters;
+            # strict_order keeps rows sorted by distance (ranks feed RRF).
+            optional_settings={"hnsw.iterative_scan": "strict_order"},
+        )

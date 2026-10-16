@@ -12,6 +12,8 @@ prompt-building logic (tests, offline evaluation) can use
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -221,10 +223,15 @@ class PromptAnswerSynthesizer:
                 )
                 timeout = settings.timeouts.llm_request_seconds
                 chunks: list[str] = []
+                stream_status: int | None = None
                 # Use streaming under the hood so intermediate chunks keep proxy connection alive
-                # and prevent 20s empty-body timeouts from upstream reverse proxies
+                # and prevent 20s empty-body timeouts from upstream reverse proxies.
+                # httpx timeouts are per read, so a slow-trickling stream also
+                # gets an overall deadline.
                 try:
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with asyncio.timeout(timeout), httpx.AsyncClient(
+                        timeout=timeout
+                    ) as client:
                         async with client.stream(
                             "POST",
                             target_url,
@@ -258,8 +265,17 @@ class PromptAnswerSynthesizer:
                                     continue
                 except Exception as stream_err:  # noqa: BLE001 - stream failure falls back to standard POST
                     logger.warning("synthesis_stream_accumulation_failed error=%s", stream_err)
+                    if isinstance(stream_err, httpx.HTTPStatusError):
+                        stream_status = stream_err.response.status_code
+                    partial = "".join(chunks).strip()
+                    if partial:
+                        # Never pass a cut-off answer off as a complete one.
+                        raise SynthesisInterruptedError(partial) from stream_err
 
                 content = "".join(chunks).strip()
+                if not content and stream_status == 429:
+                    # Rate-limited gateway: an immediate second POST only burns quota.
+                    raise ValueError("LLM gateway rate-limited the synthesis request (429)")
                 if not content:
                     # Fallback to standard POST if streaming produced no chunks
                     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -374,19 +390,25 @@ class PromptAnswerSynthesizer:
             conversation_history=conversation_history,
         )
 
+        interrupted = False
         try:
             answer_text = await self._generate(system_msg, user_msg)
+        except SynthesisInterruptedError as cut:
+            logger.warning("synthesis_generate_interrupted chars=%d", len(cut.partial))
+            answer_text = cut.partial
+            interrupted = True
         except Exception as gen_err:  # noqa: BLE001 - fallback to raw evidence on LLM failure
+            # Error details stay in the log; the user gets a stable message.
             logger.error("synthesis_generate_failed error=%s", gen_err)
             fallback_eids = [it.evidence_id for it in bundle.items[:3]]
             citations = build_citations_from_bundle(fallback_eids, bundle)
             return SynthesisResult(
                 answer=(
-                    f"⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết ({gen_err}). "
+                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
                     "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
                 ),
                 citations=citations,
-                status=SufficiencyStatus.SUFFICIENT
+                status=SufficiencyStatus.PARTIAL
                 if citations
                 else SufficiencyStatus.INSUFFICIENT,
             )
@@ -419,6 +441,12 @@ class PromptAnswerSynthesizer:
         cleaned_answer = re.sub(r"\[\s*\]", "", cleaned_answer)
         cleaned_answer = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned_answer)
 
+        if interrupted:
+            return SynthesisResult(
+                answer=cleaned_answer.strip() + _INTERRUPTED_NOTE,
+                citations=citations,
+                status=SufficiencyStatus.PARTIAL,
+            )
         return SynthesisResult(
             answer=cleaned_answer.strip(),
             citations=citations,
@@ -523,26 +551,50 @@ class PromptAnswerSynthesizer:
                 break
             return out
 
+        status = verdict_status
+        emitted_any = False
+        # Per-read httpx timeouts never fire on a slow-trickling stream, so the
+        # whole generation also gets a wall-clock deadline (checked per chunk:
+        # an asyncio.timeout scope must not span this generator's yields).
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + settings.timeouts.llm_request_seconds
+        failure: str | None = None
         try:
-            async for chunk in self._stream_generate(system_msg, user_msg):
-                buf += chunk
-                emitted = _process_buffer(force=False)
-                if emitted:
-                    yield {"type": "token", "delta": emitted}
+            # aclosing: stopping at the deadline must also close the HTTP stream.
+            async with contextlib.aclosing(
+                self._stream_generate(system_msg, user_msg)
+            ) as stream:
+                async for chunk in stream:
+                    buf += chunk
+                    emitted = _process_buffer(force=False)
+                    if emitted:
+                        emitted_any = True
+                        yield {"type": "token", "delta": emitted}
+                    if loop.time() > deadline:
+                        failure = "deadline"
+                        break
         except Exception as stream_err:  # noqa: BLE001 - fallback gracefully on LLM stream failure
             logger.error("synthesis_stream_generate_failed error=%s", stream_err)
-            yield {
-                "type": "token",
-                "delta": (
-                    f"\n\n⚠️ Lỗi kết nối mô hình AI ({stream_err}). "
-                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
-                ),
-            }
+            failure = "error"
 
         # Flush any remaining buffer
         final_emitted = _process_buffer(force=True)
         if final_emitted:
+            emitted_any = True
             yield {"type": "token", "delta": final_emitted}
+
+        if failure is not None:
+            logger.warning("synthesis_stream_incomplete reason=%s", failure)
+            status = SufficiencyStatus.PARTIAL
+            yield {
+                "type": "token",
+                "delta": _INTERRUPTED_NOTE
+                if emitted_any
+                else (
+                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
+                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
+                ),
+            }
 
         # Build citations
         citations = build_citations_from_bundle(cited_ids, bundle)
@@ -553,8 +605,22 @@ class PromptAnswerSynthesizer:
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
-            "status": verdict_status.value,
+            "status": status.value,
         }
+
+
+_INTERRUPTED_NOTE = (
+    "\n\n⚠️ Câu trả lời bị gián đoạn do mất kết nối với mô hình AI, "
+    "nội dung phía trên có thể chưa đầy đủ."
+)
+
+
+class SynthesisInterruptedError(Exception):
+    """The LLM stream broke after producing part of the answer."""
+
+    def __init__(self, partial: str) -> None:
+        super().__init__("LLM stream interrupted after partial output")
+        self.partial = partial
 
 
 GenerateCallback = Callable[[str, str], Awaitable[str]]

@@ -74,6 +74,15 @@ from .parsing import (
 
 logger = logging.getLogger(__name__)
 
+# Live RAG knobs while the cross-encoder reranker is disabled. RRF order is
+# the final order, so keep the prompt to the strongest candidates: fewer,
+# better chunks cost fewer gateway tokens and give the LLM less noise.
+_RAG_TOP_K_DENSE = 50
+_RAG_TOP_K_SPARSE = 60
+_RAG_MAX_CANDIDATES = 16
+_RAG_PER_DOCUMENT_CAP = 4
+_RAG_CONTEXT_TOKEN_BUDGET = 8192
+
 FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
         r"^\s*(còn|tiếp|thế còn|vậy còn|ngoài ra|chi tiết hơn|xem thêm|nữa không|hết chưa)\b",
@@ -968,6 +977,30 @@ class QueryOrchestrator:
         )
         return CommunicationService.from_client(client)
 
+    def _live_pipeline(self) -> Any:
+        if self._pipeline is None:
+            from app.services.retrieval.factory import build_retrieval_pipeline
+
+            self._pipeline = build_retrieval_pipeline(
+                use_viranker=False,
+                per_document_cap=_RAG_PER_DOCUMENT_CAP,
+                rerank_top_k_max=_RAG_MAX_CANDIDATES,
+            )
+        return self._pipeline
+
+    @staticmethod
+    def _live_retrieval_query(query: str, user_id: str) -> Any:
+        from app.domain.models.retrieval import RetrievalQuery
+
+        return RetrievalQuery(
+            original_query=query,
+            search_query=query,
+            requester_id=retrieval_requester_id(user_id),
+            top_k_dense=_RAG_TOP_K_DENSE,
+            top_k_sparse=_RAG_TOP_K_SPARSE,
+            context_token_budget=_RAG_CONTEXT_TOKEN_BUDGET,
+        )
+
     async def _run_retrieval(
         self,
         query: str,
@@ -976,22 +1009,8 @@ class QueryOrchestrator:
     ) -> Any:
         if self._retrieve is not None:
             return await self._retrieve(query, user_id)
-        if self._pipeline is None:
-            from app.services.retrieval.factory import build_retrieval_pipeline
-
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
-        from app.domain.models.retrieval import RetrievalQuery
-
-        retrieval_query = RetrievalQuery(
-            original_query=query,
-            search_query=query,
-            requester_id=retrieval_requester_id(user_id),
-            top_k_dense=50,
-            top_k_sparse=60,
-            context_token_budget=16384,
-        )
-        return await self._pipeline.run_with_synthesis(
-            retrieval_query,
+        return await self._live_pipeline().run_with_synthesis(
+            self._live_retrieval_query(query, user_id),
             internal_only=True,
             conversation_history=conversation_history,
         )
@@ -1002,22 +1021,8 @@ class QueryOrchestrator:
         user_id: str,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        if self._pipeline is None:
-            from app.services.retrieval.factory import build_retrieval_pipeline
-
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
-        from app.domain.models.retrieval import RetrievalQuery
-
-        retrieval_query = RetrievalQuery(
-            original_query=query,
-            search_query=query,
-            requester_id=retrieval_requester_id(user_id),
-            top_k_dense=50,
-            top_k_sparse=60,
-            context_token_budget=16384,
-        )
-        async for event in self._pipeline.run_with_streaming_synthesis(
-            retrieval_query,
+        async for event in self._live_pipeline().run_with_streaming_synthesis(
+            self._live_retrieval_query(query, user_id),
             internal_only=True,
             conversation_history=conversation_history,
         ):
