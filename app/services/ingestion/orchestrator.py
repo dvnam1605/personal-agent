@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 from uuid import uuid4
 
 import structlog
@@ -76,7 +77,13 @@ class IngestionOrchestrator:
         embedding: LocalEmbeddingService,
         heartbeat_callback: Callable[[str], Awaitable[None]] | None = None,
         chunking_settings: ChunkingSettings | None = None,
+        profiler: Any | None = None,
+        profile_store: Any | None = None,
     ) -> None:
+        # Profiling is optional so lightweight test wiring needs neither an LLM
+        # nor the profiles table; production wiring passes both.
+        self._profiler = profiler
+        self._profiles = profile_store
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
@@ -171,6 +178,15 @@ class IngestionOrchestrator:
                 return obs.freeze()
             tree = parsed.document
 
+            # Profile before the persist transaction: the optional LLM fallback
+            # must never hold a DB transaction open.
+            profile_draft = None
+            profile_overrides: dict[str, Any] = {}
+            if self._profiler is not None and self._profiles is not None:
+                profile_overrides = await self._profiles.overrides_for(logical_id)
+                profile_draft = await self._profiler.aprofile(tree, overrides=profile_overrides)
+                obs.durations["profile"] = stage_elapsed()
+
             await mark(IngestionStatus.BUILDING_PARENTS)
             chunk_context = self._chunk_context(source, document_id)
             parents = SectionParentChunker(chunk_context, self._chunking_settings).build_parents(
@@ -236,6 +252,14 @@ class IngestionOrchestrator:
                 await self._repository.activate_candidate(
                     session, logical_document_id=logical_id, document_id=persisted_id
                 )
+                if profile_draft is not None:
+                    await self._profiles.save(
+                        session,
+                        document_id=persisted_id,
+                        logical_document_id=logical_id,
+                        draft=profile_draft,
+                        overrides=profile_overrides,
+                    )
             obs.durations["persist"] = stage_elapsed()
 
             obs.document_id = persisted_id

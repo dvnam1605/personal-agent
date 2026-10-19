@@ -274,7 +274,9 @@ class DoclingDocumentParser:
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
-        full_text = " ".join(n.text for n in nodes)
+        # Newline-joined: header/tail layout rules are line-based (a space join
+        # collapsed the whole document into one "line").
+        full_text = "\n".join(n.text for n in nodes)
         from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 
         admin_meta = AdministrativeMetadataExtractor.extract(full_text, filename=source.filename)
