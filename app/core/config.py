@@ -308,6 +308,23 @@ class ParsingSettings(BaseModel):
     )
 
 
+class ProfilingSettings(BaseModel):
+    """Document category + metadata profiling at ingest (rules first, LLM if unsure)."""
+
+    llm_enabled: bool = Field(
+        default=True,
+        description="Allow one LLM extraction call when rule confidence is low",
+    )
+    llm_threshold: float = Field(
+        default=0.6,
+        description="Category confidence below which the LLM fallback runs",
+    )
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        description="Wall-clock cap for the profiling LLM call",
+    )
+
+
 class ChunkingSettings(BaseModel):
     """Parent/child chunk budgets and merging policy (spec P9C)."""
 
@@ -515,6 +532,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     parsing: ParsingSettings = Field(default_factory=ParsingSettings)
+    profiling: ProfilingSettings = Field(default_factory=ProfilingSettings)
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     react_budget: ReActBudgetSettings = Field(default_factory=ReActBudgetSettings)
     supervisor_budget: SupervisorBudgetSettings = Field(default_factory=SupervisorBudgetSettings)

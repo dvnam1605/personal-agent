@@ -16,6 +16,7 @@ import time
 import httpx
 
 from app.core.config import settings
+from app.core.jsonutil import extract_json_object
 from app.services.retrieval.conversational_filter import (
     UNIVERSAL_TYPOS,
     clean_conversational_phrasing,
@@ -120,17 +121,7 @@ def reformulate_query(
     return cleaned_semantic or normalized, fts_search_query
 
 
-def _extract_json_object(raw: str) -> dict:
-    """Parse the first JSON object in an LLM reply (fences/prose tolerated)."""
-    text = raw.strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end <= start:
-        raise ValueError("LLM reformulation reply contains no JSON object")
-    data = json.loads(text[start : end + 1])
-    if not isinstance(data, dict):
-        raise ValueError("LLM reformulation reply is not a JSON object")
-    return data
+_extract_json_object = extract_json_object
 
 
 async def areformulate_with_llm(query: str) -> tuple[str, str]:

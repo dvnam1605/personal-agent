@@ -22,3 +22,18 @@ def loads(data: bytes | str) -> object:
     if isinstance(data, str):
         data = data.encode("utf-8")
     return orjson.loads(data)
+
+
+def extract_json_object(raw: str) -> dict:
+    """Parse the first JSON object in an LLM reply (code fences / prose tolerated)."""
+    import json
+
+    text = raw.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("LLM reply contains no JSON object")
+    data = json.loads(text[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("LLM reply is not a JSON object")
+    return data
