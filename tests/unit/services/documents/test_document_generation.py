@@ -27,6 +27,7 @@ from app.services.documents.generation import (
     OutlineSection,
     SectionWriter,
     normalize_outline_sections,
+    renumber_document,
 )
 from app.services.documents.render import render_docx, render_markdown
 from app.services.documents.service import DocumentGenerationService, outline_message
@@ -171,6 +172,66 @@ async def test_writer_renumbers_citations_across_sections_and_marks_missing() ->
     assert [x["number"] for x in written.citations] == [1, 2, 3]
     # Every section query is scoped to the selected sources.
     assert all(q.document_ids == ["d1", "d2"] for q in pipeline.queries)
+
+
+async def test_rewrite_section_follows_feedback_and_renumbers() -> None:
+    outline = DocumentOutline(
+        template_key="summary_report",
+        title="Báo cáo thử",
+        sections=[OutlineSection(heading=h, purpose="") for h in ("A", "B")],
+        source_document_ids=["d1", "d2"],
+    )
+    first = FakePipeline([[("d1", "c1"), ("d2", "c2")], [("d2", "c2"), ("d1", "c3")]])
+    written = await SectionWriter(first).write(outline, "viết báo cáo", None)
+    sections = [s.model_dump() for s in written.sections]
+    # A is rewritten citing c4 only: c1 is no longer used, c4 is new.
+    second = FakePipeline([[("d1", "c4")]])
+    new_sections, citations = await SectionWriter(second).rewrite_section(
+        outline,
+        "viết báo cáo",
+        None,
+        index=0,
+        feedback="nêu rõ số tiền thưởng",
+        sections=sections,
+        citations=written.citations,
+    )
+    assert "nêu rõ số tiền thưởng" in second.queries[0].original_query
+    chunks = {c["number"]: c["chunk_id"] for c in citations}
+    assert chunks == {1: "c4", 2: "c2", 3: "c3"}
+    assert new_sections[0]["text"] == "Ý 1 [1]."
+    assert new_sections[1]["text"] == "Ý 1 [2]. Ý 2 [3]."
+
+
+async def test_rewrite_keeps_section_when_nothing_grounded() -> None:
+    outline = DocumentOutline(
+        template_key="summary_report",
+        title="Báo cáo thử",
+        sections=[OutlineSection(heading="A", purpose="")],
+        source_document_ids=["d1"],
+    )
+    sections = [{"heading": "A", "text": "Ý cũ [1].", "status": "ok"}]
+    citations = [{"number": 1, "document_id": "d1", "chunk_id": "c1"}]
+    out = await SectionWriter(FakePipeline([[]])).rewrite_section(
+        outline,
+        "x",
+        None,
+        index=0,
+        feedback="viết ngắn hơn",
+        sections=sections,
+        citations=citations,
+    )
+    assert out == (sections, citations)
+
+
+def test_renumber_document_drops_unused_citations() -> None:
+    sections = [
+        {"heading": "A", "text": "x [3]. y [1].", "status": "ok"},
+        {"heading": "B", "text": MISSING_SECTION_NOTE, "status": "missing"},
+    ]
+    citations = [{"number": n, "chunk_id": f"c{n}"} for n in (1, 2, 3)]
+    new_sections, new_citations = renumber_document(sections, citations)
+    assert new_sections[0]["text"] == "x [1]. y [2]."
+    assert [(c["number"], c["chunk_id"]) for c in new_citations] == [(1, "c3"), (2, "c1")]
 
 
 # --------------------------------------------------------------- render

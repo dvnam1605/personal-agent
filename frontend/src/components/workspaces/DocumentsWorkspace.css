@@ -319,3 +319,157 @@
     padding: var(--space-4);
   }
 }
+
+/* Per-section source check ("Kiểm tra nội dung") */
+.docgen-review {
+  margin-top: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+}
+
+.docgen-review__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.docgen-review__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.docgen-review__item + .docgen-review__item {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.docgen-review__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.docgen-review__toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.docgen-review__toggle:disabled {
+  cursor: default;
+}
+
+.docgen-review__spacer {
+  display: inline-block;
+  width: 14px;
+}
+
+.docgen-review__heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docgen-badge {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 2px var(--space-2);
+  border: 1px solid transparent;
+}
+
+.docgen-badge--ok {
+  color: var(--color-safe);
+  background: var(--color-safe-subtle);
+  border-color: var(--color-safe-border);
+}
+
+.docgen-badge--revised {
+  color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  border-color: var(--color-primary-border);
+}
+
+.docgen-badge--trimmed {
+  color: var(--color-warning);
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
+}
+
+.docgen-badge--muted {
+  color: var(--color-text-muted);
+  background: var(--color-surface-glass-pill);
+  border-color: var(--color-border-subtle);
+}
+
+.docgen-review__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3) 22px;
+}
+
+.docgen-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  border-left: 2px solid var(--color-warning-border);
+  padding-left: var(--space-2);
+}
+
+.docgen-issue--removed {
+  border-left-color: var(--color-danger-border);
+}
+
+.docgen-issue__type {
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.docgen-issue__sentence {
+  color: var(--color-text);
+  font-style: italic;
+}
+
+.docgen-issue__why {
+  color: var(--color-text-muted);
+}
+
+.docgen-review__progress {
+  margin: 0 0 var(--space-2) 22px;
+}
+
+.docgen-review__edit {
+  margin: 0 0 var(--space-3) 22px;
+}
+
+.docgen-review__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.docgen-review__edit-actions .docgen-primary,
+.docgen-review__edit-actions .docgen-secondary {
+  margin-top: var(--space-2);
+}

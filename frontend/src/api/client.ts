@@ -292,6 +292,17 @@ class ApiClient {
     })
   }
 
+  async rewriteDocumentSection(
+    id: string,
+    index: number,
+    feedback: string
+  ): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(
+      `/documents/${encodeURIComponent(id)}/sections/${index}/rewrite`,
+      { method: 'POST', body: JSON.stringify({ feedback }) }
+    )
+  }
+
   /* .docx download needs the auth header, so no plain link */
   async downloadGeneratedDocument(id: string, title?: string): Promise<void> {
     const response = await fetch(`/documents/${encodeURIComponent(id)}/download`, {

@@ -19,6 +19,7 @@ import type {
   GeneratedDocumentView,
 } from '../../types/api'
 import { MarkdownContent } from '../ui/MarkdownContent'
+import { DocumentReviewPanel } from './DocumentReviewPanel'
 import './Workspaces.css'
 import './DocumentsWorkspace.css'
 
@@ -45,6 +46,7 @@ export const DocumentsWorkspace: React.FC = () => {
   const [sections, setSections] = useState<DocumentOutlineSection[]>([])
   const [busy, setBusy] = useState<'outline' | 'writing' | 'loading' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [rewritingIndex, setRewritingIndex] = useState<number | null>(null)
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -108,6 +110,19 @@ export const DocumentsWorkspace: React.FC = () => {
       setError(err?.message || 'Không viết được tài liệu.')
     } finally {
       setBusy(null)
+    }
+  }
+
+  const rewriteSection = async (index: number, feedback: string) => {
+    if (!current) return
+    setRewritingIndex(index)
+    setError(null)
+    try {
+      show(await apiClient.rewriteDocumentSection(current.id, index, feedback))
+    } catch (err: any) {
+      setError(err?.message || 'Không viết lại được mục này.')
+    } finally {
+      setRewritingIndex(null)
     }
   }
 
@@ -320,6 +335,14 @@ export const DocumentsWorkspace: React.FC = () => {
               <p className="docgen-note">
                 Đã lược khỏi tài liệu vì chưa đủ thông tin trong nguồn: {omitted.join('; ')}
               </p>
+            )}
+            {current.sections?.length > 0 && (
+              <DocumentReviewPanel
+                sections={current.sections}
+                rewritingIndex={rewritingIndex}
+                disabled={busy !== null || rewritingIndex !== null}
+                onRewrite={rewriteSection}
+              />
             )}
             <article className="docgen-paper">
               <MarkdownContent content={current.markdown || ''} />

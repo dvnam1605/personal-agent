@@ -144,18 +144,9 @@ class DocumentGenerationService:
         row.outline = outline.model_dump()
         await session.flush()
 
-        template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(row.request)
         try:
             written = await self._writer.write(outline, row.request, requester_id)
-            sections_out = [s.model_dump() for s in written.sections]
-            row.sections = sections_out
-            row.citations = written.citations
-            row.markdown = render_markdown(
-                outline.title, sections_out, written.citations, template=template
-            )
-            path = generated_docs_dir() / f"{row.id}.docx"
-            render_docx(path, outline.title, sections_out, written.citations, template=template)
-            row.docx_path = str(path)
+            self._store(row, outline, [s.model_dump() for s in written.sections], written.citations)
             row.status = "done"
             row.error = None
         except Exception as exc:  # noqa: BLE001 - keep the outline so the user can retry
@@ -164,6 +155,52 @@ class DocumentGenerationService:
             row.error = str(exc)[:500]
         await session.flush()
         return row
+
+    async def rewrite_section(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        requester_id: str | None,
+        doc_id: str,
+        index: int,
+        feedback: str,
+    ) -> GeneratedDocument:
+        """Rewrite one section of a finished document following the user's feedback."""
+        row = await self.get_owned(session, user_id, doc_id)
+        if row.status != "done" or not row.sections:
+            raise ValueError("Tài liệu chưa viết xong, chưa thể viết lại từng mục.")
+        if not 0 <= index < len(row.sections):
+            raise IndexError(index)
+        outline = DocumentOutline.model_validate(row.outline)
+        sections, citations = await self._writer.rewrite_section(
+            outline,
+            row.request,
+            requester_id,
+            index=index,
+            feedback=feedback,
+            sections=list(row.sections),
+            citations=list(row.citations or []),
+        )
+        self._store(row, outline, sections, citations)
+        await session.flush()
+        return row
+
+    @staticmethod
+    def _store(
+        row: GeneratedDocument,
+        outline: DocumentOutline,
+        sections: list[dict[str, Any]],
+        citations: list[dict[str, Any]],
+    ) -> None:
+        """Persist sections/citations and re-render the Markdown and .docx."""
+        template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(row.request)
+        row.sections = sections
+        row.citations = citations
+        row.markdown = render_markdown(outline.title, sections, citations, template=template)
+        path = generated_docs_dir() / f"{row.id}.docx"
+        render_docx(path, outline.title, sections, citations, template=template)
+        row.docx_path = str(path)
 
 
 def outline_message(row: GeneratedDocument) -> str:

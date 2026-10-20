@@ -43,6 +43,11 @@ class ApproveRequest(BaseModel):
     sections: list[SectionIn] | None = Field(default=None, max_length=8)
 
 
+class RewriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    feedback: str = Field(min_length=3, max_length=1000)
+
+
 def _service() -> DocumentGenerationService:
     from app.services.retrieval.factory import build_retrieval_pipeline
     from app.services.retrieval.metadata import MetadataLookupService
@@ -134,6 +139,35 @@ async def approve(
         sections=[s.model_dump() for s in body.sections] if body.sections else None,
         title=body.title,
     )
+    await session.commit()
+    return _view(row)
+
+
+@router.post(
+    "/{doc_id}/sections/{index}/rewrite",
+    summary="Rewrite one section of a finished document following feedback",
+)
+async def rewrite_section(
+    doc_id: str,
+    index: int,
+    body: RewriteRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    await _owned(session, user_id, doc_id)
+    try:
+        row = await _service().rewrite_section(
+            session,
+            user_id=user_id,
+            requester_id=retrieval_requester_id(user_id),
+            doc_id=doc_id,
+            index=index,
+            feedback=body.feedback.strip(),
+        )
+    except IndexError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Section not found.") from None
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     await session.commit()
     return _view(row)
 

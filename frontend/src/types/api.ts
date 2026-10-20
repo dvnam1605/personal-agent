@@ -293,6 +293,28 @@ export interface GeneratedDocumentSummary {
   created_at?: string | null;
 }
 
+export interface SectionReviewIssue {
+  sentence: string;
+  problem: 'unsupported' | 'contradiction' | 'wrong_citation' | 'off_topic' | string;
+  explanation?: string;
+}
+
+/** Outcome of the automatic check of a section against its cited sources. */
+export interface SectionReview {
+  verdict: 'ok' | 'revised' | 'trimmed' | 'skipped' | string;
+  issues: SectionReviewIssue[];
+  removed_sentences: string[];
+  rounds: number;
+}
+
+export interface GeneratedDocumentSection {
+  heading: string;
+  text: string;
+  status: string;
+  citation_numbers?: number[];
+  review?: SectionReview | null;
+}
+
 export interface GeneratedDocumentView {
   id: string;
   status: GeneratedDocumentSummary['status'];
@@ -305,7 +327,7 @@ export interface GeneratedDocumentView {
     source_document_ids?: string[];
     source_titles?: string[];
   };
-  sections: { heading: string; text: string; status: string }[];
+  sections: GeneratedDocumentSection[];
   citations: { number: number; title?: string; section_title?: string; page_start?: number }[];
   markdown?: string | null;
   has_docx: boolean;
