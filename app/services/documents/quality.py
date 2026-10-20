@@ -48,7 +48,9 @@ _META = re.compile(
     r"bang chung (?:hien (?:tai|co)|khong|chua|cua muc)|chua (?:co|du) (?:du lieu|bang chung|co so)|"
     r"tai lieu (?:nguon )?(?:khong|chua) (?:de cap|cung cap|co)|du lieu (?:thu thap )?chua day du|"
     r"thong bao ve (?:tai lieu|du lieu)|ma dinh danh|ma tai lieu|doi chieu|doi soat|"
-    r"luu y ve pham vi du lieu)\b|\bdoc-[0-9a-f]*\b"
+    r"luu y ve pham vi du lieu|chua duoc the hien|chua duoc phan anh|chua duoc cung cap|"
+    r"noi dung con thieu|tai lieu hien (?:tai|co) chi|cac tai lieu duoc cung cap|"
+    r"trong (?:cac )?tai lieu duoc cung cap|ho so hien (?:tai|co))\b|\bdoc-[0-9a-f]*\b"
 )
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+(?=[A-ZĐÀ-Ỹ*\[(\"“])")
 _NUMBER = re.compile(r"\d+(?:[.,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
