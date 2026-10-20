@@ -26,6 +26,7 @@ from app.services.documents.generation import (
     DocumentPlanner,
     OutlineSection,
     SectionWriter,
+    normalize_outline_sections,
 )
 from app.services.documents.render import render_docx, render_markdown
 from app.services.documents.service import DocumentGenerationService, outline_message
@@ -119,6 +120,30 @@ async def test_planner_uses_metadata_sources_and_template_outline() -> None:
         s.heading for s in TEMPLATE_BY_KEY["weekly_report"].sections
     ]
     assert outline.title.startswith("Báo cáo tuần")
+
+
+def test_templates_have_no_generic_summary_heading() -> None:
+    headings = [s.heading for t in TEMPLATE_BY_KEY.values() for s in t.sections]
+    assert not any("tổng hợp" in h.lower() for h in headings)
+
+
+def test_outline_normalizer_renames_generic_heading_and_renumbers() -> None:
+    template = TEMPLATE_BY_KEY["summary_report"]
+    proposed = [
+        OutlineSection(heading="I. Đặc điểm, tình hình chung", purpose="a"),
+        OutlineSection(heading="II. Nội dung tổng hợp", purpose="b"),
+        OutlineSection(heading="2.1 Khen thưởng Liên hoan Phát thanh", purpose="c"),
+        OutlineSection(heading="Chế độ nhân dịp 8/3", purpose="d"),
+        OutlineSection(heading="V. Đánh giá chung", purpose="e"),
+    ]
+    out = normalize_outline_sections(template, proposed)
+    assert [s.heading for s in out] == [
+        "I. Đặc điểm, tình hình chung",
+        "II. Kết quả thực hiện",
+        "III. Khen thưởng Liên hoan Phát thanh",
+        "IV. Chế độ nhân dịp 8/3",
+        "V. Đánh giá chung",
+    ]
 
 
 # --------------------------------------------------------------- writer

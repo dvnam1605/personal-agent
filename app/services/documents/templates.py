@@ -19,6 +19,10 @@ from app.core.text import unaccent_vietnamese
 class SectionSpec:
     heading: str
     purpose: str
+    # The slot the outline planner expands into sections named after the
+    # actual topics of the source documents (one per programme, event or
+    # field of work) instead of a generic "Nội dung …" heading.
+    topical: bool = False
 
 
 @dataclass(frozen=True)
@@ -33,8 +37,8 @@ class DocTemplate:
     extra: dict[str, str] = field(default_factory=dict)
 
 
-def _s(heading: str, purpose: str) -> SectionSpec:
-    return SectionSpec(heading, purpose)
+def _s(heading: str, purpose: str, *, topical: bool = False) -> SectionSpec:
+    return SectionSpec(heading, purpose, topical)
 
 
 TEMPLATES: tuple[DocTemplate, ...] = (
@@ -44,10 +48,14 @@ TEMPLATES: tuple[DocTemplate, ...] = (
         category="report",
         triggers=("bao cao tuan",),
         sections=(
-            _s("I. Tổng quan công việc trong tuần", "Các đầu việc đã thực hiện, kết quả, tiến độ"),
-            _s("II. Khó khăn – vướng mắc", "Vấn đề phát sinh và nguyên nhân"),
+            _s(
+                "I. Kết quả công việc trong tuần",
+                "Các đầu việc đã thực hiện, kết quả, tiến độ",
+                topical=True,
+            ),
+            _s("II. Khó khăn, vướng mắc", "Vấn đề phát sinh và nguyên nhân"),
             _s("III. Kế hoạch tuần tới", "Việc dự kiến, mốc thời gian"),
-            _s("IV. Đề xuất – kiến nghị", "Đề xuất cần cấp trên hỗ trợ/quyết định"),
+            _s("IV. Đề xuất, kiến nghị", "Đề xuất cần cấp trên hỗ trợ/quyết định"),
         ),
     ),
     DocTemplate(
@@ -58,7 +66,7 @@ TEMPLATES: tuple[DocTemplate, ...] = (
         formal_header=True,
         sections=(
             _s("I. Sự cần thiết", "Bối cảnh, căn cứ và lý do đề xuất"),
-            _s("II. Nội dung đề xuất", "Nội dung cụ thể cần phê duyệt"),
+            _s("II. Nội dung đề xuất", "Nội dung cụ thể cần phê duyệt", topical=True),
             _s("III. Kinh phí và nguồn lực", "Dự toán, nhân sự, thời gian (nếu có trong tài liệu)"),
             _s("IV. Kiến nghị", "Nội dung kính trình cấp có thẩm quyền xem xét, phê duyệt"),
         ),
@@ -74,7 +82,11 @@ TEMPLATES: tuple[DocTemplate, ...] = (
                 "I. Thời gian, địa điểm, thành phần",
                 "Thời gian, địa điểm, chủ trì, thư ký, người dự",
             ),
-            _s("II. Nội dung cuộc họp", "Các vấn đề được trình bày và thảo luận"),
+            _s(
+                "II. Diễn biến cuộc họp",
+                "Các vấn đề được trình bày và thảo luận",
+                topical=True,
+            ),
             _s("III. Kết luận và phân công", "Kết luận, nhiệm vụ, người phụ trách, thời hạn"),
         ),
     ),
@@ -86,7 +98,11 @@ TEMPLATES: tuple[DocTemplate, ...] = (
         formal_header=True,
         sections=(
             _s("I. Mục đích, yêu cầu", "Mục tiêu và yêu cầu cần đạt"),
-            _s("II. Nội dung và tiến độ", "Các nhiệm vụ, thời gian, đơn vị thực hiện"),
+            _s(
+                "II. Nhiệm vụ cụ thể",
+                "Các nhiệm vụ, thời gian, đơn vị thực hiện",
+                topical=True,
+            ),
             _s("III. Tổ chức thực hiện", "Phân công trách nhiệm, kinh phí, chế độ báo cáo"),
         ),
     ),
@@ -109,7 +125,7 @@ TEMPLATES: tuple[DocTemplate, ...] = (
         tone="trình bày rõ ràng, trung thực với tài liệu gốc",
         sections=(
             _s("1. Thông tin chung", "Loại, số hiệu/tên, ngày, cơ quan/tác giả của tài liệu"),
-            _s("2. Nội dung chính", "Các ý chính theo cấu trúc tài liệu"),
+            _s("2. Nội dung chính", "Các ý chính theo cấu trúc tài liệu", topical=True),
             _s("3. Điểm cần lưu ý", "Số liệu, thời hạn, trách nhiệm, điểm mới hoặc thay đổi"),
         ),
     ),
@@ -119,10 +135,17 @@ TEMPLATES: tuple[DocTemplate, ...] = (
         category="report",
         triggers=("bao cao", "tong hop", "tai lieu", "van ban"),
         sections=(
-            _s("I. Mở đầu", "Mục đích, phạm vi và nguồn tài liệu sử dụng"),
-            _s("II. Nội dung tổng hợp", "Các nội dung chính rút ra từ tài liệu, nhóm theo chủ đề"),
-            _s("III. Đánh giá", "Nhận xét, kết quả, tồn tại dựa trên tài liệu"),
-            _s("IV. Kết luận và kiến nghị", "Kết luận và đề xuất tiếp theo"),
+            _s(
+                "I. Đặc điểm, tình hình chung",
+                "Bối cảnh, phạm vi và các văn bản làm căn cứ của báo cáo",
+            ),
+            _s(
+                "II. Kết quả thực hiện",
+                "Kết quả cụ thể theo từng lĩnh vực, nhóm công việc trong tài liệu",
+                topical=True,
+            ),
+            _s("III. Đánh giá chung", "Ưu điểm, hạn chế và nguyên nhân rút ra từ tài liệu"),
+            _s("IV. Phương hướng, kiến nghị", "Nhiệm vụ tiếp theo và kiến nghị"),
         ),
     ),
 )

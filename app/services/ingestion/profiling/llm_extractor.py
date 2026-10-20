@@ -78,6 +78,8 @@ async def extract_profile_with_llm(signals: DocumentSignals) -> dict[str, Any] |
             {"role": "user", "content": _prompt(signals)},
         ],
         "temperature": 0.0,
+        # 9router answers with SSE unless told otherwise.
+        "stream": False,
     }
     try:
         async with (

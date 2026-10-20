@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.http import llm_http_timeout
 from app.core.jsonutil import extract_json_object
+from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.services.documents.quality import (
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 MAX_SECTIONS = 8
 MAX_SOURCES = 8
 MAX_CANDIDATES = 50
+MAX_OUTLINE_SNIPPETS = 14
 OUTLINE_TIMEOUT_SECONDS = 45.0
 SECTION_CONTEXT_TOKENS = 6000
 
@@ -129,6 +131,8 @@ async def _llm_json(system: str, user: str, *, timeout: float) -> dict[str, Any]
                         {"role": "user", "content": user},
                     ],
                     "temperature": 0.2,
+                    # 9router answers with SSE unless told otherwise.
+                    "stream": False,
                 },
             )
             resp.raise_for_status()
@@ -202,7 +206,8 @@ class DocumentPlanner:
         title = default_title[:300]
 
         if self._use_llm:
-            proposed = await self._llm_outline(template, request, titles)
+            snippets = await self._source_snippets(request, requester_id, sources)
+            proposed = await self._llm_outline(template, request, titles, snippets)
             if proposed:
                 title = str(proposed.get("title") or title)[:300]
                 llm_sections = [
@@ -214,7 +219,7 @@ class DocumentPlanner:
                     if isinstance(s, dict) and str(s.get("heading", "")).strip()
                 ]
                 if llm_sections:
-                    sections = llm_sections[:MAX_SECTIONS]
+                    sections = normalize_outline_sections(template, llm_sections)
         return DocumentOutline(
             template_key=template.key,
             title=title,
@@ -223,22 +228,117 @@ class DocumentPlanner:
             source_titles=titles,
         )
 
+    async def _source_snippets(
+        self, request: str, requester_id: str | None, sources: list[str]
+    ) -> list[str]:
+        """Short excerpts of what the sources actually say, for naming sections."""
+        if not sources:
+            return []
+        subject = _subject(request)
+        try:
+            bundle = await self._pipeline.run(
+                RetrievalQuery(
+                    original_query=subject,
+                    search_query=subject,
+                    requester_id=requester_id,
+                    top_k_dense=30,
+                    top_k_sparse=30,
+                    mode=RetrievalMode.DOCUMENT_SEARCH,
+                    document_ids=sources,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - outline still works from titles
+            logger.warning("document_outline_snippets_failed error=%s", exc)
+            return []
+        snippets: list[str] = []
+        for item in bundle.items[:MAX_OUTLINE_SNIPPETS]:
+            text = _plain_summary(str(getattr(item, "content", "") or ""), 280)
+            if text and text not in snippets:
+                snippets.append(text)
+        return snippets
+
     async def _llm_outline(
-        self, template: DocTemplate, request: str, titles: list[str]
+        self,
+        template: DocTemplate,
+        request: str,
+        titles: list[str],
+        snippets: list[str] | None = None,
     ) -> dict[str, Any] | None:
-        skeleton = "\n".join(f"- {s.heading}: {s.purpose}" for s in template.sections)
+        skeleton = "\n".join(
+            f"- {s.heading}: {s.purpose}"
+            + (
+                "  ← MỤC NỘI DUNG: thay bằng 2–4 mục đặt tên theo đúng chủ đề/công việc/sự kiện "
+                "cụ thể trong tài liệu nguồn"
+                if s.topical
+                else ""
+            )
+            for s in template.sections
+        )
         sources = "\n".join(f"- {t}" for t in titles[:MAX_SOURCES]) or "(chưa xác định)"
+        excerpts = "\n".join(f"- {t}" for t in (snippets or [])) or "(không có)"
         system = (
-            "Bạn lập dàn ý cho tài liệu nội bộ tiếng Việt. Giữ cấu trúc mẫu của loại tài liệu, "
-            "chỉ điều chỉnh tên/mục đích mục cho sát yêu cầu; tối đa "
-            f"{MAX_SECTIONS} mục. Chỉ trả về JSON."
+            "Bạn là chuyên viên lập dàn ý văn bản hành chính, báo cáo tiếng Việt.\n"
+            "1. Giữ bố cục thông thường của loại văn bản theo cấu trúc mẫu (các phần mở đầu, "
+            "đánh giá, kiến nghị… giữ tên quen thuộc của thể loại).\n"
+            "2. Mục được đánh dấu MỤC NỘI DUNG phải tách thành các mục có tên cụ thể rút ra từ "
+            "nội dung tài liệu nguồn (ví dụ 'II. Công tác khen thưởng thành tích tại Liên hoan "
+            "Phát thanh toàn quốc'), mỗi mục một chủ đề có đủ tư liệu.\n"
+            "3. TUYỆT ĐỐI KHÔNG đặt tiêu đề chung chung như 'Nội dung tổng hợp', 'Tổng hợp nội "
+            "dung', 'Các nội dung chính'. Không tạo mục cho chủ đề không có trong tài liệu nguồn.\n"
+            f"4. Tối đa {MAX_SECTIONS} mục, đánh số theo kiểu của cấu trúc mẫu, liên tục.\n"
+            "Chỉ trả về JSON."
         )
         user = (
             f"Loại tài liệu: {template.label}\nYêu cầu: {request}\n\n"
             f"Cấu trúc mẫu:\n{skeleton}\n\nTài liệu nguồn sẽ dùng:\n{sources}\n\n"
+            f"Trích đoạn nội dung từ tài liệu nguồn:\n{excerpts}\n\n"
             'Trả về: {"title": "...", "sections": [{"heading": "...", "purpose": "..."}]}'
         )
         return await _llm_json(system, user, timeout=OUTLINE_TIMEOUT_SECONDS)
+
+
+_GENERIC_HEADING = re.compile(
+    r"^(?:noi dung tong hop|tong hop noi dung|tong hop chung|noi dung tong hop chung|"
+    r"tong hop|cac noi dung tong hop)$"
+)
+_HEADING_NUMBER = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)+\.?|(?:[IVXLC]+|\d+|[a-zđ])[.)])\s+", re.IGNORECASE
+)
+_ROMAN = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+
+
+def _numbering_style(template: DocTemplate) -> str:
+    first = template.sections[0].heading if template.sections else ""
+    if re.match(r"^[IVX]+\.\s", first):
+        return "roman"
+    if re.match(r"^\d+\.\s", first):
+        return "arabic"
+    return "none"
+
+
+def normalize_outline_sections(
+    template: DocTemplate, sections: list[OutlineSection]
+) -> list[OutlineSection]:
+    """Conventional headings, consistent numbering, no generic 'Nội dung tổng hợp'.
+
+    A generic heading the model still produced is renamed to the template's
+    content slot (e.g. "Kết quả thực hiện"); numbering is redone in the
+    template's style so inserted topical sections never break the sequence.
+    """
+    topical = next((s for s in template.sections if s.topical), None)
+    fallback = _HEADING_NUMBER.sub("", topical.heading) if topical else "Kết quả thực hiện"
+    style = _numbering_style(template)
+    out: list[OutlineSection] = []
+    for section in sections[:MAX_SECTIONS]:
+        bare = _HEADING_NUMBER.sub("", section.heading).strip().rstrip(":")
+        if _GENERIC_HEADING.match(unaccent_vietnamese(bare).lower().strip(" .")):
+            bare = fallback
+        if not bare or any(_HEADING_NUMBER.sub("", s.heading) == bare for s in out):
+            continue
+        n = len(out) + 1
+        prefix = {"roman": f"{_ROMAN[n - 1]}. ", "arabic": f"{n}. "}.get(style, "")
+        out.append(OutlineSection(heading=(prefix + bare)[:200], purpose=section.purpose))
+    return out or [OutlineSection(heading=s.heading, purpose=s.purpose) for s in template.sections]
 
 
 class SectionWriter:
