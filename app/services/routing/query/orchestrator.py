@@ -15,6 +15,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -1002,6 +1003,9 @@ class QueryOrchestrator:
                     "status": row.status,
                     "title": row.title,
                     "has_docx": bool(row.docx_path),
+                    "file_format": Path(row.docx_path).suffix.lstrip(".")
+                    if row.docx_path
+                    else None,
                     "download_path": f"/documents/{row.id}/download" if row.docx_path else None,
                 }
             },

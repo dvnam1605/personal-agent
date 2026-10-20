@@ -1,4 +1,4 @@
-"""Generated documents: outline, approve/write, read, download (.docx)."""
+"""Generated documents: outline, approve/write, read, download (.docx / .xlsx)."""
 
 from __future__ import annotations
 
@@ -37,10 +37,21 @@ class SectionIn(BaseModel):
     purpose: str = Field(default="", max_length=400)
 
 
+class ColumnIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=300)
+    source: str = Field(default="content", max_length=32)
+
+
 class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, max_length=300)
     sections: list[SectionIn] | None = Field(default=None, max_length=8)
+    # Table outlines: edited columns and what one row is.
+    columns: list[ColumnIn] | None = Field(default=None, max_length=12)
+    row_unit: str | None = Field(default=None, max_length=120)
+    multi_rows: bool | None = None
 
 
 class RewriteRequest(BaseModel):
@@ -58,11 +69,23 @@ def _service() -> DocumentGenerationService:
     )
 
 
+_MEDIA_TYPES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def _file_format(row: GeneratedDocument) -> str | None:
+    return Path(row.docx_path).suffix.lstrip(".") if row.docx_path else None
+
+
 def _view(row: GeneratedDocument) -> dict[str, Any]:
     return {
         "id": row.id,
         "status": row.status,
         "title": row.title,
+        "kind": (row.outline or {}).get("kind", "document"),
+        "file_format": _file_format(row),
         "template_key": row.template_key,
         "outline": row.outline,
         "sections": row.sections,
@@ -99,6 +122,7 @@ async def list_documents(
             "title": r.title,
             "status": r.status,
             "template_key": r.template_key,
+            "kind": (r.outline or {}).get("kind", "document"),
             "has_docx": bool(r.docx_path),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
@@ -138,6 +162,9 @@ async def approve(
         doc_id=doc_id,
         sections=[s.model_dump() for s in body.sections] if body.sections else None,
         title=body.title,
+        columns=[c.model_dump() for c in body.columns] if body.columns else None,
+        row_unit=body.row_unit,
+        multi_rows=body.multi_rows,
     )
     await session.commit()
     return _view(row)
@@ -181,7 +208,7 @@ async def get_document(
     return _view(await _owned(session, user_id, doc_id))
 
 
-@router.get("/{doc_id}/download", summary="Download the generated .docx")
+@router.get("/{doc_id}/download", summary="Download the generated .docx / .xlsx")
 async def download(
     doc_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -194,8 +221,9 @@ async def download(
     if not row.docx_path or not path.resolve().is_relative_to(base) or not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not available.")
     safe_title = "".join(ch for ch in row.title if ch.isalnum() or ch in " -_").strip()[:80]
+    suffix = path.suffix.lower()
     return FileResponse(
         path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"{safe_title or 'tai-lieu'}.docx",
+        media_type=_MEDIA_TYPES.get(suffix, "application/octet-stream"),
+        filename=f"{safe_title or 'tai-lieu'}{suffix}",
     )

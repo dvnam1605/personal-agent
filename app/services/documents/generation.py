@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
@@ -25,7 +25,16 @@ from app.services.documents.quality import (
     polish_style,
 )
 from app.services.documents.review import SectionReviewer
+from app.services.documents.table import (
+    DEFAULT_COLUMNS,
+    MAX_COLUMNS,
+    TABLE_MAX_SOURCES,
+    TableColumn,
+    normalize_columns,
+    propose_table,
+)
 from app.services.documents.templates import (
+    TABLE_TEMPLATE_KEY,
     TEMPLATE_BY_KEY,
     DocTemplate,
     select_template,
@@ -54,9 +63,23 @@ class OutlineSection(BaseModel):
 class DocumentOutline(BaseModel):
     template_key: str
     title: str = Field(min_length=1, max_length=300)
-    sections: list[OutlineSection] = Field(min_length=1, max_length=MAX_SECTIONS)
-    source_document_ids: list[str] = Field(default_factory=list, max_length=MAX_SOURCES)
+    # "document": sections of prose (.docx); "table": columns filled per
+    # source document (.xlsx).
+    kind: str = "document"
+    sections: list[OutlineSection] = Field(default_factory=list, max_length=MAX_SECTIONS)
+    columns: list[TableColumn] = Field(default_factory=list, max_length=MAX_COLUMNS)
+    row_unit: str = Field(default="", max_length=120)
+    multi_rows: bool = False
+    source_document_ids: list[str] = Field(default_factory=list, max_length=TABLE_MAX_SOURCES)
     source_titles: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _has_body(self) -> DocumentOutline:
+        if self.kind == "table" and not self.columns:
+            raise ValueError("a table outline needs at least one column")
+        if self.kind != "table" and not self.sections:
+            raise ValueError("a document outline needs at least one section")
+        return self
 
 
 class WrittenSection(BaseModel):
@@ -89,7 +112,8 @@ def _topic(request: str) -> str:
 _SUBJECT_SPLIT = re.compile(r"(?i)\b(?:về|dựa trên|dựa vào|từ các|từ|theo|cho)\s+")
 _OUTPUT_KIND = re.compile(
     r"(?i)^(?:một\s+)?(?:báo cáo(?:\s+(?:tuần|tháng|quý|năm|tổng hợp))?|tờ trình|"
-    r"biên bản(?:\s+(?:cuộc\s+)?họp)?|kế hoạch|công văn|tóm tắt|tài liệu|văn bản|đề cương)\s+"
+    r"biên bản(?:\s+(?:cuộc\s+)?họp)?|kế hoạch|công văn|tóm tắt|tài liệu|văn bản|đề cương|"
+    r"(?:file\s+)?excel|bảng(?:\s+(?:tổng hợp|thống kê|kê|tính|danh sách))?)\s+"
 )
 
 
@@ -123,8 +147,10 @@ class DocumentPlanner:
         self._pipeline = pipeline
         self._use_llm = use_llm
 
-    async def select_sources(self, request: str, requester_id: str | None) -> list[str]:
-        """Pick up to MAX_SOURCES documents about the request's subject.
+    async def select_sources(
+        self, request: str, requester_id: str | None, *, limit: int = MAX_SOURCES
+    ) -> list[str]:
+        """Pick up to ``limit`` documents about the request's subject.
 
         Metadata filters (kind, date, person, number) narrow the candidates;
         when more match than can be read, they are ranked by relevance to the
@@ -137,7 +163,7 @@ class DocumentPlanner:
             candidates, _ = await self._metadata.resolve_document_ids(
                 plan.spec, requester_id, cap=MAX_CANDIDATES
             )
-            if 0 < len(candidates) <= MAX_SOURCES:
+            if 0 < len(candidates) <= limit:
                 return candidates
         query = RetrievalQuery(
             original_query=subject,
@@ -156,7 +182,7 @@ class DocumentPlanner:
         if candidates:
             # Keep relevance order, then fill with the newest remaining matches.
             ordered += [c for c in candidates if c not in ordered]
-        return ordered[:MAX_SOURCES]
+        return ordered[:limit]
 
     async def plan(
         self,
@@ -166,8 +192,13 @@ class DocumentPlanner:
         source_titles_for: Any = None,
     ) -> DocumentOutline:
         template = select_template(request)
-        sources = await self.select_sources(request, requester_id)
+        is_table = template.key == TABLE_TEMPLATE_KEY
+        sources = await self.select_sources(
+            request, requester_id, limit=TABLE_MAX_SOURCES if is_table else MAX_SOURCES
+        )
         titles = list(await source_titles_for(sources)) if source_titles_for and sources else []
+        if is_table:
+            return await self._plan_table(template, request, requester_id, sources, titles)
         topic = _topic(request)
         default_title = (
             topic[:1].upper() + topic[1:]
@@ -200,6 +231,37 @@ class DocumentPlanner:
             source_titles=titles,
         )
 
+    async def _plan_table(
+        self,
+        template: DocTemplate,
+        request: str,
+        requester_id: str | None,
+        sources: list[str],
+        titles: list[str],
+    ) -> DocumentOutline:
+        topic = _topic(request)
+        title = topic[:1].upper() + topic[1:]
+        columns = list(DEFAULT_COLUMNS)
+        row_unit, multi_rows = "văn bản", False
+        if self._use_llm:
+            snippets = await self._source_snippets(request, requester_id, sources)
+            proposed = await propose_table(request, titles, snippets)
+            if proposed:
+                title = str(proposed.get("title") or title)
+                columns = normalize_columns(proposed.get("columns")) or columns
+                row_unit = str(proposed.get("row_unit") or row_unit).strip()[:120]
+                multi_rows = bool(proposed.get("multi_rows"))
+        return DocumentOutline(
+            template_key=template.key,
+            title=title[:300],
+            kind="table",
+            columns=columns,
+            row_unit=row_unit,
+            multi_rows=multi_rows,
+            source_document_ids=sources,
+            source_titles=titles,
+        )
+
     async def _source_snippets(
         self, request: str, requester_id: str | None, sources: list[str]
     ) -> list[str]:
@@ -224,7 +286,7 @@ class DocumentPlanner:
             return []
         snippets: list[str] = []
         for item in bundle.items[:MAX_OUTLINE_SNIPPETS]:
-            text = _plain_summary(str(getattr(item, "content", "") or ""), 280)
+            text = _plain_summary(str(getattr(item, "content_raw", "") or ""), 280)
             if text and text not in snippets:
                 snippets.append(text)
         return snippets

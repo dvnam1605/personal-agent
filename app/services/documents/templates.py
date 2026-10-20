@@ -41,7 +41,30 @@ def _s(heading: str, purpose: str, *, topical: bool = False) -> SectionSpec:
     return SectionSpec(heading, purpose, topical)
 
 
+TABLE_TEMPLATE_KEY = "table_summary"
+
 TEMPLATES: tuple[DocTemplate, ...] = (
+    # First: "báo cáo … dạng bảng excel" is a table, not a prose report.
+    # Columns are proposed per request (documents.table), so no sections.
+    DocTemplate(
+        key=TABLE_TEMPLATE_KEY,
+        label="Bảng tổng hợp",
+        category="spreadsheet",
+        triggers=(
+            "excel",
+            "xlsx",
+            "bang tinh",
+            "bang tong hop",
+            "bang thong ke",
+            "bang ke",
+            "bang danh sach",
+            "lap bang",
+            "dang bang",
+            "thanh bang",
+        ),
+        sections=(),
+        tone="chính xác, ngắn gọn, mỗi ô một thông tin",
+    ),
     DocTemplate(
         key="weekly_report",
         label="Báo cáo tuần",
@@ -161,6 +184,8 @@ _PROSE = (
     "cùng một mạch ý thay vì liệt kê từng văn bản. "
 )
 STYLE_GUIDES: dict[str, str] = {
+    TABLE_TEMPLATE_KEY: "Mỗi ô một thông tin, ngắn gọn, chép nguyên văn số liệu, ngày tháng, "
+    "số hiệu, tên người và đơn vị; ô không có căn cứ để trống.",
     "weekly_report": _PROSE
     + "Giọng báo cáo công việc ngắn gọn, ở ngôi tổ chức/đơn vị ('Trong tuần, bộ phận đã…'). "
     "Mỗi mục 1–2 đoạn; chỉ dùng gạch đầu dòng cho danh sách đầu việc khi có từ bốn việc trở lên.",
@@ -196,7 +221,8 @@ _GENERATION_VERB = re.compile(
 )
 _GENERATION_NOUN = re.compile(
     r"\b(?:bao cao|to trinh|bien ban|ke hoach|cong van|tom tat|tai lieu|van ban|de cuong|"
-    r"thong bao)\b"
+    r"thong bao|bang tong hop|bang thong ke|bang ke|bang tinh|bang danh sach|bang du lieu|"
+    r"(?:file )?excel|xlsx)\b"
 )
 _NOT_DOCUMENT = re.compile(r"\b(?:email|mail|thu dien tu|lich|cuoc hen|su kien)\b")
 

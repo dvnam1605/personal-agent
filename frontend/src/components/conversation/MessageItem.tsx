@@ -272,7 +272,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* Generated document (.docx) */}
+          {/* Generated document (.docx) or table (.xlsx) */}
           {data.generated_document?.has_docx && (
             <button
               type="button"
@@ -281,15 +281,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 apiClient
                   .downloadGeneratedDocument(
                     data.generated_document.id,
-                    data.generated_document.title
+                    data.generated_document.title,
+                    data.generated_document.file_format || 'docx'
                   )
                   .catch((err) => console.error('Download failed:', err))
               }}
-              title="Tải tài liệu Word"
+              title={
+                data.generated_document.file_format === 'xlsx' ? 'Tải bảng Excel' : 'Tải tài liệu Word'
+              }
             >
               <FileText size={14} />
               <span className="citation-pill-btn__title">
-                Tải .docx — {data.generated_document.title}
+                Tải .{data.generated_document.file_format || 'docx'} — {data.generated_document.title}
               </span>
             </button>
           )}

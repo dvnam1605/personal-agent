@@ -14,6 +14,7 @@ import type {
   DBConversationSummary,
   DenyRequestBody,
   DenyResponse,
+  DocumentOutlineColumn,
   DocumentOutlineSection,
   ExecuteApprovalBody,
   GeneratedDocumentSummary,
@@ -284,7 +285,13 @@ class ApiClient {
 
   async approveDocument(
     id: string,
-    edits: { title?: string; sections?: DocumentOutlineSection[] }
+    edits: {
+      title?: string
+      sections?: DocumentOutlineSection[]
+      columns?: DocumentOutlineColumn[]
+      row_unit?: string
+      multi_rows?: boolean
+    }
   ): Promise<GeneratedDocumentView> {
     return this.request<GeneratedDocumentView>(`/documents/${encodeURIComponent(id)}/approve`, {
       method: 'POST',
@@ -304,7 +311,7 @@ class ApiClient {
   }
 
   /* .docx download needs the auth header, so no plain link */
-  async downloadGeneratedDocument(id: string, title?: string): Promise<void> {
+  async downloadGeneratedDocument(id: string, title?: string, ext: string = 'docx'): Promise<void> {
     const response = await fetch(`/documents/${encodeURIComponent(id)}/download`, {
       headers: this.getHeaders(),
     })
@@ -315,7 +322,7 @@ class ApiClient {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `${(title || 'tai-lieu').replace(/[\\/:*?"<>|]+/g, ' ').trim()}.docx`
+    anchor.download = `${(title || 'tai-lieu').replace(/[\\/:*?"<>|]+/g, ' ').trim()}.${ext}`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()

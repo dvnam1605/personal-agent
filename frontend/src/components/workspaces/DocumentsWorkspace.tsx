@@ -14,12 +14,16 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type {
+  DocumentOutlineColumn,
   DocumentOutlineSection,
   GeneratedDocumentSummary,
   GeneratedDocumentView,
+  GeneratedTableRow,
 } from '../../types/api'
 import { MarkdownContent } from '../ui/MarkdownContent'
 import { DocumentReviewPanel } from './DocumentReviewPanel'
+import { TableOutlineEditor } from './TableOutlineEditor'
+import { TablePreview } from './TablePreview'
 import './Workspaces.css'
 import './DocumentsWorkspace.css'
 
@@ -28,6 +32,7 @@ const EXAMPLES = [
   'Soạn tờ trình xin kinh phí tổ chức tập huấn ứng dụng AI',
   'Viết tóm tắt Quy chế làm việc của Đài ban hành năm 2026',
   'Lập kế hoạch triển khai chế độ báo cáo định kỳ theo Quy chế làm việc',
+  'Lập bảng tổng hợp (Excel) các quyết định khen thưởng năm 2026',
 ]
 
 const STATUS_LABEL: Record<string, string> = {
@@ -47,6 +52,9 @@ export const DocumentsWorkspace: React.FC = () => {
   const [busy, setBusy] = useState<'outline' | 'writing' | 'loading' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [rewritingIndex, setRewritingIndex] = useState<number | null>(null)
+  const [columns, setColumns] = useState<DocumentOutlineColumn[]>([])
+  const [rowUnit, setRowUnit] = useState('')
+  const [multiRows, setMultiRows] = useState(false)
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -64,6 +72,9 @@ export const DocumentsWorkspace: React.FC = () => {
     setCurrent(doc)
     setTitle(doc.outline?.title || doc.title)
     setSections(doc.outline?.sections ? doc.outline.sections.map((s) => ({ ...s })) : [])
+    setColumns(doc.outline?.columns ? doc.outline.columns.map((c) => ({ ...c })) : [])
+    setRowUnit(doc.outline?.row_unit || '')
+    setMultiRows(Boolean(doc.outline?.multi_rows))
   }
 
   const createOutline = async () => {
@@ -94,17 +105,35 @@ export const DocumentsWorkspace: React.FC = () => {
 
   const approve = async () => {
     if (!current) return
-    const cleaned = sections
-      .map((s) => ({ heading: s.heading.trim(), purpose: s.purpose.trim() }))
-      .filter((s) => s.heading)
-    if (cleaned.length === 0) {
-      setError('Dàn ý cần ít nhất một mục.')
-      return
+    let edits: Parameters<typeof apiClient.approveDocument>[1]
+    if (isTable) {
+      const cleanedColumns = columns
+        .map((c) => ({ ...c, name: c.name.trim(), description: c.description.trim() }))
+        .filter((c) => c.name)
+      if (cleanedColumns.length === 0) {
+        setError('Bảng cần ít nhất một cột.')
+        return
+      }
+      edits = {
+        title: title.trim(),
+        columns: cleanedColumns,
+        row_unit: rowUnit.trim(),
+        multi_rows: multiRows,
+      }
+    } else {
+      const cleaned = sections
+        .map((s) => ({ heading: s.heading.trim(), purpose: s.purpose.trim() }))
+        .filter((s) => s.heading)
+      if (cleaned.length === 0) {
+        setError('Dàn ý cần ít nhất một mục.')
+        return
+      }
+      edits = { title: title.trim(), sections: cleaned }
     }
     setBusy('writing')
     setError(null)
     try {
-      show(await apiClient.approveDocument(current.id, { title: title.trim(), sections: cleaned }))
+      show(await apiClient.approveDocument(current.id, edits))
       refreshHistory()
     } catch (err: any) {
       setError(err?.message || 'Không viết được tài liệu.')
@@ -138,8 +167,12 @@ export const DocumentsWorkspace: React.FC = () => {
       return next
     })
 
-  const omitted = current?.sections?.filter((s) => s.status === 'missing').map((s) => s.heading) ?? []
+  const isTable = (current?.kind || current?.outline?.kind) === 'table'
+  const omitted = isTable
+    ? []
+    : (current?.sections?.filter((s) => s.status === 'missing').map((s) => s.heading) ?? [])
   const isOutline = current && (current.status === 'outline' || current.status === 'failed')
+  const fileExt = current?.file_format || (isTable ? 'xlsx' : 'docx')
 
   return (
     <div className="workspace-container documents-workspace">
@@ -217,7 +250,11 @@ export const DocumentsWorkspace: React.FC = () => {
         {busy === 'writing' && (
           <div className="workspace-loading-state">
             <RefreshCw size={20} className="spin-anim text-primary" />
-            <span>Đang đọc tài liệu nguồn và viết từng mục… (thường mất 30–90 giây)</span>
+            <span>
+              {isTable
+                ? 'Đang đọc từng văn bản nguồn, điền và đối chiếu từng ô… (có thể mất vài phút)'
+                : 'Đang đọc tài liệu nguồn, viết và tự kiểm tra từng mục… (có thể mất vài phút)'}
+            </span>
           </div>
         )}
 
@@ -228,9 +265,9 @@ export const DocumentsWorkspace: React.FC = () => {
             </div>
             <h3>Tạo tài liệu từ kho văn bản</h3>
             <p>
-              Nhập yêu cầu (báo cáo, tờ trình, biên bản, kế hoạch, công văn, tóm tắt…). Trợ lý chọn
-              tài liệu nguồn, đề xuất dàn ý để bạn chỉnh sửa, rồi viết tài liệu có trích dẫn và xuất
-              file Word.
+              Nhập yêu cầu (báo cáo, tờ trình, biên bản, kế hoạch, công văn, tóm tắt, bảng tổng hợp
+              Excel…). Trợ lý chọn tài liệu nguồn, đề xuất dàn ý hoặc các cột để bạn chỉnh sửa, rồi
+              viết tài liệu có trích dẫn, tự đối chiếu với nguồn và xuất file Word / Excel.
             </p>
           </div>
         )}
@@ -248,6 +285,17 @@ export const DocumentsWorkspace: React.FC = () => {
               onChange={(e) => setTitle(e.target.value)}
             />
 
+            {isTable ? (
+              <TableOutlineEditor
+                columns={columns}
+                onColumns={setColumns}
+                rowUnit={rowUnit}
+                onRowUnit={setRowUnit}
+                multiRows={multiRows}
+                onMultiRows={setMultiRows}
+              />
+            ) : (
+              <>
             <div className="docgen-label">Các mục</div>
             <ol className="docgen-sections">
               {sections.map((s, idx) => (
@@ -292,6 +340,8 @@ export const DocumentsWorkspace: React.FC = () => {
                 <Plus size={14} /> Thêm mục
               </button>
             )}
+              </>
+            )}
 
             {current.outline?.source_titles && current.outline.source_titles.length > 0 && (
               <div className="docgen-sources">
@@ -307,7 +357,7 @@ export const DocumentsWorkspace: React.FC = () => {
             <div className="docgen-actions">
               <button className="docgen-primary" onClick={approve} disabled={busy !== null}>
                 <CheckCircle2 size={14} />
-                <span>Duyệt & viết tài liệu</span>
+                <span>{isTable ? 'Duyệt & lập bảng' : 'Duyệt & viết tài liệu'}</span>
               </button>
             </div>
           </div>
@@ -316,27 +366,37 @@ export const DocumentsWorkspace: React.FC = () => {
         {current && current.status === 'done' && busy !== 'writing' && (
           <div className="docgen-result">
             <div className="docgen-result__bar">
-              <div className="docgen-step">Bước 2 · Tài liệu</div>
+              <div className="docgen-step">Bước 2 · {isTable ? 'Bảng' : 'Tài liệu'}</div>
               {current.has_docx && (
                 <button
                   className="docgen-primary"
                   onClick={() =>
                     apiClient
-                      .downloadGeneratedDocument(current.id, current.title)
+                      .downloadGeneratedDocument(current.id, current.title, fileExt)
                       .catch((err) => setError(err?.message || 'Không tải được file.'))
                   }
                 >
                   <Download size={14} />
-                  <span>Tải .docx</span>
+                  <span>Tải .{fileExt}</span>
                 </button>
               )}
             </div>
+            {isTable && (
+              <>
+                <h3 className="docgen-table__title">{current.title}</h3>
+                <TablePreview
+                  columns={current.outline?.columns || []}
+                  rows={current.sections as unknown as GeneratedTableRow[]}
+                  citations={current.citations || []}
+                />
+              </>
+            )}
             {omitted.length > 0 && (
               <p className="docgen-note">
                 Đã lược khỏi tài liệu vì chưa đủ thông tin trong nguồn: {omitted.join('; ')}
               </p>
             )}
-            {current.sections?.length > 0 && (
+            {!isTable && current.sections?.length > 0 && (
               <DocumentReviewPanel
                 sections={current.sections}
                 rewritingIndex={rewritingIndex}
@@ -344,9 +404,11 @@ export const DocumentsWorkspace: React.FC = () => {
                 onRewrite={rewriteSection}
               />
             )}
-            <article className="docgen-paper">
-              <MarkdownContent content={current.markdown || ''} />
-            </article>
+            {!isTable && (
+              <article className="docgen-paper">
+                <MarkdownContent content={current.markdown || ''} />
+              </article>
+            )}
           </div>
         )}
       </section>
