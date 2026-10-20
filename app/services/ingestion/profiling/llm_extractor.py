@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.http import llm_http_timeout
 from app.core.jsonutil import extract_json_object
 from app.services.ingestion.profiling.categories import DocCategory
 from app.services.ingestion.profiling.signals import DocumentSignals
@@ -79,7 +80,10 @@ async def extract_profile_with_llm(signals: DocumentSignals) -> dict[str, Any] |
         "temperature": 0.0,
     }
     try:
-        async with asyncio.timeout(timeout), httpx.AsyncClient(timeout=timeout) as client:
+        async with (
+            asyncio.timeout(timeout),
+            httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client,
+        ):
             resp = await client.post(
                 settings.llm.chat_completions_url(),
                 headers={"Authorization": f"Bearer {api_key}"},

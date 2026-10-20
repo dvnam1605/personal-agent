@@ -16,6 +16,7 @@ import time
 import httpx
 
 from app.core.config import settings
+from app.core.http import llm_http_timeout
 from app.core.jsonutil import extract_json_object
 from app.services.retrieval.conversational_filter import (
     UNIVERSAL_TYPOS,
@@ -166,7 +167,10 @@ async def areformulate_with_llm(query: str) -> tuple[str, str]:
 
     chunks: list[str] = []
     # httpx timeouts are per read; bound the whole streamed call as well.
-    async with asyncio.timeout(timeout), httpx.AsyncClient(timeout=timeout) as client:
+    async with (
+        asyncio.timeout(timeout),
+        httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client,
+    ):
         async with client.stream(
             "POST",
             url,

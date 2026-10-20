@@ -25,6 +25,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
+from app.core.http import llm_http_timeout
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
@@ -257,7 +258,7 @@ class PromptAnswerSynthesizer:
                 try:
                     async with (
                         asyncio.timeout(timeout),
-                        httpx.AsyncClient(timeout=timeout) as client,
+                        httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client,
                     ):
                         async with client.stream(
                             "POST",
@@ -298,6 +299,9 @@ class PromptAnswerSynthesizer:
                     if partial:
                         # Never pass a cut-off answer off as a complete one.
                         raise SynthesisInterruptedError(partial) from stream_err
+                    if isinstance(stream_err, (httpx.ConnectError, httpx.ConnectTimeout)):
+                        # Gateway unreachable: a second POST would just wait again.
+                        raise ValueError("LLM gateway unreachable") from stream_err
 
                 content = "".join(chunks).strip()
                 if not content and stream_status == 429:
@@ -305,7 +309,7 @@ class PromptAnswerSynthesizer:
                     raise ValueError("LLM gateway rate-limited the synthesis request (429)")
                 if not content:
                     # Fallback to standard POST if streaming produced no chunks
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
                         resp = await client.post(
                             target_url,
                             headers={"Authorization": f"Bearer {api_key}"},
@@ -350,7 +354,7 @@ class PromptAnswerSynthesizer:
                     str(settings.llm.mode),
                 )
                 timeout = settings.timeouts.llm_request_seconds
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
                     async with client.stream(
                         "POST",
                         target_url,
