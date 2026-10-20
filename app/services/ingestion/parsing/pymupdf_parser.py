@@ -50,6 +50,8 @@ _MARGIN_RATIO = 0.07
 _REPEAT_RATIO = 0.3
 
 _BULLET = re.compile(r"^\s*(?:[•●▪◦‣∙·\-–—*]|\(?\d{1,2}[.)]|\(?[a-zđ][.)])\s+", re.IGNORECASE)
+# NUL and other C0 controls (Postgres rejects NUL in text); tab/newline kept.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # Table-of-contents dot leaders: "About This Book . . . . . . 3".
 _LEADER = re.compile(r"(?:\.\s?){6,}")
 _PAGE_NUMBER = re.compile(r"^\s*(?:trang\s+|page\s+)?\d{1,4}(?:\s*/\s*\d{1,4})?\s*$", re.I)
@@ -287,7 +289,7 @@ def _blocks_of(page: Any) -> list[_Block]:
             spans = [s for s in line.get("spans", []) if s.get("text", "").strip()]
             if not spans:
                 continue
-            text = "".join(s["text"] for s in line["spans"]).strip()
+            text = _clean("".join(s["text"] for s in line["spans"])).strip()
             size = max(spans, key=lambda s: len(s["text"]))["size"]
             bold = all(
                 int(s.get("flags", 0)) & 16 or "bold" in s.get("font", "").lower() for s in spans
@@ -498,7 +500,7 @@ class PyMuPDFDocumentParser:
             for table in page.find_tables().tables:
                 if table.row_count < 2 or table.col_count < 2:
                     continue
-                markdown = (table.to_markdown() or "").strip()
+                markdown = _clean(table.to_markdown() or "").strip()
                 if markdown and not _LEADER.search(markdown):
                     found.append((tuple(table.bbox), markdown, table.row_count, table.col_count))
         except Exception:  # noqa: BLE001 - a table miss must not fail the page
@@ -602,3 +604,7 @@ def _merge_number(block_text: str, title: str) -> str:
     ):
         return f"{prefix} {title}"
     return title
+
+
+def _clean(text: str) -> str:
+    return _CONTROL.sub("", text)

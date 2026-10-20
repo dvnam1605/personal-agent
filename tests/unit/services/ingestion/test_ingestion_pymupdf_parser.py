@@ -130,3 +130,9 @@ async def test_parse_source_routes_long_pdf_to_pymupdf() -> None:
     assert result.status is ParseStatus.PARSED
     assert result.document is not None
     assert result.document.metadata.parser_name == "pymupdf"
+
+
+def test_control_characters_are_removed() -> None:
+    from app.services.ingestion.parsing.pymupdf_parser import _clean
+
+    assert _clean("agent\x00 loop\x07\tstep\n") == "agent loop\tstep\n"
