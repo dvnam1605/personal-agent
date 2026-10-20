@@ -75,6 +75,7 @@ class AnswerSynthesizer(Protocol):
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult: ...
 
     def synthesize_stream(
@@ -401,6 +402,7 @@ class PromptAnswerSynthesizer:
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult:
         if not bundle.items:
             return SynthesisResult(
@@ -413,7 +415,10 @@ class PromptAnswerSynthesizer:
                 citations=[],
             )
 
-        system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
+        # Callers with their own task (e.g. document writing) supply the prompt.
+        system_msg = system_prompt or (
+            SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
+        )
         user_msg = build_synthesis_user_message(
             question,
             bundle,

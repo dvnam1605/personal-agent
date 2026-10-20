@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
@@ -72,6 +73,32 @@ async def _owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedD
         return await DocumentGenerationService.get_owned(session, user_id, doc_id)
     except DocumentNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.") from None
+
+
+@router.get("", summary="Generated documents of the current user (newest first)")
+async def list_documents(
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(GeneratedDocument)
+            .where(GeneratedDocument.user_id == user_id)
+            .order_by(GeneratedDocument.created_at.desc())
+            .limit(50)
+        )
+    ).scalars()
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "status": r.status,
+            "template_key": r.template_key,
+            "has_docx": bool(r.docx_path),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 @router.post("/outline", summary="Propose an outline and source documents for a request")

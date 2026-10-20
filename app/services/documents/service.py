@@ -181,7 +181,7 @@ def result_message(row: GeneratedDocument) -> str:
         return f"Không tạo được tài liệu ({row.error or row.status}). Bạn có thể thử duyệt lại."
     missing = [s["heading"] for s in row.sections if s.get("status") == "missing"]
     note = (
-        "\n\n> Các mục chưa đủ thông tin trong tài liệu nguồn, cần bổ sung: " + "; ".join(missing)
+        "\n\n> Đã lược khỏi tài liệu (chưa đủ thông tin trong nguồn): " + "; ".join(missing)
         if missing
         else ""
     )

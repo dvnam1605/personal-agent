@@ -129,6 +129,7 @@ class RetrievalPipeline:
         *,
         internal_only: bool = True,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult:
         """Full path: retrieval → sufficiency → retry → synthesis (P10-18).
 
@@ -181,6 +182,7 @@ class RetrievalPipeline:
             missing_documents=missing_docs if missing_docs else None,
             verdict_status=verdict.status,
             conversation_history=conversation_history,
+            **({"system_prompt": system_prompt} if system_prompt else {}),
         )
 
     async def run_with_streaming_synthesis(

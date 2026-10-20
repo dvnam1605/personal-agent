@@ -42,6 +42,8 @@ def render_markdown(
     created = created or date.today()
     parts = [f"# {title}", f"_{template.label} — ngày {created:%d/%m/%Y}_", ""]
     for s in sections:
+        if s.get("status") == "missing":
+            continue  # nothing grounded to say: the section is left out
         parts.extend([f"## {s['heading']}", "", s["text"].strip(), ""])
     if citations:
         parts.extend(["## Tài liệu tham khảo", ""])
@@ -130,6 +132,8 @@ def render_docx(
         meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     for s in sections:
+        if s.get("status") == "missing":
+            continue
         doc.add_heading(s["heading"], level=1)
         _add_block(doc, s["text"])
 

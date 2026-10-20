@@ -90,14 +90,16 @@ class FakePipeline:
     async def run(self, query: Any) -> Any:  # pragma: no cover - not used when ids exist
         raise AssertionError("metadata ids should be used")
 
-    async def run_with_synthesis(self, query: Any, internal_only: bool = True) -> SynthesisResult:
+    async def run_with_synthesis(
+        self, query: Any, internal_only: bool = True, system_prompt: str | None = None
+    ) -> SynthesisResult:
         idx = len(self.queries)
         self.queries.append(query)
         cites = [_citation(d, c) for d, c in self.plan[idx]]
         if not cites:
             return SynthesisResult(answer="⚠️ ...", citations=[], status=SufficiencyStatus.PARTIAL)
         answer = " ".join(f"Ý {n} [{n}]." for n in range(1, len(cites) + 1))
-        evidence = [{"cited": True} for _ in cites]
+        evidence = [{"cited": True, "prompt_text": "nội dung"} for _ in cites]
         return SynthesisResult(answer=answer, citations=cites, evidence=evidence)
 
 

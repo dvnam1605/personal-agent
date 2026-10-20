@@ -21,6 +21,7 @@ from app.core.http import llm_http_timeout
 from app.core.jsonutil import extract_json_object
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.documents.quality import DOCUMENT_WRITER_SYSTEM_PROMPT, apply_quality_gates
 from app.services.documents.templates import TEMPLATE_BY_KEY, DocTemplate, select_template
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ class WrittenSection(BaseModel):
 class WrittenDocument(BaseModel):
     sections: list[WrittenSection]
     citations: list[dict[str, Any]]
+    # Sentences dropped because a figure in them was not in the evidence.
+    removed_unverified: list[str] = Field(default_factory=list)
 
 
 def _topic(request: str) -> str:
@@ -92,6 +95,13 @@ def _subject(request: str) -> str:
         return parts[1].strip()
     stripped = _OUTPUT_KIND.sub("", topic, count=1).strip()
     return stripped or topic
+
+
+def _plain_summary(text: str, limit: int = 300) -> str:
+    """First characters of a written section without markup or citation badges."""
+    plain = re.sub(r"\[\d+\]|[#*_>`]", "", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain[:limit] + ("…" if len(plain) > limit else "")
 
 
 async def _llm_json(system: str, user: str, *, timeout: float) -> dict[str, Any] | None:
@@ -236,12 +246,29 @@ class SectionWriter:
         number_by_key: dict[tuple[str, str], int] = {}
         written: list[WrittenSection] = []
 
+        all_headings = "; ".join(s.heading for s in outline.sections)
+        removed_meta: list[str] = []
+        removed_unverified: list[str] = []
         for section in outline.sections:
+            # Each section sees only its own evidence, so it must not judge
+            # what the source documents lack, and it should know what earlier
+            # sections already said (sections used to contradict each other).
+            earlier = "\n".join(
+                f"- {w.heading}: {_plain_summary(w.text)}" for w in written if w.status != "missing"
+            )
             question = (
                 f'Viết nội dung mục "{section.heading}" ({section.purpose}) cho {template.label} '
                 f'"{outline.title}". Yêu cầu gốc: {request}. Văn phong: {template.tone}. '
-                "Chỉ dùng thông tin trong bằng chứng, gắn nhãn trích dẫn cho từng ý; "
-                "không lặp lại tiêu đề mục; dùng đoạn văn hoặc gạch đầu dòng."
+                f"Các mục của tài liệu: {all_headings}. "
+                + (
+                    f"Các mục trước đã viết (không lặp lại, không mâu thuẫn):\n{earlier}\n"
+                    if earlier
+                    else ""
+                )
+                + "Chỉ dùng thông tin trong bằng chứng, gắn nhãn trích dẫn cho từng ý; "
+                "không lặp lại tiêu đề mục; dùng đoạn văn hoặc gạch đầu dòng. "
+                "Không nhận xét rằng tài liệu nguồn thiếu nội dung và không nhắc tới mã tài liệu; "
+                "nếu bằng chứng của mục này chưa đủ thì chỉ viết phần có căn cứ."
             )
             query = RetrievalQuery(
                 original_query=question,
@@ -257,7 +284,9 @@ class SectionWriter:
                 require_source_diversity=len(outline.source_document_ids) > 1,
             )
             try:
-                result = await self._pipeline.run_with_synthesis(query, internal_only=True)
+                result = await self._pipeline.run_with_synthesis(
+                    query, internal_only=True, system_prompt=DOCUMENT_WRITER_SYSTEM_PROMPT
+                )
             except Exception:  # noqa: BLE001 - one failed section must not lose the rest
                 logger.exception("document_section_failed heading=%s", section.heading)
                 result = None
@@ -275,8 +304,26 @@ class SectionWriter:
                 )
                 continue
 
+            # Quality gates: no meta-commentary, no figure absent from the evidence.
+            evidence_text = "\n".join(
+                str(row.get("prompt_text") or "") for row in getattr(result, "evidence", []) or []
+            )
+            answer, gate = apply_quality_gates(result.answer, evidence_text)
+            removed_meta += gate.removed_meta
+            removed_unverified += gate.removed_unverified
+            used = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+            if not answer or not used:
+                written.append(
+                    WrittenSection(
+                        heading=section.heading, text=MISSING_SECTION_NOTE, status="missing"
+                    )
+                )
+                continue
+
             local_to_global: dict[int, int] = {}
             for local, citation in enumerate(result.citations, start=1):
+                if local not in used:
+                    continue  # its sentence was removed by a gate
                 key = (citation.document_id, citation.chunk_id or citation.evidence_id)
                 if key not in number_by_key:
                     number_by_key[key] = len(global_citations) + 1
@@ -297,7 +344,7 @@ class SectionWriter:
                 lambda m, mapping=local_to_global: (
                     f"[{mapping.get(int(m.group(1)), int(m.group(1)))}]"
                 ),
-                result.answer,
+                answer,
             )
             status = "partial" if result.status is not SufficiencyStatus.SUFFICIENT else "ok"
             written.append(
@@ -308,4 +355,14 @@ class SectionWriter:
                     citation_numbers=sorted(set(local_to_global.values())),
                 )
             )
-        return WrittenDocument(sections=written, citations=global_citations)
+        if removed_meta or removed_unverified:
+            logger.info(
+                "document_quality_gates removed_meta=%d removed_unverified=%d",
+                len(removed_meta),
+                len(removed_unverified),
+            )
+        return WrittenDocument(
+            sections=written,
+            citations=global_citations,
+            removed_unverified=removed_unverified,
+        )
