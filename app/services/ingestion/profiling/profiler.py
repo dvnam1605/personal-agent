@@ -304,11 +304,15 @@ class DocumentProfiler:
                 return cont  # the thesis topic, not "ĐỒ ÁN TỐT NGHIỆP"
             text = f"{head} {cont}".strip() if cont and len(head.split()) <= 3 else head
             return text[:_TITLE_MAX_CHARS]
-        for heading in signals.headings:
+        # A thesis's inner headings are never its title (its topic is on the
+        # cover); leave it to the cover lines below or the LLM fallback.
+        headings = () if cls.category is DocCategory.ACADEMIC else signals.headings
+        for heading in headings:
             if len(heading.split()) >= 3 and _title_like(heading):
                 return heading[:_TITLE_MAX_CHARS]
         for idx, line in enumerate(lines[:10]):
-            if len(line) >= 6 and not line.isdigit() and _title_like(line):
+            is_label_value = idx > 0 and lines[idx - 1].rstrip().endswith((":", "："))
+            if len(line) >= 6 and not line.isdigit() and not is_label_value and _title_like(line):
                 return (line + " " + _continuation(lines, idx + 1)).strip()[:_TITLE_MAX_CHARS]
         # Better no title (UI falls back to the filename) than a wrong one.
         return None

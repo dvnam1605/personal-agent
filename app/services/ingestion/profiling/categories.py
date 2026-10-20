@@ -185,7 +185,7 @@ CATEGORY_SPECS: tuple[CategorySpec, ...] = (
             _rx(r"dai hoc|truong dai hoc|hoc vien"),
         ),
         query_synonyms=("đồ án", "luận văn", "luận án", "khóa luận", "bài báo", "tiểu luận"),
-        required_fields=("entities",),
+        required_fields=("entities", "title"),
     ),
     CategorySpec(
         DocCategory.TECHNICAL,
