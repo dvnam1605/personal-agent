@@ -11,11 +11,10 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from sqlalchemy import select
 
-from app.infrastructure.db.models import Document
+from app.infrastructure.db.models import Document, DocumentProfile
 from app.infrastructure.db.session import get_session_factory
 from app.services.retrieval.vietnamese_orthography import (
     generate_orthographic_variants,
@@ -24,13 +23,15 @@ from app.services.retrieval.vietnamese_orthography import (
 
 logger = logging.getLogger(__name__)
 
+_FAILURE_RETRY_SECONDS = 30.0
+
 
 @dataclass
 class CatalogEntity:
     """An entity discovered dynamically from the document repository."""
 
     name: str
-    category: str  # "signer", "document_type", "authority", "topic"
+    category: str  # "person", "document_type", "authority"
     variants: list[str] = field(default_factory=list)
 
 
@@ -44,6 +45,7 @@ class DynamicEntityCatalog:
         self._ttl_seconds = ttl_seconds
         self._last_refresh_time: float = 0.0
         self._entities: dict[str, CatalogEntity] = {}  # lowercase_canonical -> CatalogEntity
+        self._loaded = False
         self._lock = asyncio.Lock()
 
     @property
@@ -52,77 +54,71 @@ class DynamicEntityCatalog:
         return (time.time() - self._last_refresh_time) > self._ttl_seconds
 
     async def ensure_loaded(self) -> None:
-        """Ensure the catalog is populated from DB if empty or expired."""
-        if not self._entities or self.is_expired:
+        """Load from the DB once per TTL — also when the result was empty.
+
+        An empty corpus (or a failed refresh) must not trigger a full reload on
+        every query, so "loaded" is tracked separately from "has entities".
+        """
+        if not self._loaded or self.is_expired:
             async with self._lock:
-                # Double-check inside lock
-                if not self._entities or self.is_expired:
+                if not self._loaded or self.is_expired:
                     await self.refresh()
 
     async def refresh(self) -> None:
-        """Fetch all active entities from Document metadata in PostgreSQL."""
+        """Rebuild the catalog from ``document_profiles`` of active documents.
+
+        Works for every document kind: people (signers, authors, supervisors,
+        chairs, attendees), issuing organisations and document subtypes.
+        """
         try:
             session_factory = get_session_factory()
             async with session_factory() as session:
-                docs = (
-                    await session.scalars(
-                        select(Document).where(Document.is_active == True)  # noqa: E712
+                rows = (
+                    await session.execute(
+                        select(
+                            DocumentProfile.entities,
+                            DocumentProfile.issuer,
+                            DocumentProfile.doc_subtype,
+                        )
+                        .join(Document, Document.id == DocumentProfile.document_id)
+                        .where(Document.is_active.is_(True))
                     )
                 ).all()
 
-                new_entities: dict[str, CatalogEntity] = {}
+            new_entities: dict[str, CatalogEntity] = {}
 
-                for doc in docs:
-                    admin_meta = (doc.metadata_ or {}).get("administrative_metadata", {})
-                    if not isinstance(admin_meta, dict):
-                        continue
-
-                    # 1. Signers
-                    signer = admin_meta.get("signer_name")
-                    if signer and isinstance(signer, str) and len(signer.strip()) >= 3:
-                        clean_name = normalize_unicode(signer.strip())
-                        low = clean_name.lower()
-                        if low not in new_entities:
-                            vars_ = generate_orthographic_variants(clean_name)
-                            new_entities[low] = CatalogEntity(
-                                name=clean_name,
-                                category="signer",
-                                variants=vars_,
-                            )
-
-                    # 2. Document Types
-                    doc_type = admin_meta.get("document_type")
-                    if doc_type and isinstance(doc_type, str) and len(doc_type.strip()) >= 3:
-                        clean_type = normalize_unicode(doc_type.strip())
-                        low_type = clean_type.lower()
-                        if low_type not in new_entities:
-                            new_entities[low_type] = CatalogEntity(
-                                name=clean_type,
-                                category="document_type",
-                                variants=[low_type],
-                            )
-
-                    # 3. Issuing Authorities
-                    auth = admin_meta.get("issuing_authority")
-                    if auth and isinstance(auth, str) and len(auth.strip()) >= 3:
-                        clean_auth = normalize_unicode(auth.strip())
-                        low_auth = clean_auth.lower()
-                        if low_auth not in new_entities:
-                            new_entities[low_auth] = CatalogEntity(
-                                name=clean_auth,
-                                category="authority",
-                                variants=[low_auth],
-                            )
-
-                self._entities = new_entities
-                self._last_refresh_time = time.time()
-                logger.info(
-                    "DynamicEntityCatalog refreshed: %d active entities loaded from %d documents.",
-                    len(self._entities),
-                    len(docs),
+            def add(name: str | None, category: str, *, variants: bool) -> None:
+                if not name or not isinstance(name, str) or len(name.strip()) < 3:
+                    return
+                clean = normalize_unicode(name.strip())
+                low = clean.lower()
+                if low in new_entities:
+                    return
+                new_entities[low] = CatalogEntity(
+                    name=clean,
+                    category=category,
+                    variants=generate_orthographic_variants(clean) if variants else [low],
                 )
-        except Exception as err:
+
+            for entities, issuer, subtype in rows:
+                for ent in entities or []:
+                    if isinstance(ent, dict) and ent.get("kind") != "party":
+                        add(ent.get("name"), "person", variants=True)
+                add(issuer, "authority", variants=False)
+                add(subtype, "document_type", variants=False)
+
+            self._entities = new_entities
+            logger.info(
+                "DynamicEntityCatalog refreshed: %d entities from %d profiles.",
+                len(self._entities),
+                len(rows),
+            )
+            self._last_refresh_time = time.time()
+        except Exception as err:  # noqa: BLE001 - catalog is an optional enrichment
             logger.warning("Failed to refresh DynamicEntityCatalog from DB: %s", err)
+            # Back off instead of retrying on every query while the DB is down.
+            self._last_refresh_time = time.time() - self._ttl_seconds + _FAILURE_RETRY_SECONDS
+        self._loaded = True
 
     def match_entities(self, query: str) -> list[tuple[str, list[str]]]:
         """Match entities in user query against dynamically loaded catalog.
@@ -163,4 +159,4 @@ def invalidate_entity_catalog() -> None:
     global _global_catalog
     if _global_catalog is not None:
         _global_catalog._last_refresh_time = 0.0
-
+        _global_catalog._loaded = False

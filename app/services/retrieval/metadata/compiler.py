@@ -11,9 +11,9 @@ import re
 
 from sqlalchemy import Select, and_, func, or_, select
 
+from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import MetadataFilterSpec, MetadataOperation
 from app.infrastructure.db.models import Document, DocumentProfile
-from app.services.skills.matching import unaccent_vietnamese
 
 ROW_COLUMNS = (
     "document_id",

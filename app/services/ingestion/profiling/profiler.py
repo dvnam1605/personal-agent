@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.text import unaccent_vietnamese
 from app.domain.models.ingestion.parsed_document import ParsedDocument
 from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 from app.services.ingestion.profiling.categories import DocCategory, required_fields_for
@@ -38,7 +39,6 @@ from app.services.ingestion.profiling.signals import (
     build_signals,
     build_signals_from_text,
 )
-from app.services.skills.matching import unaccent_vietnamese
 
 EXTRACTOR_VERSION = "profile-v2"
 

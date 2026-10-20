@@ -8,6 +8,7 @@ from datetime import date
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import (
     KnowledgeIntent,
     MetadataFilterSpec,
@@ -21,7 +22,6 @@ from app.services.retrieval.metadata import (
     render_metadata_answer,
 )
 from app.services.retrieval.metadata.compiler import compile_rows
-from app.services.skills.matching import unaccent_vietnamese
 
 TODAY = date(2026, 10, 20)
 PEOPLE = [(unaccent_vietnamese("Trần Văn Bình"), "Trần Văn Bình")]

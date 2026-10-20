@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import (
     KnowledgePlan,
     MetadataFilterSpec,
@@ -18,7 +19,6 @@ from app.domain.models.retrieval.metadata_filter import (
 from app.infrastructure.db.models import Document, DocumentProfile
 from app.services.retrieval.metadata.compiler import ROW_COLUMNS, compile_count, compile_rows
 from app.services.retrieval.metadata.filter_parser import KnowledgeQueryPlanner
-from app.services.skills.matching import unaccent_vietnamese
 
 STATEMENT_TIMEOUT_MS = 3000
 CATALOG_TTL_SECONDS = 300.0

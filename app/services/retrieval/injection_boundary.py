@@ -67,6 +67,22 @@ def sanitize_evidence_for_prompt(evidence: Evidence, *, index: int = 0) -> str:
     if evidence.heading_path:
         section = " > ".join(evidence.heading_path)
         header_parts.append(f'section="{html.escape(section, quote=True)}"')
+    # Provenance the model needs to attribute claims per document (any kind).
+    anchors = evidence.anchors or {}
+    for attr, key in (
+        ("kind", "doc_subtype"),
+        ("category", "doc_category"),
+        ("number", "doc_number"),
+        ("date", "doc_date"),
+        ("version", "version_number"),
+    ):
+        value = anchors.get(key)
+        if value not in (None, ""):
+            header_parts.append(f'{attr}="{html.escape(str(value), quote=True)}"')
+    page_start, page_end = anchors.get("page_start"), anchors.get("page_end")
+    if page_start:
+        pages = f"{page_start}-{page_end}" if page_end and page_end != page_start else page_start
+        header_parts.append(f'pages="{pages}"')
     header_parts.append(f'index="{index}"')
     attrs = " ".join(header_parts)
 

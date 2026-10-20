@@ -33,10 +33,15 @@ _POLITE_PREFIXES = re.compile(
 # Interrogative suffixes & fillers
 _INTERROGATIVE_FILLERS: list[re.Pattern[str]] = [
     re.compile(r"\b(?:là\s+ai|là\s+gì|ở\s+đâu|khi\s+nào)\b", re.IGNORECASE),
-    re.compile(r"\b(?:bao\s+nhiêu\s+tiền|là\s+bao\s+nhiêu|bao\s+nhiêu|hết\s+bao\s+nhiêu)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:bao\s+nhiêu\s+tiền|là\s+bao\s+nhiêu|bao\s+nhiêu|hết\s+bao\s+nhiêu)\b", re.IGNORECASE
+    ),
     re.compile(r"\b(?:như\s+thế\s+nào|như\s+nào|thế\s+nào|ra\s+sao)\b", re.IGNORECASE),
     re.compile(r"\b(?:thông\s+tin\s+về|chi\s+tiết\s+về|nội\s+dung\s+về|hỏi\s+về)\b", re.IGNORECASE),
-    re.compile(r"\b(?:đã\s+có|có\s+những|những\s+ai|ai\s+được|được\s+không|giúp\s+tôi|có\s+gì|có\s+không)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:đã\s+có|có\s+những|những\s+ai|ai\s+được|được\s+không|giúp\s+tôi|có\s+gì|có\s+không)\b",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"\b(?:đã\s+kí\s+những|đã\s+ký\s+những|đã\s+kí|đã\s+ký|kí\s+những|ky\s+những|"
         r"đã\s+ban\s+hành|ban\s+hành|ký\s+duyệt|phê\s+duyệt)\b",
@@ -68,17 +73,32 @@ HONORIFIC_NAME_REGEX = re.compile(
 
 # Patterns that signal a multi-turn follow-up question
 FOLLOWUP_PATTERNS = [
-    re.compile(r"\b(?:còn\s+văn\s+bản\s+nào|còn\s+tài\s+liệu\s+nào|còn\s+quyết\s+định\s+nào)\b", re.IGNORECASE),
-    re.compile(r"\b(?:còn\s+nữa\s+không|còn\s+gì\s+nữa|còn\s+ai\s+nữa|tiếp\s+tục|ngoài\s+ra)\b", re.IGNORECASE),
-    re.compile(r"^\s*(?:còn\s+nữa\s+ko|còn\s+nữa\s+không|còn\s+ko|còn\s+không)\s*\??\s*$", re.IGNORECASE),
+    re.compile(
+        r"\b(?:còn\s+văn\s+bản\s+nào|còn\s+tài\s+liệu\s+nào|còn\s+quyết\s+định\s+nào)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:còn\s+nữa\s+không|còn\s+gì\s+nữa|còn\s+ai\s+nữa|tiếp\s+tục|ngoài\s+ra)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:còn\s+nữa\s+ko|còn\s+nữa\s+không|còn\s+ko|còn\s+không)\s*\??\s*$", re.IGNORECASE
+    ),
 ]
 
 # Patterns that signal an inventory / listing intent (retrieving all matching items)
 LISTING_PATTERNS = [
-    re.compile(r"\b(?:những\s+văn\s+bản\s+nào|các\s+văn\s+bản\s+nào|những\s+quyết\s+định\s+nào)\b", re.IGNORECASE),
-    re.compile(r"\b(?:đã\s+kí|đã\s+ký|kí\s+những|ký\s+những|ai\s+ký|ai\s+kí|do\s+ai\s+ký)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:những\s+văn\s+bản\s+nào|các\s+văn\s+bản\s+nào|những\s+quyết\s+định\s+nào)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:đã\s+kí|đã\s+ký|kí\s+những|ký\s+những|ai\s+ký|ai\s+kí|do\s+ai\s+ký)\b", re.IGNORECASE
+    ),
     re.compile(r"\b(?:danh\s+sách|liệt\s+kê|tất\s+cả|toàn\s+bộ|tổng\s+hợp)\b", re.IGNORECASE),
-    re.compile(r"\b(?:còn\s+văn\s+bản\s+nào|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:còn\s+văn\s+bản\s+nào|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không)\b", re.IGNORECASE
+    ),
 ]
 
 
@@ -115,7 +135,9 @@ def extract_potential_honorific_names(query: str) -> list[str]:
         raw_name = match.group(1).strip()
         # Filter out obvious false positives
         words = raw_name.split()
-        if 1 < len(words) <= 5 and not any(w.lower() in ("văn", "bản", "gì", "nào", "không") for w in words[:1]):
+        if 1 < len(words) <= 5 and not any(
+            w.lower() in ("văn", "bản", "gì", "nào", "không") for w in words[:1]
+        ):
             names.append(raw_name)
     return names
 

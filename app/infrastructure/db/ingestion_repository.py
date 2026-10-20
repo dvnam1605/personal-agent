@@ -229,10 +229,10 @@ class SqlAlchemyIngestionRepository:
                     content_hash=parent.content_hash,
                     source_block_ids=list(parent.source_block_ids),
                     parent_chunker_version=parent.parent_chunker_version,
-                    metadata_={
-                        "ordinal": parent.ordinal,
-                        "administrative_metadata": parent.administrative_metadata,
-                    },
+                    # Document-level metadata lives once in document_profiles
+                    # (and documents.metadata); copying it onto every chunk
+                    # only multiplied storage.
+                    metadata_={"ordinal": parent.ordinal},
                 )
             )
         for child, vector in children:
@@ -277,9 +277,7 @@ class SqlAlchemyIngestionRepository:
                     embedding=vector,
                     embedding_model=_embedding_model(),
                     embedding_dimensions=len(vector) if vector else _embedding_dimensions(),
-                    metadata_={
-                        "administrative_metadata": child.administrative_metadata,
-                    },
+                    metadata_={},
                 )
             )
         await typed.flush()

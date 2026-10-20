@@ -73,12 +73,19 @@ def reformulate_query(
         normalized = pattern.sub(replacement, normalized)
 
     matched_phrases: list[str] = []
+    # Phrases precise enough to stand alone (people, organisations, numbers,
+    # years). A bare document-type match ("báo cáo") is not: the rest of the
+    # question's keywords must stay in the query or recall collapses.
+    precise = False
 
     # 2. Dynamic Entity Matching from Catalog (if loaded)
     cat = catalog or get_entity_catalog()
     if cat:
         entity_matches = cat.match_entities(normalized)
-        for _, variants in entity_matches:
+        for name, variants in entity_matches:
+            entity = getattr(cat, "_entities", {}).get(name)
+            if entity is None or entity.category != "document_type":
+                precise = True
             for v in variants:
                 phrase = f'"{v}"'
                 if phrase not in matched_phrases:
@@ -87,6 +94,7 @@ def reformulate_query(
     # 3. Dynamic Honorific / Person Name Extraction
     detected_names = extract_potential_honorific_names(normalized)
     for raw_name in detected_names:
+        precise = True
         variants = generate_orthographic_variants(raw_name)
         for v in variants:
             phrase = f'"{v}"'
@@ -94,9 +102,18 @@ def reformulate_query(
                 matched_phrases.append(phrase)
 
     # 4. Extract specific document numbers (e.g. "số 427", "1367/QĐ", "4351")
+    # A bare number only counts when it is introduced as one ("số 427"):
+    # "Điều 5", "khoản 2" or "3 người" are not document numbers.
     for m in _DOC_NUMBER_PATTERN.finditer(normalized):
         token = m.group(1).strip()
-        if "/" in token or (token.isdigit() and len(token) <= 4 and int(token) > 0):
+        is_number = "/" in token or (
+            token.isdigit()
+            and len(token) <= 4
+            and int(token) > 0
+            and m.group(0).lower().startswith("số")
+        )
+        if is_number:
+            precise = True
             clean_num = re.sub(r"\s*/\s*", "/", token)
             phrase = f'"{clean_num}"'
             if phrase not in matched_phrases:
@@ -104,6 +121,7 @@ def reformulate_query(
 
     # 5. Extract 4-digit years (e.g. 2024, 2025, 2026)
     for m in _YEAR_PATTERN.finditer(normalized):
+        precise = True
         year = m.group(1)
         phrase = f'"{year}"'
         if phrase not in matched_phrases:
@@ -113,7 +131,13 @@ def reformulate_query(
     cleaned_semantic = clean_conversational_phrasing(normalized)
 
     # 7. Construct PostgreSQL FTS websearch query
-    if matched_phrases:
+    if matched_phrases and not precise:
+        extra = fallback_fts_query(cleaned_semantic or normalized).split(" OR ")
+        terms = matched_phrases + [
+            t for t in extra if t.startswith('"') and t not in matched_phrases
+        ]
+        fts_search_query = " OR ".join(terms)
+    elif matched_phrases:
         fts_search_query = " OR ".join(matched_phrases)
     else:
         fts_search_query = cleaned_semantic or normalized
@@ -150,7 +174,10 @@ async def areformulate_with_llm(query: str) -> tuple[str, str]:
             json={
                 "model": settings.llm.primary_model,
                 "messages": [
-                    {"role": "system", "content": "Bạn là chuyên gia trích xuất truy vấn RAG. Chỉ trả về JSON duy nhất."},
+                    {
+                        "role": "system",
+                        "content": "Bạn là chuyên gia trích xuất truy vấn RAG. Chỉ trả về JSON duy nhất.",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": 0.0,
@@ -191,10 +218,47 @@ async def areformulate_with_llm(query: str) -> tuple[str, str]:
 # Function syllables that match almost every chunk; OR-ing them only adds noise.
 _FTS_STOPWORDS = frozenset(
     {
-        "của", "là", "và", "các", "những", "cho", "với", "trong", "có", "được",
-        "này", "đó", "thì", "mà", "về", "theo", "từ", "tại", "một", "nào",
-        "gì", "không", "như", "khi", "đã", "sẽ", "đang", "hay", "hoặc", "bị",
-        "ra", "vào", "để", "ở", "nhé", "vậy", "sao", "the", "of", "and", "or",
+        "của",
+        "là",
+        "và",
+        "các",
+        "những",
+        "cho",
+        "với",
+        "trong",
+        "có",
+        "được",
+        "này",
+        "đó",
+        "thì",
+        "mà",
+        "về",
+        "theo",
+        "từ",
+        "tại",
+        "một",
+        "nào",
+        "gì",
+        "không",
+        "như",
+        "khi",
+        "đã",
+        "sẽ",
+        "đang",
+        "hay",
+        "hoặc",
+        "bị",
+        "ra",
+        "vào",
+        "để",
+        "ở",
+        "nhé",
+        "vậy",
+        "sao",
+        "the",
+        "of",
+        "and",
+        "or",
     }
 )
 

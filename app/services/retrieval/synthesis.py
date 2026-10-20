@@ -82,41 +82,53 @@ class AnswerSynthesizer(Protocol):
 
 _CITE_RE = re.compile(r"\[(?:evidence_id=)?[\"']?([0-9a-fA-F]{32})[\"']?\]")
 _HEX_ID_RE = re.compile(r"[0-9a-fA-F]{32}")
-_BRACKET_CITE_RE = re.compile(
-    r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]"
-)
+_BRACKET_CITE_RE = re.compile(r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]")
 
 
-def format_document_title(raw_title: str | None, text_content: str | None = None) -> str:
-    """Format raw storage filenames (e.g. 18-3-2026-954776_427QD_25_02_2026.md) into clean administrative titles."""
+def _vn_date(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value)
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
+    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else text
+
+
+def format_document_title(
+    raw_title: str | None,
+    text_content: str | None = None,
+    anchors: dict[str, Any] | None = None,
+) -> str:
+    """Human title for a citation, for any document kind.
+
+    Prefers the document profile (subtype, number, date, title); falls back
+    to a printed "Số: …" line, then to a cleaned-up filename.
+    """
+    anchors = anchors or {}
+    profile_title = (anchors.get("profile_title") or "").strip()
+    number = anchors.get("doc_number")
+    subtype = anchors.get("doc_subtype")
+    when = _vn_date(anchors.get("doc_date"))
+    if profile_title or number:
+        label = profile_title[:120] if profile_title else ""
+        if number and number not in label:
+            head = f"{subtype or 'Văn bản'} số {number}"
+            label = f"{head} – {label}" if label else head
+        if when:
+            label = f"{label} ({when})"
+        return label
+
     if not raw_title:
-        return "Văn bản nội bộ"
+        return "Tài liệu nội bộ"
 
     if text_content:
-        so_match = re.search(
-            r"Số:\s*([0-9A-Za-z\/\-\_]+QĐ[0-9A-Za-z\/\-\_]*)", text_content, re.IGNORECASE
-        )
-        ve_viec = re.search(r"QUYẾT ĐỊNH\s+(?:Về việc\s+)?([^\n\r#]+)", text_content, re.IGNORECASE)
-        if so_match and ve_viec:
-            clean_so = so_match.group(1).strip()
-            clean_subject = ve_viec.group(1).strip().capitalize()
-            return f"QĐ số {clean_so} - {clean_subject[:80]}"
+        so_match = re.search(r"Số\s*:\s*(\d{1,5}\s*/\s*[A-ZĐ][\wĐ\-/]*)", text_content)
         if so_match:
-            return f"Quyết định số {so_match.group(1).strip()}"
+            number = re.sub(r"\s+", "", so_match.group(1))
+            return f"Văn bản số {number}"
 
-    fn_match = re.search(r"_(\d+)QD_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
-    if fn_match:
-        so, day, month, year = fn_match.groups()
-        return f"Quyết định số {so}/QĐ-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
-
-    ct_match = re.search(r"_CT(\d+)_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
-    if ct_match:
-        so, day, month, year = ct_match.groups()
-        return f"Chỉ thị số {so}/CT-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
-
-    cleaned = re.sub(r"\.md$", "", raw_title, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\.(?:md|pdf|docx?|xlsx?)$", "", raw_title, flags=re.IGNORECASE)
     cleaned = re.sub(r"^\d+-\d+-\d+-\d+_", "", cleaned)
-    return cleaned or raw_title
+    return cleaned.replace("_", " ").strip() or raw_title
 
 
 def extract_cited_ids(text: str) -> list[str]:
@@ -147,7 +159,7 @@ def build_citations_from_bundle(
         raw_title = (
             item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
         )
-        title = format_document_title(raw_title, item.content_raw)
+        title = format_document_title(raw_title, item.content_raw, item.anchors)
         source_type = item.source_type or item.anchors.get("source_type") or "Văn bản"
         page_start = item.anchors.get("page_start")
         page_end = item.anchors.get("page_end")
@@ -229,9 +241,10 @@ class PromptAnswerSynthesizer:
                 # httpx timeouts are per read, so a slow-trickling stream also
                 # gets an overall deadline.
                 try:
-                    async with asyncio.timeout(timeout), httpx.AsyncClient(
-                        timeout=timeout
-                    ) as client:
+                    async with (
+                        asyncio.timeout(timeout),
+                        httpx.AsyncClient(timeout=timeout) as client,
+                    ):
                         async with client.stream(
                             "POST",
                             target_url,
@@ -408,9 +421,7 @@ class PromptAnswerSynthesizer:
                     "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
                 ),
                 citations=citations,
-                status=SufficiencyStatus.PARTIAL
-                if citations
-                else SufficiencyStatus.INSUFFICIENT,
+                status=SufficiencyStatus.PARTIAL if citations else SufficiencyStatus.INSUFFICIENT,
             )
 
         cited_ids = extract_cited_ids(answer_text)
@@ -561,9 +572,7 @@ class PromptAnswerSynthesizer:
         failure: str | None = None
         try:
             # aclosing: stopping at the deadline must also close the HTTP stream.
-            async with contextlib.aclosing(
-                self._stream_generate(system_msg, user_msg)
-            ) as stream:
+            async with contextlib.aclosing(self._stream_generate(system_msg, user_msg)) as stream:
                 async for chunk in stream:
                     buf += chunk
                     emitted = _process_buffer(force=False)

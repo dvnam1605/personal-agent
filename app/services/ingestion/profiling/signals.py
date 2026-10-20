@@ -11,13 +11,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from app.core.text import unaccent_vietnamese
 from app.domain.models.ingestion.parsed_document import (
     HeadingNode,
     ListNode,
     ParsedDocument,
     TableNode,
 )
-from app.services.skills.matching import unaccent_vietnamese
 
 HEADER_LINES = 60
 TAIL_LINES = 40

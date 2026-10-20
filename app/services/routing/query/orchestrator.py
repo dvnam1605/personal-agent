@@ -104,11 +104,13 @@ FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(còn\s+văn\s+bản\s+nào|còn\s+quyết\s+định\s+nào|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không|tiếp\s+tục|tiếp\s+đi)\b",
+        r"\b(còn\s+(?:văn\s+bản|tài\s+liệu|quyết\s+định|báo\s+cáo|hợp\s+đồng|biên\s+bản|file)\s+nào"
+        r"|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không|tiếp\s+tục|tiếp\s+đi)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(ông\s+ấy|bà\s+ấy|văn\s+bản\s+đó|quyết\s+định\s+đó|người\s+đó)\b",
+        r"\b(ông\s+ấy|bà\s+ấy|anh\s+ấy|chị\s+ấy|người\s+đó"
+        r"|(?:văn\s+bản|tài\s+liệu|quyết\s+định|báo\s+cáo|hợp\s+đồng|biên\s+bản|file)\s+(?:đó|này|trên))\b",
         re.IGNORECASE,
     ),
 ]
@@ -140,33 +142,22 @@ def condense_query_with_history(query: str, history: list[dict[str, str]]) -> st
     if not last_user_query:
         return query
 
-    lower_last = last_user_query.lower()
-    subject = ""
-    for name in [
-        "đỗ tiến sỹ",
-        "đỗ tiến sĩ",
-        "vũ hải quang",
-        "ngô minh hiển",
-        "phạm mạnh hùng",
-        "trần minh hùng",
-    ]:
-        if name in lower_last:
-            subject = f"ông {name.title()}"
-            break
-
-    if not subject:
-        m = re.search(
-            r"\b(?:ông|bà|đồng chí|đ/c)\s+([A-ZÀ-Ỹa-zà-ỹ\s]+?)(?=\s+(?:đã|ký|kí|ban hành|\?|$))",
-            last_user_query,
-            re.IGNORECASE,
-        )
-        if m:
-            subject = m.group(0).strip()
-
-    if subject:
-        return f"các văn bản quyết định khác do {subject} ký còn lại trong hệ thống"
-
+    # Pronoun follow-ups ("ông ấy", "tài liệu đó") point at the person or
+    # document named in the previous question; substitute it in place so the
+    # rest of the new question (its own verb, date, document kind) is kept.
+    person = _PERSON_MENTION.search(last_user_query)
+    if person and _PERSON_PRONOUN.search(query):
+        return _PERSON_PRONOUN.sub(person.group(0).strip(), query, count=1)
+    # "còn … nào nữa không", "chi tiết hơn": same question, asking for more.
     return f"{last_user_query} ({query})"
+
+
+# Honorific + capitalised name, e.g. "ông Nguyễn Văn An" (no names hard-coded).
+_PERSON_MENTION = re.compile(
+    r"\b(?:ông|bà|anh|chị|đồng chí|đ/c|thầy|cô)\s+"
+    r"[A-ZĐÀ-Ỹ][\wÀ-ỹ]*(?:\s+[A-ZĐÀ-Ỹ][\wÀ-ỹ]*){0,4}"
+)
+_PERSON_PRONOUN = re.compile(r"\b(?:ông|bà|anh|chị|người)\s+(?:ấy|đó|này)\b", re.IGNORECASE)
 
 
 class QueryOrchestrator:

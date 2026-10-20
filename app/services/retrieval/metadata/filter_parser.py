@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
+from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import (
     KnowledgeIntent,
     KnowledgePlan,
@@ -20,7 +21,6 @@ from app.domain.models.retrieval.metadata_filter import (
     MetadataOperation,
 )
 from app.services.ingestion.profiling.categories import CATEGORY_SPECS, DocCategory
-from app.services.skills.matching import unaccent_vietnamese
 
 _GENERIC_NOUNS = ("van ban", "tai lieu", "ho so", "file", "giay to")
 
@@ -45,7 +45,7 @@ def _build_synonyms() -> list[_Synonym]:
 
 
 _SYNONYMS = _build_synonyms()
-_DOC_NOUN = "|".join(
+DOC_NOUN_PATTERN = _DOC_NOUN = "|".join(
     re.escape(n)
     for n in sorted({*_GENERIC_NOUNS, *(s.folded for s in _SYNONYMS)}, key=len, reverse=True)
 )
