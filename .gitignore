@@ -17,3 +17,6 @@ scratch/
 .codegraph/
 .agents
 skills-lock.json
+
+# RAG gold-set evaluation runs (scripts/eval_rag.py)
+eval_results/

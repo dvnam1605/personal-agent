@@ -207,7 +207,10 @@ DOC_DURATION_PATTERN = re.compile(
 # ----------------------------------------------------------------------
 
 CASUAL_PATTERN = re.compile(
-    r"\b(xin chao|chao ban|chao|hello|hi|hey|ban la ai|can tro giup|tro giup|help|cam on|thanks|thank you|chuc|tot lanh)\b|"
+    # "chuc" alone also matches "viên chức"/"tổ chức" once accents are folded,
+    # which sent real questions to chit-chat; only greeting phrases count.
+    r"\b(xin chao|chao ban|chao|hello|hi|hey|ban la ai|can tro giup|tro giup|help|cam on|thanks|thank you|"
+    r"chuc mung|chuc ban|chuc anh|chuc chi|chuc em|chuc ngu ngon|chuc mot ngay|tot lanh)\b|"
     r"\b(an gi|uong gi|mon gi|an com|an trua|an toi|an sang|thoi tiet|tam trang|khoe khong|the nao roi|co vui khong)\b",
     re.IGNORECASE,
 )
