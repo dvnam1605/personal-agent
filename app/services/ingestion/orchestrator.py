@@ -8,6 +8,7 @@ inspect the returned observability record.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import time
 from collections.abc import Awaitable, Callable
@@ -24,7 +25,7 @@ from app.domain.models.ingestion import (
 )
 from app.domain.models.ingestion.chunks import ChunkLevel
 from app.domain.models.ingestion.documents import FingerprintInputs, SourceDocument
-from app.domain.models.ingestion.parsed_document import ParseStatus
+from app.domain.models.ingestion.parsed_document import ParseResult, ParseStatus
 from app.services.ingestion.chunking.children import SentenceChildChunker
 from app.services.ingestion.chunking.identity import (
     CHILD_CHUNKER_VERSION,
@@ -34,7 +35,7 @@ from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.embedding import LocalEmbeddingService
 from app.services.ingestion.fingerprint import compute_fingerprint, fingerprint_matches_stored
-from app.services.ingestion.parsing.base import parse_source
+from app.services.ingestion.parsing.base import parse_source, parser_identity
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
 
@@ -98,8 +99,17 @@ class IngestionOrchestrator:
         job_id: str | None = None,
         on_status: StatusCallback | None = None,
         force_reindex: bool = False,
+        parsed_result: ParseResult | None = None,
     ) -> IngestionObservability:
         obs = _Obs(job_id or str(uuid4()), source, len(content))
+        if parsed_result is not None and parsed_result.document is not None:
+            meta = parsed_result.document.metadata
+            identity = (meta.parser_name, meta.parser_version)
+        else:
+            # The engine (Docling or PyMuPDF for PDFs) depends on the content;
+            # it is part of the fingerprint so switching engines re-ingests.
+            identity = await asyncio.to_thread(parser_identity, source, content)
+        obs.parser_name, obs.parser_version = identity
         started_stage = time.perf_counter()
 
         async def mark(status: IngestionStatus) -> None:
@@ -124,7 +134,9 @@ class IngestionOrchestrator:
 
         try:
             await mark(IngestionStatus.RUNNING)
-            fingerprint = compute_fingerprint(self._fingerprint_inputs(source)).fingerprint
+            fingerprint = compute_fingerprint(
+                self._fingerprint_inputs(source, parser_version=identity[1])
+            ).fingerprint
             logical_id = logical_document_id_for(source.source_id)
 
             # This read sits outside the persist transaction, so two concurrent
@@ -135,7 +147,10 @@ class IngestionOrchestrator:
             # no silent overwrite.
             state = await self._repository.latest_state(logical_id)
             unchanged, is_legacy = (
-                fingerprint_matches_stored(state.fingerprint, self._fingerprint_inputs(source))
+                fingerprint_matches_stored(
+                    state.fingerprint,
+                    self._fingerprint_inputs(source, parser_version=identity[1]),
+                )
                 if state is not None
                 else (False, False)
             )
@@ -153,7 +168,9 @@ class IngestionOrchestrator:
             document_id = document_id_for(logical_id, version_number)
 
             await mark(IngestionStatus.PARSING)
-            parsed = await parse_source(source, content)
+            # A pre-parsed result (parsed on another machine with more RAM) skips
+            # parsing; chunking, embedding and persistence are unchanged.
+            parsed = parsed_result or await parse_source(source, content)
             obs.durations["parse"] = stage_elapsed()
             if parsed.quality is not None:
                 obs.warnings.extend(parsed.quality.parse_warnings)
@@ -312,7 +329,9 @@ class IngestionOrchestrator:
         async with self._transaction.transaction() as session:
             return await self._repository.deactivate_logical_document(session, logical_id)
 
-    def _fingerprint_inputs(self, source: SourceDocument) -> FingerprintInputs:
+    def _fingerprint_inputs(
+        self, source: SourceDocument, *, parser_version: str | None = None
+    ) -> FingerprintInputs:
         embedding = get_settings().embedding
         chunking = self._chunking_settings
         ocr_meta = source.metadata.get("ocr_sidecar") if isinstance(source.metadata, dict) else None
@@ -327,7 +346,7 @@ class IngestionOrchestrator:
             checksum=source.checksum,
             modified_at=source.modified_at,
             size_bytes=source.size_bytes,
-            parser_version=_parser_version_for(source),
+            parser_version=parser_version or _parser_version_for(source),
             parent_chunker_version=PARENT_CHUNKER_VERSION,
             child_chunker_version=CHILD_CHUNKER_VERSION,
             embedding_model=embedding.model,

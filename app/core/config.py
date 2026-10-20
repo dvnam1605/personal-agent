@@ -306,6 +306,20 @@ class ParsingSettings(BaseModel):
         default=0.25,
         description="Ratio of replacement/non-printable chars that marks a parse corrupt",
     )
+    pdf_engine: str = Field(
+        default="auto",
+        pattern="^(auto|docling|pymupdf)$",
+        description=(
+            "PDF parser: 'docling' always; 'pymupdf' for every text-layer PDF; 'auto' "
+            "PyMuPDF for long text-layer PDFs (Docling needs GBs of RAM on books), "
+            "Docling otherwise. Scanned PDFs always go to Docling (NEEDS_OCR)."
+        ),
+    )
+    pymupdf_min_pages: int = Field(
+        default=20,
+        ge=1,
+        description="In 'auto' mode, text-layer PDFs with at least this many pages use PyMuPDF",
+    )
 
 
 class ProfilingSettings(BaseModel):
