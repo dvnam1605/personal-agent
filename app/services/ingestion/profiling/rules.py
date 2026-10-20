@@ -58,6 +58,7 @@ class RuleFields:
     people: list[dict[str, str]] = field(default_factory=list)
     extras: dict[str, object] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
+    review_notes: list[str] = field(default_factory=list)
 
     def set(self, name: str, value: object, source: str = "rule") -> None:
         if value in (None, "", [], {}):

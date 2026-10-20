@@ -95,15 +95,27 @@ async def main() -> None:
     # 1. Ensure embedding model snapshot is downloaded and ready
     model_name = settings.embedding.model
     logger.info("Preparing embedding backend for model: %s", model_name)
-    try:
-        model_path = snapshot_download(model_name, local_files_only=False)
-        logger.info("Embedding model loaded from snapshot: %s", model_path)
-    except Exception as exc:
-        logger.error("Failed to prepare embedding model: %s", exc)
-        sys.exit(1)
+    local_path = settings.embedding.local_path
+    if local_path and (REPO_ROOT / local_path).exists():
+        # Same snapshot the backend container uses (./models) — no download.
+        model_path = str(REPO_ROOT / local_path)
+        logger.info("Embedding model from local snapshot: %s", model_path)
+    else:
+        try:
+            model_path = snapshot_download(model_name, local_files_only=False)
+            logger.info("Embedding model loaded from snapshot: %s", model_path)
+        except Exception as exc:
+            logger.error("Failed to prepare embedding model: %s", exc)
+            sys.exit(1)
 
     # 2. Build local embedding service with CLS pooling for Vietnamese embedding
-    backend = TransformersPoolingBackend(model_path, max_length=512)
+    import torch
+
+    device = settings.embedding.device
+    if device == "cuda" and not torch.cuda.is_available():
+        logger.warning("CUDA requested but unavailable here; embedding on CPU")
+        device = "cpu"
+    backend = TransformersPoolingBackend(model_path, max_length=512, device=device)
     logger.info("Loading PyTorch transformer weights into memory...")
     backend._ensure_loaded()
     logger.info("Embedding backend loaded and ready!")

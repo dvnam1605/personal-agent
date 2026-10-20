@@ -138,6 +138,14 @@ class DocumentProfiler:
         elif unsure or missing:
             draft.needs_review = True
             draft.review_reason = "low_confidence" if unsure else f"missing:{','.join(missing)}"
+        if fields.review_notes:
+            # Conflicting evidence (e.g. OCR'd number ≠ filename number) is a
+            # human call: keep the printed value, surface the conflict.
+            draft.needs_review = True
+            notes = "; ".join(fields.review_notes)
+            draft.review_reason = (
+                f"{draft.review_reason}; {notes}" if draft.review_reason else notes
+            )
 
         self._finalize(draft)
         if overrides:
@@ -223,6 +231,12 @@ class DocumentProfiler:
         f.set(
             "doc_number", ext._extract_document_number(header, signals.filename, cls.subtype or "")
         )
+        fn_number = ext._extract_number_from_filename(signals.filename, cls.subtype or "")
+        lead = re.compile(r"^\d+")
+        text_digits = lead.search(f.doc_number or "")
+        fn_digits = lead.search(fn_number or "")
+        if text_digits and fn_digits and text_digits.group(0) != fn_digits.group(0):
+            f.review_notes.append(f"number_mismatch:text={f.doc_number},filename={fn_number}")
         raw_date = ext._extract_promulgation_date(header, signals.filename)
         if raw_date:
             f.set("doc_date", date.fromisoformat(raw_date))

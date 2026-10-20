@@ -212,3 +212,11 @@ def test_clean_person_strips_titles_and_student_ids() -> None:
     assert clean_person("PGS. TS. Nguyễn Thị Kim") == ("Nguyễn Thị Kim", None)
     assert clean_person("Nguyễn Tuấn An - 20220033") == ("Nguyễn Tuấn An", "20220033")
     assert clean_person("Khoa học máy tính")[0] is None
+
+
+async def test_number_conflict_with_filename_is_flagged(profiler: DocumentProfiler) -> None:
+    text = ADMIN.replace("Số: 123/QĐ-ABC", "Số: 4357/QĐ-TNVN")
+    d = await profiler.aprofile_text(text, "28-1-2026-160386_4351QD_31_12_2025.md")
+    assert d.doc_number == "4357/QĐ-TNVN"  # the printed value is kept
+    assert d.needs_review is True
+    assert "number_mismatch" in (d.review_reason or "")
