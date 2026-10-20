@@ -163,7 +163,14 @@ class RetrievalPipeline:
                 citations=[],
             )
 
-        missing_docs: list[str] = list(verdict.missing_document_ids)
+        # A coverage warning only makes sense when the user compares specific
+        # documents; scoping RAG to a set of candidates (metadata route, document
+        # generation) leaves most of them uncited by design.
+        missing_docs: list[str] = (
+            list(verdict.missing_document_ids)
+            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
+            else []
+        )
         if compare_result and compare_result.missing_documents:
             missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 
@@ -227,7 +234,14 @@ class RetrievalPipeline:
             }
             return
 
-        missing_docs: list[str] = list(verdict.missing_document_ids)
+        # A coverage warning only makes sense when the user compares specific
+        # documents; scoping RAG to a set of candidates (metadata route, document
+        # generation) leaves most of them uncited by design.
+        missing_docs: list[str] = (
+            list(verdict.missing_document_ids)
+            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
+            else []
+        )
         if compare_result and compare_result.missing_documents:
             missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 
