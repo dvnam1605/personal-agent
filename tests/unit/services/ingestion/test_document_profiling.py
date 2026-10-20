@@ -247,3 +247,120 @@ def test_headings_are_not_people_but_real_names_survive() -> None:
 def test_job_titles_are_not_people() -> None:
     assert clean_person("Tổng Giám Đốc")[0] is None
     assert clean_person("PHÓ GIÁM ĐỐC")[0] is None
+
+
+# Real header shapes from the corpus: the title line can be lost by OCR, and
+# the legal basis cites other decrees "về việc …".
+NO_TITLE_DECISION = """TỔNG GIÁM ĐỐC ĐÀI TIẾNG NÓI VIỆT NAM
+Căn cứ Luật thi đua, khen thưởng ngày 15/06/2022;
+Căn cứ Nghị định số 152/2025/NĐ-CP ngày 14/6/2025 của Chính phủ về việc quy định về phân cấp, phân quyền trong lĩnh vực thi đua, khen thưởng;
+TỔNG GIÁM ĐỐC ĐÀI TIẾNG NÓI VIỆT NAM
+QUYẾT ĐỊNH:
+Điều 1. Tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam cho Liên Chi hội Nhà báo Đài Tiếng nói Việt Nam, đã có thành tích xuất sắc.
+Điều 2. Kinh phí khen thưởng thực hiện theo Quyết định số 626/QĐ-TNVN ngày 18 tháng 3 năm 2025 của Tổng Giám đốc về việc chi thưởng.
+"""
+
+SAME_LINE_TITLE = """Số: 1119/QĐ-TNVN
+Hà Nội, ngày 13 tháng 04 năm 2026
+QUYẾT ĐỊNH Về việc tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam
+TỔNG GIÁM ĐỐC ĐÀI TIẾNG NÓI VIỆT NAM
+Căn cứ Nghị định số 152/2025/NĐ-CP của Chính phủ về việc quy định về phân cấp;
+QUYẾT ĐỊNH:
+Điều 1. Tặng Bằng khen cho các tập thể có tên sau đây:
+"""
+
+
+def test_subject_never_comes_from_the_legal_basis() -> None:
+    from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor as X
+
+    assert X._extract_subject(NO_TITLE_DECISION) is None
+    assert X._extract_subject(SAME_LINE_TITLE) == (
+        "Về việc tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam"
+    )
+    wrapped = "QUYẾT ĐỊNH\nVề việc ban hành Quy chế làm việc\ncủa Đài Tiếng nói Việt Nam\nCăn cứ …"
+    assert X._extract_subject(wrapped) == (
+        "Về việc ban hành Quy chế làm việc của Đài Tiếng nói Việt Nam"
+    )
+    assert X._extract_subject("CHỈ THỊ\nV/v tăng cường công tác văn thư") == (
+        "Về việc tăng cường công tác văn thư"
+    )
+
+
+def test_article_one_fallback_keeps_the_action_not_the_recipients() -> None:
+    from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor as X
+
+    assert X._extract_subject_from_article1(NO_TITLE_DECISION) == (
+        "Về việc tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam"
+    )
+    assert (
+        X._extract_subject_from_article1(
+            "Điều 1. Ban hành kèm theo Quyết định này Quy chế làm việc của Đài Tiếng nói Việt Nam."
+        )
+        == "Về việc ban hành Quy chế làm việc của Đài Tiếng nói Việt Nam"
+    )
+    assert X._extract_subject_from_article1("Điều 10. Hiệu lực thi hành.") is None
+
+
+async def test_decision_without_title_line_is_named_by_article_one(
+    profiler: DocumentProfiler,
+) -> None:
+    d = await profiler.aprofile_text(NO_TITLE_DECISION, "QD_91_TNVN.pdf")
+    assert d.doc_category is DocCategory.ADMINISTRATIVE
+    assert d.title == ("Quyết định về việc tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam")
+    assert "phân cấp" not in (d.title or "")
+    assert d.field_sources.get("title") == "rule_article1"
+    assert d.needs_review
+
+
+async def test_title_on_the_type_line(profiler: DocumentProfiler) -> None:
+    d = await profiler.aprofile_text(SAME_LINE_TITLE, "QD_1119_TNVN.pdf")
+    assert d.title == ("Quyết định về việc tặng Bằng khen của Tổng Giám đốc Đài Tiếng nói Việt Nam")
+    assert d.field_sources.get("title") == "rule"
+
+
+def test_article_one_clause_is_cut_at_lists_positions_and_parentheses() -> None:
+    from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor as X
+
+    cases = {
+        "Điều 1. Ban hành Chương trình tiết kiệm, chống lãng phí năm 2026 của Đài.": (
+            "Về việc ban hành Chương trình tiết kiệm, chống lãng phí năm 2026 của Đài"
+        ),
+        "Điều 1. Thành lập Hội đồng tư vấn năm 2026 gồm các thành viên (có danh sách kèm theo).": (
+            "Về việc thành lập Hội đồng tư vấn năm 2026"
+        ),
+        "Điều 1. Giao nhiệm vụ nghiên cứu khoa học năm 2026 với nội dung sau:": (
+            "Về việc giao nhiệm vụ nghiên cứu khoa học năm 2026"
+        ),
+        "Điều 1. Điều động ông Lưu Phú, chuyên viên Ban Thư ký, đến công tác tại Văn phòng.": (
+            "Về việc điều động ông Lưu Phú"
+        ),
+        "Điều 1. Phê duyệt dự toán kinh phí năm 2026 (Loại 100": (
+            "Về việc phê duyệt dự toán kinh phí năm 2026"
+        ),
+    }
+    for text, expected in cases.items():
+        assert X._extract_subject_from_article1(text) == expected, text
+    # Not an operative clause: the list of executors.
+    assert X._extract_subject_from_article1("Điều 1. Văn phòng, các đơn vị thực hiện.") is None
+
+
+async def test_repeated_cover_line_is_not_doubled(profiler: DocumentProfiler) -> None:
+    slides = (
+        "TRƯỜNG ĐẠI HỌC BÁCH KHOA HÀ NỘI\nĐỒ ÁN TỐT NGHIỆP\n"
+        "Hệ thống tối ưu lãi vay trên blockchain\nHệ thống tối ưu lãi vay trên blockchain\n"
+        "Sinh viên: Nguyễn Văn A\n"
+    )
+    d = await profiler.aprofile_text(slides, "slides.pdf")
+    assert d.title == "Hệ thống tối ưu lãi vay trên blockchain"
+
+
+def test_admin_title_drops_repeated_type_name() -> None:
+    from app.services.ingestion.profiling.profiler import _admin_title
+
+    assert (
+        _admin_title(
+            "QUYẾT ĐỊNH: QUYET ĐỊNH Phê duyệt Kế hoạch chuyển đổi số năm 2025", "Quyết định"
+        )
+        == "Quyết định phê duyệt Kế hoạch chuyển đổi số năm 2025"
+    )
+    assert _admin_title("Quy chế làm việc", "Quyết định") == "Quy chế làm việc"

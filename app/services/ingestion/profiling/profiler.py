@@ -40,7 +40,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v6"
+EXTRACTOR_VERSION = "profile-v7"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -215,7 +215,10 @@ class DocumentProfiler:
         if cls.category is DocCategory.ACADEMIC:
             self._academic_rules(signals, cls, f)
 
-        f.set("title", self._title(signals, cls))
+        title = self._title(signals, cls)
+        if title and cls.category is DocCategory.ADMINISTRATIVE:
+            title = _admin_title(title, str(f.extras.get("doc_type") or cls.subtype or ""))
+        f.set("title", title)
         # Last resort: first date printed near the top ("HÀ NỘI, 06/2026").
         if f.doc_date is None:
             fallback = parse_date_any(" \n ".join(signals.header_lines[:20]))
@@ -241,13 +244,21 @@ class DocumentProfiler:
         if raw_date:
             f.set("doc_date", date.fromisoformat(raw_date))
         subject = ext._extract_subject(header)
+        source = "rule"
         if subject:
             # OCR often merges the next "Căn cứ …; Nghị định …" clause into the line.
             subject = subject.split(";")[0].strip(" ,.")
-        f.set("subject", subject)
+        else:
+            # Title line lost (OCR/layout): name the decision by its Điều 1
+            # action rather than leave it untitled or borrow a cited decree.
+            subject = ext._extract_subject_from_article1(f"{header}\n{signals.tail_text}")
+            if subject:
+                source = "rule_article1"
+                f.review_notes.append("title_from_article1")
+        f.set("subject", subject, source)
         doc_type = cls.subtype or ext._extract_document_type(header, signals.filename)
         if subject:
-            f.set("title", f"{doc_type} {subject[0].lower()}{subject[1:]}")
+            f.set("title", f"{doc_type} {subject[0].lower()}{subject[1:]}", source)
         signer, role = ext._extract_signatory(tail)
         if signer and clean_person(signer)[0] is None:
             # The layout rule grabbed a heading after the signature block
@@ -474,10 +485,37 @@ def _title_like(text: str) -> bool:
     return not _BOILERPLATE_HEADING.match(unaccent_vietnamese(text))
 
 
+_TYPE_PREFIX = re.compile(
+    r"^(?:(?:quyet dinh|chi thi|thong bao|ke hoach|to trinh|bao cao|cong van|nghi quyet|"
+    r"huong dan|quy che|quy dinh)\s*:?\s*)+"
+)
+
+
+def _admin_title(title: str, doc_type: str) -> str:
+    """ "QUYẾT ĐỊNH: QUYET ĐỊNH Phê duyệt …" → "Quyết định phê duyệt …".
+
+    The generic title line of an administrative document repeats its type
+    name (OCR may misspell it); the trích yếu is what follows.
+    """
+    folded = unaccent_vietnamese(title).lower()
+    m = _TYPE_PREFIX.match(folded)
+    # Only the upper-case type header is dropped; "Quy chế làm việc" is content.
+    if not m or not doc_type or not title[: m.end()].strip(" :").isupper():
+        return title
+    rest = title[m.end() :].strip(" :.-")
+    if len(rest.split()) < 2:
+        return title
+    return f"{doc_type} {rest[0].lower()}{rest[1:]}"
+
+
 def _continuation(lines: tuple[str, ...], start: int, max_lines: int = 3) -> str:
     """Title lines that wrap onto the next lines (stop at labels / names / e-mails)."""
     parts: list[str] = []
+    seen = {lines[start - 1].lower()} if 0 < start <= len(lines) else set()
     for line in lines[start : start + max_lines]:
+        if line.lower() in seen:
+            continue  # slide decks repeat the title on the next line
+        seen.add(line.lower())
         if ":" in line or "@" in line or len(line) < 3:
             break
         name, _ = clean_person(line)
