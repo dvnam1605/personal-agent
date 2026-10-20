@@ -17,7 +17,7 @@ import hashlib
 import logging
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 # Fix Windows console encoding
 sys.stdout.reconfigure(encoding="utf-8")
@@ -69,7 +69,11 @@ def _source_id(path: Path) -> str:
         if resolved.is_relative_to(base.resolve())
         else resolved
     )
-    return "src-" + hashlib.sha256(str(rel).encode("utf-8")).hexdigest()[:16]
+    # Always hash the Windows spelling ("ChiThi\\x.md"): the corpus was first
+    # ingested on Windows, and a Linux run (e.g. inside the GPU container)
+    # must produce the same ids instead of duplicating every document.
+    key = str(PureWindowsPath(*rel.parts))
+    return "src-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
 def _parse_args() -> argparse.Namespace:
