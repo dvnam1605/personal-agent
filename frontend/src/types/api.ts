@@ -217,7 +217,7 @@ export interface RAGCitation {
 
 export interface RAGDataPayload {
   citations?: RAGCitation[];
-  sufficiency?: 'sufficient' | 'insufficient' | 'ambiguous' | string;
+  sufficiency?: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT' | string;
 }
 
 export interface MeetingPrepDataPayload {

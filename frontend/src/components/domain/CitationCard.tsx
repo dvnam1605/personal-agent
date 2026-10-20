@@ -9,6 +9,20 @@ interface CitationCardProps {
   onSelectCitation: (citation: RAGCitation) => void
 }
 
+// The API sends the backend enum value ("SUFFICIENT" / "PARTIAL" / "INSUFFICIENT").
+function sufficiencyLabel(sufficiency: string): string {
+  switch (sufficiency.toUpperCase()) {
+    case 'SUFFICIENT':
+      return 'Đầy đủ dẫn chứng'
+    case 'PARTIAL':
+      return 'Dẫn chứng một phần'
+    case 'INSUFFICIENT':
+      return 'Thiếu dẫn chứng'
+    default:
+      return 'Tham khảo'
+  }
+}
+
 export const CitationCard: React.FC<CitationCardProps> = ({
   citations,
   sufficiency,
@@ -23,7 +37,7 @@ export const CitationCard: React.FC<CitationCardProps> = ({
         <span className="citation-header__label">Dẫn chứng tài liệu nội bộ ({citations.length} nguồn)</span>
         {sufficiency && (
           <span className="citation-header__sufficiency">
-            {sufficiency === 'sufficient' ? 'Đầy đủ dẫn chứng' : 'Tham khảo'}
+            {sufficiencyLabel(sufficiency)}
           </span>
         )}
       </div>

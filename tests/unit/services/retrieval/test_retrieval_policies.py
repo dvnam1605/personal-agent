@@ -402,7 +402,6 @@ class TestCitationExtraction:
         assert citations == []
 
 
-
 class TestAnswerSynthesis:
     """P10-20 answer synthesiser contract."""
 
@@ -714,7 +713,7 @@ class TestPipelineIntegration:
         hybrid = FixedHybrid(chunks)
 
         async def fake_gen(system: str, user: str) -> str:
-            return "Answer based on evidence."
+            return "Answer based on evidence [E1]."
 
         synth = PromptAnswerSynthesizer(generate=fake_gen)
         pipe = RetrievalPipeline(hybrid, FakeProvider(), synthesizer=synth)
@@ -774,8 +773,8 @@ class TestPipelineIntegration:
             captured["user"] = user
             import re
 
-            m = re.search(r'id="([0-9a-fA-F]{32})"', user)
-            eid = m.group(1) if m else "0" * 32
+            m = re.search(r'id="(E\d+)"', user)
+            eid = m.group(1) if m else "E1"
             return f"Answer synthesizing internal and external knowledge [{eid}]."
 
         synth = PromptAnswerSynthesizer(generate=fake_gen)
@@ -836,12 +835,12 @@ class TestPipelineIntegration:
         """H2: internal_only=False does not raise NotImplementedError and synthesizes successfully."""
 
         async def fake_gen(sys: str, usr: str) -> str:
-            return "Generated answer"
+            return "Generated answer [E1]"
 
         synth = PromptAnswerSynthesizer(generate=fake_gen)
         bundle = make_bundle([make_evidence()])
         res = await synth.synthesize("question", bundle, internal_only=False)
-        assert res.answer == "Generated answer"
+        assert res.answer == "Generated answer [1]"
         assert res.status is SufficiencyStatus.SUFFICIENT
 
 

@@ -7,6 +7,7 @@ testable and replaceable without touching orchestration code.
 from __future__ import annotations
 
 from app.domain.models.retrieval import EvidenceBundle
+from app.services.retrieval.citations import evidence_label
 from app.services.retrieval.injection_boundary import (
     BOUNDARY_INSTRUCTIONS,
     sanitize_evidence_for_prompt,
@@ -36,9 +37,11 @@ _COMMON_RULES = (
     "   - Trả lời bằng tiếng Việt chuẩn mực (trừ khi người dùng hỏi bằng ngôn ngữ khác), "
     "Markdown rõ ràng: tiêu đề ###, gạch đầu dòng, in đậm tên riêng, số hiệu, mốc thời gian.\n"
     "5. CITATION RULES (TRÍCH DẪN):\n"
-    "   - Mọi khẳng định cụ thể phải kèm [evidence_id] của bằng chứng tương ứng "
-    "(ví dụ [9c93baaeddda4e70917f5ad906a907d1]); nhiều nguồn viết [id1][id2] hoặc [id1, id2].\n"
-    "   - Không viết chữ 'evidence_id=' trong ngoặc vuông.\n"
+    "   - Mỗi bằng chứng có nhãn id dạng E1, E2, … Mọi câu chứa thông tin cụ thể (số liệu, ngày, "
+    "tên, quy định, kết luận) phải kèm nhãn của bằng chứng đó trong ngoặc vuông, ví dụ [E2]; "
+    "nhiều nguồn viết [E1][E3] hoặc [E1, E3].\n"
+    "   - Chỉ dùng nhãn có trong danh sách bằng chứng; không tự tạo nhãn, không viết 'id='.\n"
+    "   - Câu nào không có bằng chứng để dẫn thì không được khẳng định như sự thật.\n"
     "6. FOLLOW-UPS (HỎI TIẾP): khi có ngữ cảnh hội thoại, giữ nguyên chủ thể của câu trước "
     "(cùng người, cùng tài liệu, cùng chủ đề) và bổ sung phần chưa được nêu; không chuyển sang "
     "nội dung không liên quan.\n"
@@ -120,7 +123,7 @@ def build_synthesis_user_message(
         )
     else:
         for idx, item in enumerate(bundle.items):
-            parts.append(sanitize_evidence_for_prompt(item, index=idx))
+            parts.append(sanitize_evidence_for_prompt(item, index=idx, label=evidence_label(idx)))
             parts.append("")  # blank line separator
 
     parts.append(
@@ -130,7 +133,7 @@ def build_synthesis_user_message(
         "- Gắn mỗi ý với tài liệu nguồn của nó (loại, số hiệu/tên, ngày, chương/mục/điều) — không để 'Điều 1:' hay 'Mục 2:' cụt.\n"
         "- Khi liệt kê, rà soát toàn bộ bằng chứng và liệt kê đủ (đánh số đến hết).\n"
         "- Câu hỏi tiếp nối: giữ chủ thể của câu trước và bổ sung phần chưa nêu.\n"
-        "- Trích dẫn bằng [evidence_id] (ví dụ [9c93baaeddda4e70917f5ad906a907d1] hoặc [id1, id2]); không viết chữ 'evidence_id='.\n"
+        "- Trích dẫn bằng nhãn bằng chứng trong ngoặc vuông, ví dụ [E1] hoặc [E2, E4]; chỉ dùng nhãn có trong danh sách.\n"
         "- Nếu thông tin chưa đủ, nêu rõ điểm còn thiếu."
     )
     return "\n".join(parts)

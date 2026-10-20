@@ -77,6 +77,7 @@ def render_metadata_answer(
             document_id=str(r["document_id"]),
             title=str(r.get("title") or r.get("file_name") or ""),
             source_type="document",
+            citation_type="document",
             section_title=r.get("doc_subtype"),
         )
         for r in rows

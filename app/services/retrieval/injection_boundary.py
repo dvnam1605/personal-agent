@@ -53,13 +53,17 @@ def _neutralize_tag(body: str, tag: str) -> str:
     return opening.sub(lambda _m: "<\\", body)
 
 
-def sanitize_evidence_for_prompt(evidence: Evidence, *, index: int = 0) -> str:
+def sanitize_evidence_for_prompt(
+    evidence: Evidence, *, index: int = 0, label: str | None = None
+) -> str:
     """Wrap evidence content in structural boundary markers.
 
     The XML-style ``<retrieved_document>`` tags make the boundary explicit to
     the model and enable downstream citation parsing.
     """
-    header_parts: list[str] = [f'id="{html.escape(evidence.evidence_id, quote=True)}"']
+    # Synthesis passes a short label (E1, E2, …) the model cites; tools keep the hex id.
+    header_id = label or evidence.evidence_id
+    header_parts: list[str] = [f'id="{html.escape(header_id, quote=True)}"']
     if evidence.document_id:
         header_parts.append(f'document_id="{html.escape(evidence.document_id, quote=True)}"')
     if evidence.title:

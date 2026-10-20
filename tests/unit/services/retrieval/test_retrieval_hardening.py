@@ -263,3 +263,76 @@ class TestSynthesisInterruption:
         assert "upstream reset" not in text_out
         assert "gián đoạn" in text_out
         assert status == SufficiencyStatus.PARTIAL.value
+
+
+class TestCitationLabels:
+    """[E#] labels: only bundle evidence is numbered, stream == non-stream."""
+
+    def _bundle3(self) -> EvidenceBundle:
+        return _bundle([_evidence("a"), _evidence("b"), _evidence("c")])
+
+    async def test_hallucinated_label_is_dropped_and_numbering_is_dense(self) -> None:
+        bundle = self._bundle3()
+
+        async def gen(system: str, user: str) -> str:
+            assert 'id="E1"' in user and 'id="E3"' in user
+            return "Ý một [E3]. Ý hai [E9][E1]. Ý ba [E3, E1]."
+
+        result = await PromptAnswerSynthesizer(generate=gen).synthesize("Q?", bundle)
+        assert result.answer == "Ý một [1]. Ý hai [2]. Ý ba [1][2]."
+        assert [c.evidence_id for c in result.citations] == [
+            bundle.items[2].evidence_id,
+            bundle.items[0].evidence_id,
+        ]
+        assert result.status is SufficiencyStatus.SUFFICIENT
+
+    async def test_stream_matches_non_stream(self) -> None:
+        bundle = self._bundle3()
+        text = "Ý một [E3]. Ý hai [E9][E1]. Ý ba [E3, E1]."
+
+        async def gen(system: str, user: str) -> str:
+            return text
+
+        async def stream(system: str, user: str) -> Any:
+            for i in range(0, len(text), 4):  # split brackets across chunks
+                yield text[i : i + 4]
+
+        synth = PromptAnswerSynthesizer(generate=gen, stream_generate=stream)
+        plain = await synth.synthesize("Q?", bundle)
+        tokens: list[str] = []
+        final: dict[str, Any] = {}
+        async for event in synth.synthesize_stream("Q?", bundle):
+            if event["type"] == "token":
+                tokens.append(event["delta"])
+            else:
+                final = event
+        assert "".join(tokens) == plain.answer
+        assert [c["evidence_id"] for c in final["citations"]] == [
+            c.evidence_id for c in plain.citations
+        ]
+
+    async def test_uncited_answer_is_partial_with_note_and_no_borrowed_citations(self) -> None:
+        async def gen(system: str, user: str) -> str:
+            return "Một câu trả lời không dẫn nguồn."
+
+        result = await PromptAnswerSynthesizer(generate=gen).synthesize("Q?", self._bundle3())
+        assert result.citations == []
+        assert result.status is SufficiencyStatus.PARTIAL
+        assert "chưa gắn được trích dẫn" in result.answer
+
+    async def test_uncited_refusal_is_insufficient_without_note(self) -> None:
+        async def gen(system: str, user: str) -> str:
+            return "Tài liệu không đề cập đến nội dung này."
+
+        result = await PromptAnswerSynthesizer(generate=gen).synthesize("Q?", self._bundle3())
+        assert result.status is SufficiencyStatus.INSUFFICIENT
+        assert "chưa gắn được trích dẫn" not in result.answer
+
+    def test_legacy_hex_ids_still_resolve(self) -> None:
+        from app.services.retrieval.citations import CitationNumberer
+
+        bundle = self._bundle3()
+        eid = bundle.items[1].evidence_id
+        numberer = CitationNumberer(bundle)
+        assert numberer.rewrite(f"Ý [{eid}].") == "Ý [1]."
+        assert numberer.cited_ids == [eid]

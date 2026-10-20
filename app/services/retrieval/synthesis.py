@@ -28,6 +28,11 @@ from app.core.config import settings
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.retrieval.citations import (
+    REFUSAL_RE,
+    CitationNumberer,
+    strip_orphan_ids,
+)
 from app.services.retrieval.prompts import (
     SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -182,7 +187,9 @@ def build_citations_from_bundle(
                 page_number=page_start or 1,
                 section_title=section_title,
                 score=item.score or item.rerank_score,
-                source_uri=item.anchors.get("source_uri"),
+                source_uri=item.anchors.get("source_uri") or item.anchors.get("uri"),
+                document_version_id=item.document_version_id,
+                version_number=item.anchors.get("version_number"),
             )
         )
     return citations
@@ -424,45 +431,20 @@ class PromptAnswerSynthesizer:
                 status=SufficiencyStatus.PARTIAL if citations else SufficiencyStatus.INSUFFICIENT,
             )
 
-        cited_ids = extract_cited_ids(answer_text)
-        citations = build_citations_from_bundle(cited_ids, bundle)
-
-        # If LLM didn't cite any explicit ID but evidence was retrieved, link top bundle items
-        if not citations and bundle.items:
-            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
-            citations = build_citations_from_bundle(fallback_eids, bundle)
-
-        # Map each cited evidence_id to a 1-based footnote [1], [2], etc.
-        eid_to_index = {cite.evidence_id: str(i + 1) for i, cite in enumerate(citations)}
-
-        def _clean_cite(match: re.Match[str]) -> str:
-            raw_bracket = match.group(0)
-            eids = _HEX_ID_RE.findall(raw_bracket)
-            badges: list[str] = []
-            for eid in eids:
-                idx = eid_to_index.get(eid)
-                if idx and f"[{idx}]" not in badges:
-                    badges.append(f"[{idx}]")
-            return "".join(badges)
-
-        cleaned_answer = _BRACKET_CITE_RE.sub(_clean_cite, answer_text)
-        # Clean any remaining orphan hex evidence IDs or unclosed brackets
-        cleaned_answer = re.sub(r"\[\s*[0-9a-fA-F]{32}[^\]\n]*\]?", "", cleaned_answer)
-        cleaned_answer = re.sub(r"\b[0-9a-fA-F]{32}\b", "", cleaned_answer)
-        cleaned_answer = re.sub(r"\[\s*\]", "", cleaned_answer)
-        cleaned_answer = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned_answer)
-
+        numberer = CitationNumberer(bundle)
+        cleaned_answer = numberer.rewrite(answer_text).strip()
+        # Only what the model actually cited — never a stand-in "top 3".
+        citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        status = _uncited_status(cleaned_answer, citations, verdict_status)
         if interrupted:
             return SynthesisResult(
-                answer=cleaned_answer.strip() + _INTERRUPTED_NOTE,
+                answer=cleaned_answer + _INTERRUPTED_NOTE,
                 citations=citations,
                 status=SufficiencyStatus.PARTIAL,
             )
-        return SynthesisResult(
-            answer=cleaned_answer.strip(),
-            citations=citations,
-            status=verdict_status,
-        )
+        if not citations and status is SufficiencyStatus.PARTIAL:
+            cleaned_answer += _UNCITED_NOTE
+        return SynthesisResult(answer=cleaned_answer, citations=citations, status=status)
 
     async def synthesize_stream(
         self,
@@ -502,8 +484,10 @@ class PromptAnswerSynthesizer:
             conversation_history=conversation_history,
         )
 
-        eid_to_index: dict[str, int] = {}
-        cited_ids: list[str] = []
+        # Same numberer as the non-streaming path: identical [n] badges, and
+        # labels absent from the bundle are dropped instead of numbered.
+        numberer = CitationNumberer(bundle)
+        streamed: list[str] = []
         buf = ""
 
         def _process_buffer(force: bool = False) -> str:
@@ -512,11 +496,11 @@ class PromptAnswerSynthesizer:
             while buf:
                 bracket_pos = buf.find("[")
                 if bracket_pos == -1:
-                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf)
+                    out += strip_orphan_ids(buf)
                     buf = ""
                     break
                 if bracket_pos > 0:
-                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf[:bracket_pos])
+                    out += strip_orphan_ids(buf[:bracket_pos])
                     buf = buf[bracket_pos:]
                     continue
 
@@ -524,34 +508,19 @@ class PromptAnswerSynthesizer:
                 close_pos = buf.find("]")
                 if close_pos != -1:
                     tag = buf[: close_pos + 1]
-                    if _BRACKET_CITE_RE.fullmatch(tag):
-                        eids = _HEX_ID_RE.findall(tag)
-                        tag_out = ""
-                        for eid in eids:
-                            if eid not in eid_to_index:
-                                idx = len(eid_to_index) + 1
-                                eid_to_index[eid] = idx
-                                cited_ids.append(eid)
-                            else:
-                                idx = eid_to_index[eid]
-                            if f"[{idx}]" not in tag_out:
-                                tag_out += f"[{idx}]"
-                        out += tag_out
-                    elif _HEX_ID_RE.search(tag):
-                        # Contains hex IDs but malformed tag -> drop raw hashes
-                        out += ""
-                    else:
+                    if numberer.looks_like_citation(tag):
+                        out += numberer.render_bracket(tag)
+                    elif not numberer.mentions_evidence(tag):
                         out += tag
+                    # else: a malformed tag carrying evidence ids -> dropped
                     buf = buf[close_pos + 1 :]
                     continue
 
                 # No closing ']' yet
                 if force:
-                    if _HEX_ID_RE.search(buf):
-                        buf = ""
-                    else:
+                    if not numberer.mentions_evidence(buf):
                         out += buf
-                        buf = ""
+                    buf = ""
                     break
                 if "\n" in buf or len(buf) > 300:
                     out += buf[0]
@@ -578,6 +547,7 @@ class PromptAnswerSynthesizer:
                     emitted = _process_buffer(force=False)
                     if emitted:
                         emitted_any = True
+                        streamed.append(emitted)
                         yield {"type": "token", "delta": emitted}
                     if loop.time() > deadline:
                         failure = "deadline"
@@ -590,6 +560,7 @@ class PromptAnswerSynthesizer:
         final_emitted = _process_buffer(force=True)
         if final_emitted:
             emitted_any = True
+            streamed.append(final_emitted)
             yield {"type": "token", "delta": final_emitted}
 
         if failure is not None:
@@ -605,17 +576,38 @@ class PromptAnswerSynthesizer:
                 ),
             }
 
-        # Build citations
-        citations = build_citations_from_bundle(cited_ids, bundle)
-        if not citations and bundle.items:
-            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
-            citations = build_citations_from_bundle(fallback_eids, bundle)
+        citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        if failure is None:
+            status = _uncited_status("".join(streamed), citations, status)
+            if not citations and status is SufficiencyStatus.PARTIAL:
+                yield {"type": "token", "delta": _UNCITED_NOTE}
 
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
             "status": status.value,
         }
+
+
+_UNCITED_NOTE = (
+    "\n\n_(Câu trả lời này chưa gắn được trích dẫn tới tài liệu nguồn; "
+    "hãy đối chiếu lại với tài liệu trước khi sử dụng.)_"
+)
+
+
+def _uncited_status(
+    answer: str, citations: list[Citation], verdict: SufficiencyStatus
+) -> SufficiencyStatus:
+    """An answer with no real citation is never SUFFICIENT.
+
+    A refusal ("không tìm thấy …") is INSUFFICIENT; any other uncited answer
+    is PARTIAL and gets a visible note rather than borrowed citations.
+    """
+    if citations:
+        return verdict
+    if REFUSAL_RE.search(answer):
+        return SufficiencyStatus.INSUFFICIENT
+    return SufficiencyStatus.PARTIAL
 
 
 _INTERRUPTED_NOTE = (

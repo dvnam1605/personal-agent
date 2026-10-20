@@ -28,3 +28,9 @@ class Citation(BaseModel):
     section_title: str | None = None
     score: float | None = None
     source_uri: str | None = None
+    # Version the text was taken from: archived versions stay resolvable, so a
+    # citation keeps pointing at exactly what the answer was based on.
+    document_version_id: str | None = None
+    version_number: int | None = None
+    # "chunk" for passage evidence, "document" for metadata-route answers.
+    citation_type: str = "chunk"

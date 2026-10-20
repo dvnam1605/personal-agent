@@ -96,7 +96,7 @@ async def test_internal_only_synthesis() -> None:
     """Internal synthesis answers with citations mapped to real evidence IDs."""
 
     async def fake_gen(system: str, user: str) -> str:
-        match = re.search(r'id="([0-9a-f]{32})"', user)
+        match = re.search(r'id="(E\d+)"', user)
         assert match is not None
         return f"Kết luận dựa trên bằng chứng [{match.group(1)}]."
 
