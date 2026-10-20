@@ -4,6 +4,7 @@ import {
   Mail,
   Users,
   FileText,
+  FilePlus2,
   ExternalLink,
   Menu,
   User,
@@ -19,7 +20,14 @@ import type { GoogleIntegrationStatus, UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
 import './Header.css'
 
-export type WorkspaceType = 'assistant' | 'calendar' | 'email' | 'meetings' | 'knowledge' | 'settings'
+export type WorkspaceType =
+  | 'assistant'
+  | 'calendar'
+  | 'email'
+  | 'meetings'
+  | 'knowledge'
+  | 'documents'
+  | 'settings'
 
 interface HeaderProps {
   onToggleSidebar: () => void
@@ -73,6 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'email', label: 'Hộp thư Gmail', icon: <Mail size={14} /> },
     { id: 'meetings', label: 'Hồ sơ họp WF-05', icon: <Users size={14} /> },
     { id: 'knowledge', label: 'Kho tri thức', icon: <FileText size={14} /> },
+    { id: 'documents', label: 'Tạo tài liệu', icon: <FilePlus2 size={14} /> },
   ]
 
   return (

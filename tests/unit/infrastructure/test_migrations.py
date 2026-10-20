@@ -54,6 +54,9 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         question_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(user_questions)").fetchall()
         }
+        profile_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(document_profiles)").fetchall()
+        }
 
     assert "audit_outbox" in tables
     assert "google_integrations" in tables
@@ -76,7 +79,8 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         "claimed_by",
         "claimed_at",
     }.issubset(job_columns)
-    assert version == "0009"
+    assert {"doc_category", "doc_date", "entities", "extractor_version"}.issubset(profile_columns)
+    assert version == "0013"
 
 
 @pytest.mark.asyncio
@@ -113,6 +117,9 @@ async def test_all_p5_tables_created() -> None:
         "workflow_runs",
         "google_integrations",
         "user_questions",
+        "document_profiles",
+        "run_evidence",
+        "generated_documents",
     }
 
     assert expected_tables.issubset(table_names), f"Missing tables: {expected_tables - table_names}"

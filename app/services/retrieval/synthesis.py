@@ -12,6 +12,8 @@ prompt-building logic (tests, offline evaluation) can use
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -23,9 +25,17 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
+from app.core.http import llm_http_timeout
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.retrieval.citations import (
+    REFUSAL_RE,
+    CitationNumberer,
+    evidence_snapshot,
+    strip_orphan_ids,
+)
+from app.services.retrieval.grounding import GroundingReport, check_answer
 from app.services.retrieval.prompts import (
     SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -45,6 +55,11 @@ class SynthesisResult(BaseModel):
     status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT
     confidence: float | None = None
     synthesis_trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    # Sentences stating data (amounts, dates, %) without a citation badge.
+    unsupported_claims: list[str] = Field(default_factory=list)
+    # Server-side snapshot of every evidence unit shown to the model (P2).
+    retrieval_trace_id: str | None = None
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @runtime_checkable
@@ -60,6 +75,7 @@ class AnswerSynthesizer(Protocol):
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult: ...
 
     def synthesize_stream(
@@ -80,41 +96,53 @@ class AnswerSynthesizer(Protocol):
 
 _CITE_RE = re.compile(r"\[(?:evidence_id=)?[\"']?([0-9a-fA-F]{32})[\"']?\]")
 _HEX_ID_RE = re.compile(r"[0-9a-fA-F]{32}")
-_BRACKET_CITE_RE = re.compile(
-    r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]"
-)
+_BRACKET_CITE_RE = re.compile(r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]")
 
 
-def format_document_title(raw_title: str | None, text_content: str | None = None) -> str:
-    """Format raw storage filenames (e.g. 18-3-2026-954776_427QD_25_02_2026.md) into clean administrative titles."""
+def _vn_date(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value)
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
+    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else text
+
+
+def format_document_title(
+    raw_title: str | None,
+    text_content: str | None = None,
+    anchors: dict[str, Any] | None = None,
+) -> str:
+    """Human title for a citation, for any document kind.
+
+    Prefers the document profile (subtype, number, date, title); falls back
+    to a printed "Số: …" line, then to a cleaned-up filename.
+    """
+    anchors = anchors or {}
+    profile_title = (anchors.get("profile_title") or "").strip()
+    number = anchors.get("doc_number")
+    subtype = anchors.get("doc_subtype")
+    when = _vn_date(anchors.get("doc_date"))
+    if profile_title or number:
+        label = profile_title[:120] if profile_title else ""
+        if number and number not in label:
+            head = f"{subtype or 'Văn bản'} số {number}"
+            label = f"{head} – {label}" if label else head
+        if when:
+            label = f"{label} ({when})"
+        return label
+
     if not raw_title:
-        return "Văn bản nội bộ"
+        return "Tài liệu nội bộ"
 
     if text_content:
-        so_match = re.search(
-            r"Số:\s*([0-9A-Za-z\/\-\_]+QĐ[0-9A-Za-z\/\-\_]*)", text_content, re.IGNORECASE
-        )
-        ve_viec = re.search(r"QUYẾT ĐỊNH\s+(?:Về việc\s+)?([^\n\r#]+)", text_content, re.IGNORECASE)
-        if so_match and ve_viec:
-            clean_so = so_match.group(1).strip()
-            clean_subject = ve_viec.group(1).strip().capitalize()
-            return f"QĐ số {clean_so} - {clean_subject[:80]}"
+        so_match = re.search(r"Số\s*:\s*(\d{1,5}\s*/\s*[A-ZĐ][\wĐ\-/]*)", text_content)
         if so_match:
-            return f"Quyết định số {so_match.group(1).strip()}"
+            number = re.sub(r"\s+", "", so_match.group(1))
+            return f"Văn bản số {number}"
 
-    fn_match = re.search(r"_(\d+)QD_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
-    if fn_match:
-        so, day, month, year = fn_match.groups()
-        return f"Quyết định số {so}/QĐ-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
-
-    ct_match = re.search(r"_CT(\d+)_(\d{1,2})_(\d{1,2})_(\d{4})", raw_title, re.IGNORECASE)
-    if ct_match:
-        so, day, month, year = ct_match.groups()
-        return f"Chỉ thị số {so}/CT-TNVN ({day.zfill(2)}/{month.zfill(2)}/{year})"
-
-    cleaned = re.sub(r"\.md$", "", raw_title, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\.(?:md|pdf|docx?|xlsx?)$", "", raw_title, flags=re.IGNORECASE)
     cleaned = re.sub(r"^\d+-\d+-\d+-\d+_", "", cleaned)
-    return cleaned or raw_title
+    return cleaned.replace("_", " ").strip() or raw_title
 
 
 def extract_cited_ids(text: str) -> list[str]:
@@ -145,7 +173,7 @@ def build_citations_from_bundle(
         raw_title = (
             item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
         )
-        title = format_document_title(raw_title, item.content_raw)
+        title = format_document_title(raw_title, item.content_raw, item.anchors)
         source_type = item.source_type or item.anchors.get("source_type") or "Văn bản"
         page_start = item.anchors.get("page_start")
         page_end = item.anchors.get("page_end")
@@ -168,7 +196,9 @@ def build_citations_from_bundle(
                 page_number=page_start or 1,
                 section_title=section_title,
                 score=item.score or item.rerank_score,
-                source_uri=item.anchors.get("source_uri"),
+                source_uri=item.anchors.get("source_uri") or item.anchors.get("uri"),
+                document_version_id=item.document_version_id,
+                version_number=item.anchors.get("version_number"),
             )
         )
     return citations
@@ -221,10 +251,16 @@ class PromptAnswerSynthesizer:
                 )
                 timeout = settings.timeouts.llm_request_seconds
                 chunks: list[str] = []
+                stream_status: int | None = None
                 # Use streaming under the hood so intermediate chunks keep proxy connection alive
-                # and prevent 20s empty-body timeouts from upstream reverse proxies
+                # and prevent 20s empty-body timeouts from upstream reverse proxies.
+                # httpx timeouts are per read, so a slow-trickling stream also
+                # gets an overall deadline.
                 try:
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with (
+                        asyncio.timeout(timeout),
+                        httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client,
+                    ):
                         async with client.stream(
                             "POST",
                             target_url,
@@ -258,11 +294,23 @@ class PromptAnswerSynthesizer:
                                     continue
                 except Exception as stream_err:  # noqa: BLE001 - stream failure falls back to standard POST
                     logger.warning("synthesis_stream_accumulation_failed error=%s", stream_err)
+                    if isinstance(stream_err, httpx.HTTPStatusError):
+                        stream_status = stream_err.response.status_code
+                    partial = "".join(chunks).strip()
+                    if partial:
+                        # Never pass a cut-off answer off as a complete one.
+                        raise SynthesisInterruptedError(partial) from stream_err
+                    if isinstance(stream_err, (httpx.ConnectError, httpx.ConnectTimeout)):
+                        # Gateway unreachable: a second POST would just wait again.
+                        raise ValueError("LLM gateway unreachable") from stream_err
 
                 content = "".join(chunks).strip()
+                if not content and stream_status == 429:
+                    # Rate-limited gateway: an immediate second POST only burns quota.
+                    raise ValueError("LLM gateway rate-limited the synthesis request (429)")
                 if not content:
                     # Fallback to standard POST if streaming produced no chunks
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
                         resp = await client.post(
                             target_url,
                             headers={"Authorization": f"Bearer {api_key}"},
@@ -307,7 +355,7 @@ class PromptAnswerSynthesizer:
                     str(settings.llm.mode),
                 )
                 timeout = settings.timeouts.llm_request_seconds
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
                     async with client.stream(
                         "POST",
                         target_url,
@@ -354,6 +402,7 @@ class PromptAnswerSynthesizer:
         missing_documents: list[str] | None = None,
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult:
         if not bundle.items:
             return SynthesisResult(
@@ -366,7 +415,10 @@ class PromptAnswerSynthesizer:
                 citations=[],
             )
 
-        system_msg = SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
+        # Callers with their own task (e.g. document writing) supply the prompt.
+        system_msg = system_prompt or (
+            SYNTHESIS_SYSTEM_PROMPT if internal_only else SYNTHESIS_EXTERNAL_SYSTEM_PROMPT
+        )
         user_msg = build_synthesis_user_message(
             question,
             bundle,
@@ -374,55 +426,52 @@ class PromptAnswerSynthesizer:
             conversation_history=conversation_history,
         )
 
+        interrupted = False
         try:
             answer_text = await self._generate(system_msg, user_msg)
+        except SynthesisInterruptedError as cut:
+            logger.warning("synthesis_generate_interrupted chars=%d", len(cut.partial))
+            answer_text = cut.partial
+            interrupted = True
         except Exception as gen_err:  # noqa: BLE001 - fallback to raw evidence on LLM failure
+            # Error details stay in the log; the user gets a stable message.
             logger.error("synthesis_generate_failed error=%s", gen_err)
             fallback_eids = [it.evidence_id for it in bundle.items[:3]]
             citations = build_citations_from_bundle(fallback_eids, bundle)
             return SynthesisResult(
                 answer=(
-                    f"⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết ({gen_err}). "
+                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
                     "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
                 ),
                 citations=citations,
-                status=SufficiencyStatus.SUFFICIENT
-                if citations
-                else SufficiencyStatus.INSUFFICIENT,
+                status=SufficiencyStatus.PARTIAL if citations else SufficiencyStatus.INSUFFICIENT,
+                retrieval_trace_id=bundle.retrieval_trace_id,
+                evidence=evidence_snapshot(bundle),
             )
 
-        cited_ids = extract_cited_ids(answer_text)
-        citations = build_citations_from_bundle(cited_ids, bundle)
-
-        # If LLM didn't cite any explicit ID but evidence was retrieved, link top bundle items
-        if not citations and bundle.items:
-            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
-            citations = build_citations_from_bundle(fallback_eids, bundle)
-
-        # Map each cited evidence_id to a 1-based footnote [1], [2], etc.
-        eid_to_index = {cite.evidence_id: str(i + 1) for i, cite in enumerate(citations)}
-
-        def _clean_cite(match: re.Match[str]) -> str:
-            raw_bracket = match.group(0)
-            eids = _HEX_ID_RE.findall(raw_bracket)
-            badges: list[str] = []
-            for eid in eids:
-                idx = eid_to_index.get(eid)
-                if idx and f"[{idx}]" not in badges:
-                    badges.append(f"[{idx}]")
-            return "".join(badges)
-
-        cleaned_answer = _BRACKET_CITE_RE.sub(_clean_cite, answer_text)
-        # Clean any remaining orphan hex evidence IDs or unclosed brackets
-        cleaned_answer = re.sub(r"\[\s*[0-9a-fA-F]{32}[^\]\n]*\]?", "", cleaned_answer)
-        cleaned_answer = re.sub(r"\b[0-9a-fA-F]{32}\b", "", cleaned_answer)
-        cleaned_answer = re.sub(r"\[\s*\]", "", cleaned_answer)
-        cleaned_answer = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned_answer)
-
+        numberer = CitationNumberer(bundle)
+        cleaned_answer = numberer.rewrite(answer_text).strip()
+        # Only what the model actually cited — never a stand-in "top 3".
+        citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        status = _uncited_status(cleaned_answer, citations, verdict_status)
+        if interrupted:
+            return SynthesisResult(
+                answer=cleaned_answer + _INTERRUPTED_NOTE,
+                citations=citations,
+                status=SufficiencyStatus.PARTIAL,
+                retrieval_trace_id=bundle.retrieval_trace_id,
+                evidence=evidence_snapshot(bundle, numberer),
+            )
+        if not citations and status is SufficiencyStatus.PARTIAL:
+            cleaned_answer += _UNCITED_NOTE
+        grounding = check_answer(cleaned_answer)
         return SynthesisResult(
-            answer=cleaned_answer.strip(),
+            answer=cleaned_answer,
             citations=citations,
-            status=verdict_status,
+            status=_grounded_status(status, grounding),
+            unsupported_claims=grounding.unsupported,
+            retrieval_trace_id=bundle.retrieval_trace_id,
+            evidence=evidence_snapshot(bundle, numberer),
         )
 
     async def synthesize_stream(
@@ -463,8 +512,10 @@ class PromptAnswerSynthesizer:
             conversation_history=conversation_history,
         )
 
-        eid_to_index: dict[str, int] = {}
-        cited_ids: list[str] = []
+        # Same numberer as the non-streaming path: identical [n] badges, and
+        # labels absent from the bundle are dropped instead of numbered.
+        numberer = CitationNumberer(bundle)
+        streamed: list[str] = []
         buf = ""
 
         def _process_buffer(force: bool = False) -> str:
@@ -473,11 +524,11 @@ class PromptAnswerSynthesizer:
             while buf:
                 bracket_pos = buf.find("[")
                 if bracket_pos == -1:
-                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf)
+                    out += strip_orphan_ids(buf)
                     buf = ""
                     break
                 if bracket_pos > 0:
-                    out += re.sub(r"\b[0-9a-fA-F]{32}\b", "", buf[:bracket_pos])
+                    out += strip_orphan_ids(buf[:bracket_pos])
                     buf = buf[bracket_pos:]
                     continue
 
@@ -485,34 +536,19 @@ class PromptAnswerSynthesizer:
                 close_pos = buf.find("]")
                 if close_pos != -1:
                     tag = buf[: close_pos + 1]
-                    if _BRACKET_CITE_RE.fullmatch(tag):
-                        eids = _HEX_ID_RE.findall(tag)
-                        tag_out = ""
-                        for eid in eids:
-                            if eid not in eid_to_index:
-                                idx = len(eid_to_index) + 1
-                                eid_to_index[eid] = idx
-                                cited_ids.append(eid)
-                            else:
-                                idx = eid_to_index[eid]
-                            if f"[{idx}]" not in tag_out:
-                                tag_out += f"[{idx}]"
-                        out += tag_out
-                    elif _HEX_ID_RE.search(tag):
-                        # Contains hex IDs but malformed tag -> drop raw hashes
-                        out += ""
-                    else:
+                    if numberer.looks_like_citation(tag):
+                        out += numberer.render_bracket(tag)
+                    elif not numberer.mentions_evidence(tag):
                         out += tag
+                    # else: a malformed tag carrying evidence ids -> dropped
                     buf = buf[close_pos + 1 :]
                     continue
 
                 # No closing ']' yet
                 if force:
-                    if _HEX_ID_RE.search(buf):
-                        buf = ""
-                    else:
+                    if not numberer.mentions_evidence(buf):
                         out += buf
-                        buf = ""
+                    buf = ""
                     break
                 if "\n" in buf or len(buf) > 300:
                     out += buf[0]
@@ -523,38 +559,110 @@ class PromptAnswerSynthesizer:
                 break
             return out
 
+        status = verdict_status
+        emitted_any = False
+        # Per-read httpx timeouts never fire on a slow-trickling stream, so the
+        # whole generation also gets a wall-clock deadline (checked per chunk:
+        # an asyncio.timeout scope must not span this generator's yields).
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + settings.timeouts.llm_request_seconds
+        failure: str | None = None
         try:
-            async for chunk in self._stream_generate(system_msg, user_msg):
-                buf += chunk
-                emitted = _process_buffer(force=False)
-                if emitted:
-                    yield {"type": "token", "delta": emitted}
+            # aclosing: stopping at the deadline must also close the HTTP stream.
+            async with contextlib.aclosing(self._stream_generate(system_msg, user_msg)) as stream:
+                async for chunk in stream:
+                    buf += chunk
+                    emitted = _process_buffer(force=False)
+                    if emitted:
+                        emitted_any = True
+                        streamed.append(emitted)
+                        yield {"type": "token", "delta": emitted}
+                    if loop.time() > deadline:
+                        failure = "deadline"
+                        break
         except Exception as stream_err:  # noqa: BLE001 - fallback gracefully on LLM stream failure
             logger.error("synthesis_stream_generate_failed error=%s", stream_err)
-            yield {
-                "type": "token",
-                "delta": (
-                    f"\n\n⚠️ Lỗi kết nối mô hình AI ({stream_err}). "
-                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
-                ),
-            }
+            failure = "error"
 
         # Flush any remaining buffer
         final_emitted = _process_buffer(force=True)
         if final_emitted:
+            emitted_any = True
+            streamed.append(final_emitted)
             yield {"type": "token", "delta": final_emitted}
 
-        # Build citations
-        citations = build_citations_from_bundle(cited_ids, bundle)
-        if not citations and bundle.items:
-            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
-            citations = build_citations_from_bundle(fallback_eids, bundle)
+        if failure is not None:
+            logger.warning("synthesis_stream_incomplete reason=%s", failure)
+            status = SufficiencyStatus.PARTIAL
+            yield {
+                "type": "token",
+                "delta": _INTERRUPTED_NOTE
+                if emitted_any
+                else (
+                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
+                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
+                ),
+            }
+
+        citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        grounding = check_answer("".join(streamed))
+        if failure is None:
+            status = _uncited_status("".join(streamed), citations, status)
+            if not citations and status is SufficiencyStatus.PARTIAL:
+                yield {"type": "token", "delta": _UNCITED_NOTE}
+            status = _grounded_status(status, grounding)
 
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
-            "status": verdict_status.value,
+            "status": status.value,
+            "unsupported_claims": grounding.unsupported,
+            "retrieval_trace_id": bundle.retrieval_trace_id,
+            "evidence": evidence_snapshot(bundle, numberer),
         }
+
+
+_UNCITED_NOTE = (
+    "\n\n_(Câu trả lời này chưa gắn được trích dẫn tới tài liệu nguồn; "
+    "hãy đối chiếu lại với tài liệu trước khi sử dụng.)_"
+)
+
+
+def _uncited_status(
+    answer: str, citations: list[Citation], verdict: SufficiencyStatus
+) -> SufficiencyStatus:
+    """An answer with no real citation is never SUFFICIENT.
+
+    A refusal ("không tìm thấy …") is INSUFFICIENT; any other uncited answer
+    is PARTIAL and gets a visible note rather than borrowed citations.
+    """
+    if citations:
+        return verdict
+    if REFUSAL_RE.search(answer):
+        return SufficiencyStatus.INSUFFICIENT
+    return SufficiencyStatus.PARTIAL
+
+
+def _grounded_status(status: SufficiencyStatus, grounding: GroundingReport) -> SufficiencyStatus:
+    """Uncited data sentences cap an otherwise SUFFICIENT answer at PARTIAL."""
+    if status is SufficiencyStatus.SUFFICIENT and not grounding.ok:
+        logger.info("synthesis_unsupported_claims count=%d", len(grounding.unsupported))
+        return SufficiencyStatus.PARTIAL
+    return status
+
+
+_INTERRUPTED_NOTE = (
+    "\n\n⚠️ Câu trả lời bị gián đoạn do mất kết nối với mô hình AI, "
+    "nội dung phía trên có thể chưa đầy đủ."
+)
+
+
+class SynthesisInterruptedError(Exception):
+    """The LLM stream broke after producing part of the answer."""
+
+    def __init__(self, partial: str) -> None:
+        super().__init__("LLM stream interrupted after partial output")
+        self.partial = partial
 
 
 GenerateCallback = Callable[[str, str], Awaitable[str]]

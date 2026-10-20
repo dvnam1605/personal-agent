@@ -13,7 +13,9 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -74,17 +76,50 @@ from .parsing import (
 
 logger = logging.getLogger(__name__)
 
+# Live RAG knobs while the cross-encoder reranker is disabled. RRF order is
+# the final order, so keep the prompt to the strongest candidates: fewer,
+# better chunks cost fewer gateway tokens and give the LLM less noise.
+_RAG_TOP_K_DENSE = 50
+_RAG_TOP_K_SPARSE = 60
+_RAG_MAX_CANDIDATES = 16
+_RAG_PER_DOCUMENT_CAP = 4
+_RAG_CONTEXT_TOKEN_BUDGET = 8192
+# Short replies that approve a pending document outline ("duyệt", "ok viết đi").
+_APPROVAL_RE = re.compile(
+    # At most two trailing words ("duyệt nhé", "ok viết đi") so a real
+    # question that merely starts with "ok" is never taken as approval.
+    r"^(?:duyệt|duyet|đồng ý|dong y|ok|oke|okay|viết đi|viet di|bắt đầu|bat dau|"
+    r"tiến hành|tien hanh|làm đi|lam di)\b[\s!.,]*(?:\w+[\s!.,]*){0,2}$",
+    re.IGNORECASE,
+)
+# Profile-selected documents read together in one scoped RAG pass.
+_RAG_MAX_SCOPED_DOCUMENTS = 8
+
+
+@dataclass
+class _KnowledgeRoute:
+    """Either a finished structured answer or the RAG query to run."""
+
+    answer: str | None = None
+    citations: list[Any] = field(default_factory=list)
+    status: Any = None
+    rag_query: Any = None
+    prefix: str = ""
+
+
 FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
         r"^\s*(còn|tiếp|thế còn|vậy còn|ngoài ra|chi tiết hơn|xem thêm|nữa không|hết chưa)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(còn\s+văn\s+bản\s+nào|còn\s+quyết\s+định\s+nào|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không|tiếp\s+tục|tiếp\s+đi)\b",
+        r"\b(còn\s+(?:văn\s+bản|tài\s+liệu|quyết\s+định|báo\s+cáo|hợp\s+đồng|biên\s+bản|file)\s+nào"
+        r"|còn\s+gì\s+nữa\s+không|còn\s+nữa\s+không|tiếp\s+tục|tiếp\s+đi)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(ông\s+ấy|bà\s+ấy|văn\s+bản\s+đó|quyết\s+định\s+đó|người\s+đó)\b",
+        r"\b(ông\s+ấy|bà\s+ấy|anh\s+ấy|chị\s+ấy|người\s+đó"
+        r"|(?:văn\s+bản|tài\s+liệu|quyết\s+định|báo\s+cáo|hợp\s+đồng|biên\s+bản|file)\s+(?:đó|này|trên))\b",
         re.IGNORECASE,
     ),
 ]
@@ -116,33 +151,22 @@ def condense_query_with_history(query: str, history: list[dict[str, str]]) -> st
     if not last_user_query:
         return query
 
-    lower_last = last_user_query.lower()
-    subject = ""
-    for name in [
-        "đỗ tiến sỹ",
-        "đỗ tiến sĩ",
-        "vũ hải quang",
-        "ngô minh hiển",
-        "phạm mạnh hùng",
-        "trần minh hùng",
-    ]:
-        if name in lower_last:
-            subject = f"ông {name.title()}"
-            break
-
-    if not subject:
-        m = re.search(
-            r"\b(?:ông|bà|đồng chí|đ/c)\s+([A-ZÀ-Ỹa-zà-ỹ\s]+?)(?=\s+(?:đã|ký|kí|ban hành|\?|$))",
-            last_user_query,
-            re.IGNORECASE,
-        )
-        if m:
-            subject = m.group(0).strip()
-
-    if subject:
-        return f"các văn bản quyết định khác do {subject} ký còn lại trong hệ thống"
-
+    # Pronoun follow-ups ("ông ấy", "tài liệu đó") point at the person or
+    # document named in the previous question; substitute it in place so the
+    # rest of the new question (its own verb, date, document kind) is kept.
+    person = _PERSON_MENTION.search(last_user_query)
+    if person and _PERSON_PRONOUN.search(query):
+        return _PERSON_PRONOUN.sub(person.group(0).strip(), query, count=1)
+    # "còn … nào nữa không", "chi tiết hơn": same question, asking for more.
     return f"{last_user_query} ({query})"
+
+
+# Honorific + capitalised name, e.g. "ông Nguyễn Văn An" (no names hard-coded).
+_PERSON_MENTION = re.compile(
+    r"\b(?:ông|bà|anh|chị|đồng chí|đ/c|thầy|cô)\s+"
+    r"[A-ZĐÀ-Ỹ][\wÀ-ỹ]*(?:\s+[A-ZĐÀ-Ỹ][\wÀ-ỹ]*){0,4}"
+)
+_PERSON_PRONOUN = re.compile(r"\b(?:ông|bà|anh|chị|người)\s+(?:ấy|đó|này)\b", re.IGNORECASE)
 
 
 class QueryOrchestrator:
@@ -159,7 +183,11 @@ class QueryOrchestrator:
         clock: ClockFn | None = None,
         new_run_id: RunIdFn | None = None,
         summarize_emails_fn: SummarizeEmailsFn | None = None,
+        metadata_service: Any | None = None,
+        pipeline: Any | None = None,
     ) -> None:
+        self._metadata_service = metadata_service
+        self._document_service: Any | None = None
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
         self._communication_for_user = communication_for_user
@@ -168,7 +196,7 @@ class QueryOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
         self._summarize_emails_fn = summarize_emails_fn
-        self._pipeline: Any | None = None
+        self._pipeline: Any | None = pipeline
 
     @staticmethod
     async def _load_conversation_history(
@@ -231,6 +259,13 @@ class QueryOrchestrator:
             active_skill=decision.target_agent,
             goal=query,
         )
+
+        document_result = await self._maybe_handle_document(
+            session, user_id, query, effective_query, run_id, decision, conversation_id
+        )
+        if document_result is not None:
+            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return document_result
 
         try:
             result = await self._dispatch(
@@ -347,8 +382,20 @@ class QueryOrchestrator:
 
         def _emit_done(status: str, extra: dict[str, Any] | None = None) -> str:
             now = time.perf_counter()
-            ttft = (first_token_at - stream_started_at) if first_token_at is not None else (now - stream_started_at)
-            stream_duration = (last_token_at - first_token_at) if (first_token_at is not None and last_token_at is not None and last_token_at > first_token_at) else max(0.001, now - stream_started_at)
+            ttft = (
+                (first_token_at - stream_started_at)
+                if first_token_at is not None
+                else (now - stream_started_at)
+            )
+            stream_duration = (
+                (last_token_at - first_token_at)
+                if (
+                    first_token_at is not None
+                    and last_token_at is not None
+                    and last_token_at > first_token_at
+                )
+                else max(0.001, now - stream_started_at)
+            )
             tok_per_sec = (total_tokens / max(0.001, stream_duration)) if total_tokens > 0 else 0.0
 
             route_name = getattr(route, "route_type", None)
@@ -402,6 +449,17 @@ class QueryOrchestrator:
         final_error: str | None = None
 
         try:
+            if decision.route_type is not RouteType.REJECT:
+                document_result = await self._maybe_handle_document(
+                    session, user_id, query, effective_query, run_id, decision, conversation_id
+                )
+                if document_result is not None:
+                    async for item in _stream_text(document_result.message):
+                        yield item
+                    yield _sse("document", document_result.data.get("generated_document", {}))
+                    yield _emit_done("completed")
+                    return
+
             if decision.route_type is RouteType.REJECT:
                 msg = "Yêu cầu bị từ chối vì vi phạm ranh giới an toàn."
                 async for item in _stream_text(msg):
@@ -439,11 +497,20 @@ class QueryOrchestrator:
                             async for item in _yield_token(delta):
                                 yield item
                     elif ev_type == "citations":
+                        # The prompt-text snapshot is stored server-side, not streamed.
+                        await self._record_evidence(
+                            session,
+                            run_id,
+                            evidence=event.get("evidence"),
+                            retrieval_trace_id=event.get("retrieval_trace_id"),
+                            answer_status=event.get("status"),
+                        )
                         yield _sse(
                             "citations",
                             {
                                 "citations": event.get("citations", []),
                                 "sufficiency": event.get("status"),
+                                "unsupported_claims": event.get("unsupported_claims", []),
                             },
                         )
                 yield _emit_done("completed")
@@ -480,7 +547,9 @@ class QueryOrchestrator:
                     summaries = list(getattr(page, "items", []) or [])
                     messages = await _load_gmail_details(service, summaries)
                     if not messages:
-                        async for item in _stream_text("Không có email nào khớp trong hộp thư đến."):
+                        async for item in _stream_text(
+                            "Không có email nào khớp trong hộp thư đến."
+                        ):
                             yield item
                     else:
                         async for delta in summarize_emails_stream(
@@ -603,7 +672,12 @@ class QueryOrchestrator:
             return await self._handle_calendar(session, user_id, query, run_id, route)
         if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
             return await self._handle_knowledge(
-                user_id, query, run_id, route, conversation_history=conversation_history
+                user_id,
+                query,
+                run_id,
+                route,
+                conversation_history=conversation_history,
+                session=session,
             )
         if agent == COMMUNICATION_AGENT_NAME:
             return await self._handle_communication(session, user_id, query, run_id, route)
@@ -836,6 +910,7 @@ class QueryOrchestrator:
         run_id: str,
         route: QueryRouteInfo,
         conversation_history: list[dict[str, str]] | None = None,
+        session: AsyncSession | None = None,
     ) -> QueryResult:
         synthesis = await self._run_retrieval(
             query, user_id, conversation_history=conversation_history
@@ -845,6 +920,13 @@ class QueryOrchestrator:
             for citation in list(getattr(synthesis, "citations", []))
         ]
         status = getattr(getattr(synthesis, "status", None), "value", None)
+        await self._record_evidence(
+            session,
+            run_id,
+            evidence=getattr(synthesis, "evidence", None),
+            retrieval_trace_id=getattr(synthesis, "retrieval_trace_id", None),
+            answer_status=status,
+        )
         return QueryResult(
             run_id=run_id,
             status="completed",
@@ -852,6 +934,107 @@ class QueryOrchestrator:
             route=route,
             data={"citations": citations, "sufficiency": status},
         )
+
+    def _documents(self) -> Any:
+        if self._document_service is None:
+            from app.services.documents.service import DocumentGenerationService
+
+            self._document_service = DocumentGenerationService(
+                metadata_service=self._metadata(), pipeline=self._live_pipeline()
+            )
+        return self._document_service
+
+    async def _maybe_handle_document(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        query: str,
+        effective_query: str,
+        run_id: str,
+        decision: RouteDecision,
+        conversation_id: str | None,
+    ) -> QueryResult | None:
+        """Document generation in chat: request → outline; "duyệt" → written document.
+
+        Returns ``None`` when the turn is not about generating a document, so
+        normal routing continues. Rejected requests never reach this point.
+        """
+        from app.services.documents.service import (
+            DocumentGenerationService,
+            outline_message,
+            result_message,
+        )
+        from app.services.documents.templates import is_generation_request
+
+        if decision.route_type is RouteType.REJECT:
+            return None
+        try:
+            pending = await DocumentGenerationService.pending_outline(
+                session, user_id, conversation_id
+            )
+            requester = retrieval_requester_id(user_id)
+            if pending is not None and _APPROVAL_RE.match(query.strip()):
+                row = await self._documents().approve_and_write(
+                    session, user_id=user_id, requester_id=requester, doc_id=pending.id
+                )
+                message = result_message(row)
+            elif is_generation_request(effective_query):
+                row = await self._documents().create_outline(
+                    session,
+                    user_id=user_id,
+                    requester_id=requester,
+                    request=effective_query,
+                    conversation_id=conversation_id,
+                )
+                message = outline_message(row)
+            else:
+                return None
+        except Exception:  # noqa: BLE001 - fall back to normal routing
+            logger.exception("document_generation_route_failed", extra={"run_id": run_id})
+            return None
+        return QueryResult(
+            run_id=run_id,
+            status="completed",
+            message=message,
+            route=route_info(decision),
+            data={
+                "generated_document": {
+                    "id": row.id,
+                    "status": row.status,
+                    "title": row.title,
+                    "has_docx": bool(row.docx_path),
+                    "file_format": Path(row.docx_path).suffix.lstrip(".")
+                    if row.docx_path
+                    else None,
+                    "download_path": f"/documents/{row.id}/download" if row.docx_path else None,
+                }
+            },
+        )
+
+    @staticmethod
+    async def _record_evidence(
+        session: AsyncSession | None,
+        run_id: str,
+        *,
+        evidence: Any,
+        retrieval_trace_id: str | None,
+        answer_status: str | None,
+    ) -> None:
+        """Persist what the model saw for this run (best-effort, never fails the answer)."""
+        if session is None:
+            return
+        try:
+            from app.infrastructure.db.evidence_repository import record_run_evidence
+
+            await record_run_evidence(
+                session,
+                run_id,
+                evidence=list(evidence or []),
+                retrieval_trace_id=retrieval_trace_id,
+                answer_status=answer_status,
+            )
+        except Exception:  # noqa: BLE001 - audit trail must not break answering
+            logger.warning("run_evidence_record_failed", extra={"run_id": run_id}, exc_info=True)
 
     async def _handle_communication_draft(
         self,
@@ -968,6 +1151,99 @@ class QueryOrchestrator:
         )
         return CommunicationService.from_client(client)
 
+    def _live_pipeline(self) -> Any:
+        if self._pipeline is None:
+            from app.services.retrieval.factory import build_retrieval_pipeline
+
+            self._pipeline = build_retrieval_pipeline(
+                use_viranker=False,
+                per_document_cap=_RAG_PER_DOCUMENT_CAP,
+                rerank_top_k_max=_RAG_MAX_CANDIDATES,
+            )
+        return self._pipeline
+
+    @staticmethod
+    def _live_retrieval_query(query: str, user_id: str) -> Any:
+        from app.domain.models.retrieval import RetrievalQuery
+
+        return RetrievalQuery(
+            original_query=query,
+            search_query=query,
+            requester_id=retrieval_requester_id(user_id),
+            top_k_dense=_RAG_TOP_K_DENSE,
+            top_k_sparse=_RAG_TOP_K_SPARSE,
+            context_token_budget=_RAG_CONTEXT_TOKEN_BUDGET,
+        )
+
+    def _metadata(self) -> Any:
+        if self._metadata_service is None:
+            from app.services.retrieval.metadata import MetadataLookupService
+
+            self._metadata_service = MetadataLookupService()
+        return self._metadata_service
+
+    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
+        """Pick SQL-over-profiles, profile-scoped RAG, or corpus RAG for a question.
+
+        Numbers and lists come from ``document_profiles`` (never paraphrased by
+        an LLM); a hard selector (number / person / date / "mới nhất") next to a
+        content question scopes RAG to the selected documents. Any failure here
+        degrades to plain corpus RAG.
+        """
+        from app.domain.models.retrieval import RetrievalMode
+        from app.domain.models.retrieval.metadata_filter import KnowledgeIntent
+        from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+        from app.services.retrieval.metadata import render_metadata_answer
+        from app.services.retrieval.metadata.render import describe_filters, describe_noun
+
+        base_query = self._live_retrieval_query(query, user_id)
+        requester = retrieval_requester_id(user_id)
+        try:
+            service = self._metadata()
+            plan = await service.plan(query, requester)
+            logger.info(
+                "knowledge_route_planned",
+                extra={"intent": plan.intent.value, "reason": plan.reason},
+            )
+            if plan.intent is KnowledgeIntent.METADATA:
+                result = await service.run(plan.spec, requester)
+                answer, citations = render_metadata_answer(plan.spec, result)
+                status = (
+                    SufficiencyStatus.SUFFICIENT if result.total else SufficiencyStatus.INSUFFICIENT
+                )
+                return _KnowledgeRoute(answer=answer, citations=citations, status=status)
+            if plan.intent is KnowledgeIntent.METADATA_THEN_CONTENT:
+                ids, total = await service.resolve_document_ids(
+                    plan.spec, requester, cap=_RAG_MAX_SCOPED_DOCUMENTS
+                )
+                if total == 0:
+                    note = (
+                        f"(Không có {describe_noun(plan.spec)} nào"
+                        f"{describe_filters(plan.spec)}; tìm trên toàn bộ kho tài liệu.)\n\n"
+                    )
+                    return _KnowledgeRoute(rag_query=base_query, prefix=note)
+                if total > _RAG_MAX_SCOPED_DOCUMENTS:
+                    result = await service.run(plan.spec, requester)
+                    answer, citations = render_metadata_answer(plan.spec, result)
+                    answer += (
+                        f"\n\nCó {total} tài liệu khớp, quá nhiều để đọc nội dung cùng lúc; "
+                        "hãy nêu rõ hơn (số hiệu, thời gian, người liên quan)."
+                    )
+                    return _KnowledgeRoute(
+                        answer=answer, citations=citations, status=SufficiencyStatus.PARTIAL
+                    )
+                scoped = base_query.model_copy(
+                    update={
+                        "mode": RetrievalMode.DOCUMENT_SEARCH,
+                        "document_ids": ids,
+                        "require_source_diversity": len(ids) > 1,
+                    }
+                )
+                return _KnowledgeRoute(rag_query=scoped)
+        except Exception:  # noqa: BLE001 - the metadata route must never break answering
+            logger.exception("knowledge_metadata_route_failed")
+        return _KnowledgeRoute(rag_query=base_query)
+
     async def _run_retrieval(
         self,
         query: str,
@@ -976,25 +1252,21 @@ class QueryOrchestrator:
     ) -> Any:
         if self._retrieve is not None:
             return await self._retrieve(query, user_id)
-        if self._pipeline is None:
-            from app.services.retrieval.factory import build_retrieval_pipeline
+        from app.services.retrieval.synthesis import SynthesisResult
 
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
-        from app.domain.models.retrieval import RetrievalQuery
-
-        retrieval_query = RetrievalQuery(
-            original_query=query,
-            search_query=query,
-            requester_id=retrieval_requester_id(user_id),
-            top_k_dense=50,
-            top_k_sparse=60,
-            context_token_budget=16384,
-        )
-        return await self._pipeline.run_with_synthesis(
-            retrieval_query,
+        route = await self._route_knowledge(query, user_id)
+        if route.answer is not None:
+            return SynthesisResult(
+                answer=route.answer, citations=route.citations, status=route.status
+            )
+        result = await self._live_pipeline().run_with_synthesis(
+            route.rag_query,
             internal_only=True,
             conversation_history=conversation_history,
         )
+        if route.prefix:
+            result = result.model_copy(update={"answer": route.prefix + result.answer})
+        return result
 
     async def _run_retrieval_stream(
         self,
@@ -1002,22 +1274,19 @@ class QueryOrchestrator:
         user_id: str,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        if self._pipeline is None:
-            from app.services.retrieval.factory import build_retrieval_pipeline
-
-            self._pipeline = build_retrieval_pipeline(use_viranker=False, per_document_cap=2)
-        from app.domain.models.retrieval import RetrievalQuery
-
-        retrieval_query = RetrievalQuery(
-            original_query=query,
-            search_query=query,
-            requester_id=retrieval_requester_id(user_id),
-            top_k_dense=50,
-            top_k_sparse=60,
-            context_token_budget=16384,
-        )
-        async for event in self._pipeline.run_with_streaming_synthesis(
-            retrieval_query,
+        route = await self._route_knowledge(query, user_id)
+        if route.answer is not None:
+            yield {"type": "token", "delta": route.answer}
+            yield {
+                "type": "citations",
+                "citations": [c.model_dump(mode="json") for c in route.citations],
+                "status": route.status.value,
+            }
+            return
+        if route.prefix:
+            yield {"type": "token", "delta": route.prefix}
+        async for event in self._live_pipeline().run_with_streaming_synthesis(
+            route.rag_query,
             internal_only=True,
             conversation_history=conversation_history,
         ):

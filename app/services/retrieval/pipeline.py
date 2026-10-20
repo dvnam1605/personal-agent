@@ -26,6 +26,7 @@ from app.domain.models.retrieval.sufficiency import SufficiencyStatus, Sufficien
 from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
 from app.services.retrieval.diversity import apply_diversity
 from app.services.retrieval.expansion import ExpansionService, resolve_expansion_policy
+from app.services.retrieval.grounding import abstain_message, check_identifiers
 from app.services.retrieval.packing import build_bundle
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
 from app.services.retrieval.rerank import IdentityReranker, Reranker
@@ -128,6 +129,7 @@ class RetrievalPipeline:
         *,
         internal_only: bool = True,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> SynthesisResult:
         """Full path: retrieval → sufficiency → retry → synthesis (P10-18).
 
@@ -154,7 +156,22 @@ class RetrievalPipeline:
                 citations=[],
             )
 
-        missing_docs: list[str] = list(verdict.missing_document_ids)
+        identifiers = check_identifiers(query.original_query, bundle)
+        if identifiers.abstain and internal_only:
+            return SynthesisResult(
+                answer=abstain_message(identifiers, bundle),
+                status=SufficiencyStatus.INSUFFICIENT,
+                citations=[],
+            )
+
+        # A coverage warning only makes sense when the user compares specific
+        # documents; scoping RAG to a set of candidates (metadata route, document
+        # generation) leaves most of them uncited by design.
+        missing_docs: list[str] = (
+            list(verdict.missing_document_ids)
+            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
+            else []
+        )
         if compare_result and compare_result.missing_documents:
             missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 
@@ -165,6 +182,7 @@ class RetrievalPipeline:
             missing_documents=missing_docs if missing_docs else None,
             verdict_status=verdict.status,
             conversation_history=conversation_history,
+            **({"system_prompt": system_prompt} if system_prompt else {}),
         )
 
     async def run_with_streaming_synthesis(
@@ -208,7 +226,24 @@ class RetrievalPipeline:
             }
             return
 
-        missing_docs: list[str] = list(verdict.missing_document_ids)
+        identifiers = check_identifiers(query.original_query, bundle)
+        if identifiers.abstain and internal_only:
+            yield {"type": "token", "delta": abstain_message(identifiers, bundle)}
+            yield {
+                "type": "citations",
+                "citations": [],
+                "status": SufficiencyStatus.INSUFFICIENT.value,
+            }
+            return
+
+        # A coverage warning only makes sense when the user compares specific
+        # documents; scoping RAG to a set of candidates (metadata route, document
+        # generation) leaves most of them uncited by design.
+        missing_docs: list[str] = (
+            list(verdict.missing_document_ids)
+            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
+            else []
+        )
         if compare_result and compare_result.missing_documents:
             missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 

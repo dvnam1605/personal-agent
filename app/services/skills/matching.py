@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 
+from app.core.text import unaccent_vietnamese  # re-exported for existing callers
 from app.tools.registry import capability_matches
 
 # ``đ``/``Đ`` are atomic letters (not a combining stroke), so NFKD leaves them.
@@ -23,14 +23,6 @@ def capability_is_satisfied(required: str, available: set[str]) -> bool:
 def capabilities_are_satisfied(required: list[str], available: set[str]) -> bool:
     """Return True when every required capability is covered by ``available``."""
     return all(capability_is_satisfied(item, available) for item in required)
-
-
-def unaccent_vietnamese(text: str) -> str:
-    """Fold case, strip Vietnamese diacritics, and collapse whitespace."""
-    folded = text.translate(_VIETNAMESE_STROKES)
-    decomposed = unicodedata.normalize("NFKD", folded)
-    stripped = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return " ".join(stripped.casefold().split())
 
 
 def match_trigger(

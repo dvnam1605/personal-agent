@@ -205,7 +205,9 @@ class MarkdownDocumentParser:
             block_index += 1
             parse_warnings.append("unclosed code fence flushed as paragraph at EOF")
 
-        admin_meta = await AdministrativeMetadataExtractor.aextract(text, filename=source.filename)
+        # Rules only: the generic DocumentProfiler owns the (optional) LLM pass,
+        # so parsing never spends a gateway call per document.
+        admin_meta = AdministrativeMetadataExtractor.extract(text, filename=source.filename)
 
         return ParsedDocument(
             metadata=ParsedDocumentMetadata(

@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for the 14 core database tables with forward-compatible schemas."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -10,6 +10,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -22,10 +23,14 @@ from sqlalchemy import (
     event,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.core.sanitization import sanitize_payload, sanitize_string
 from app.infrastructure.db.base import Base, TimestampMixin
+
+# JSONB on PostgreSQL (indexable, migration 0011), plain JSON elsewhere (SQLite tests).
+_JSONB = JSON().with_variant(JSONB(), "postgresql")
 
 
 def _sanitize_approval_arguments(value: Any) -> dict[str, Any]:
@@ -195,6 +200,10 @@ class AssistantRun(Base, TimestampMixin):
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     telemetry_degraded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Knowledge answers (migration 0012): link to the retrieval trace and the
+    # final SUFFICIENT/PARTIAL/INSUFFICIENT status; evidence in run_evidence.
+    retrieval_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    answer_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -240,6 +249,82 @@ class AssistantRun(Base, TimestampMixin):
         ),
     )
     __mapper_args__ = {"version_id_col": state_version}
+
+
+class RunEvidence(Base):
+    """One evidence unit sent to answer synthesis for a run (immutable snapshot)."""
+
+    __tablename__ = "run_evidence"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assistant_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    retrieval_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    primary_chunk_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chunk_ids: Mapped[list[str]] = mapped_column(_JSONB, default=list, nullable=False)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    document_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    citation_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_run_evidence_run", "run_id", "rank"),
+        Index("ix_run_evidence_document", "document_version_id"),
+    )
+
+
+class GeneratedDocument(Base):
+    """A document written on request: outline → user approval → sections → files."""
+
+    __tablename__ = "generated_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    template_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    request: Mapped[str] = mapped_column(Text, nullable=False)
+    outline: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict, nullable=False)
+    source_document_ids: Mapped[list[str]] = mapped_column(_JSONB, default=list, nullable=False)
+    sections: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list, nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list, nullable=False)
+    markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docx_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="outline", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_generated_documents_user_status", "user_id", "status"),
+        Index("ix_generated_documents_conversation", "conversation_id"),
+        CheckConstraint(
+            "status IN ('outline', 'writing', 'done', 'failed', 'cancelled')",
+            name="ck_generated_documents_status",
+        ),
+    )
 
 
 class Message(Base):
@@ -341,7 +426,7 @@ class Document(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSON, default=dict, nullable=False
+        "metadata", _JSONB, default=dict, nullable=False
     )
 
     user: Mapped["User | None"] = relationship("User", back_populates="documents")
@@ -403,7 +488,7 @@ class DocumentChunk(Base):
     provenance_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     citation_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSON, default=dict, nullable=False
+        "metadata", _JSONB, default=dict, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -420,6 +505,68 @@ class DocumentChunk(Base):
     @validates("metadata_")
     def sanitize_metadata(self, _key: str, value: dict[str, Any]) -> dict[str, Any]:
         return _sanitize_document_metadata(value)
+
+
+class DocumentProfile(Base):
+    """Category + typed metadata for one document version (all document kinds).
+
+    Owner scope and ``is_active`` are never copied here: queries always join
+    ``documents`` so a profile cannot drift from its version's visibility.
+    """
+
+    __tablename__ = "document_profiles"
+
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    logical_document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    doc_category: Mapped[str] = mapped_column(String(32), default="other", nullable=False)
+    doc_subtype: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    doc_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    doc_number_norm: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    issuer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issuer_norm: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subject: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    doc_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    entities: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list, nullable=False)
+    entity_names_norm: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[str]] = mapped_column(_JSONB, default=list, nullable=False)
+    extras: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict, nullable=False)
+    field_sources: Mapped[dict[str, str]] = mapped_column(_JSONB, default=dict, nullable=False)
+    overrides: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict, nullable=False)
+    extractor_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    category_confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    extraction_confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_document_profiles_category_date", "doc_category", "doc_date"),
+        Index("ix_document_profiles_number", "doc_number_norm"),
+        Index("ix_document_profiles_issuer", "issuer_norm"),
+        Index("ix_document_profiles_logical", "logical_document_id"),
+        Index("ix_document_profiles_input_hash", "input_hash"),
+        CheckConstraint(
+            "doc_category IN ('administrative', 'report', 'contract', 'minutes', "
+            "'technical', 'academic', 'spreadsheet', 'other')",
+            name="ck_document_profiles_category",
+        ),
+    )
 
 
 class IngestionJobRecord(Base):

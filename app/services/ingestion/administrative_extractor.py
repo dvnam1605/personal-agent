@@ -19,6 +19,35 @@ from app.domain.models.ingestion.administrative_metadata import AdministrativeMe
 
 logger = logging.getLogger(__name__)
 
+# The subject line sits above the legal basis; the basis and the articles
+# cite other documents "về việc …", which must never become the subject.
+_SUBJECT_STOP = re.compile(
+    r"(?i)^(?:căn\s+cứ|theo\s+đề\s+nghị|xét\s+(?:đề\s+nghị|tình\s+hình)|điều\s*1\b|"
+    r"quyết\s+định\s*:|nơi\s+nhận)"
+)
+# "Về việc …", "V/v …", or "<TYPE NAME> Về việc …" on one line; the prefix
+# must be upper case (checked in code: OCR misspells type names, "CHÍ THỊ").
+_SUBJECT_LINE = re.compile(r"^(?P<prefix>.*?)(?<!\w)(?:V/v|Về|VỀ)[\s.:]+(?P<rest>.+)$")
+_ARTICLE_ONE = re.compile(r"(?m)^[\s#*_]*Điều\s*1\s*[.:]\s*(.+)$")
+# Where the operative clause of Điều 1 ends: recipients ("cho …"), lists
+# ("gồm …", "như sau", "với nội dung"), the person's position (", chuyên
+# viên …"), or the sentence.
+_ARTICLE_ONE_CUT = re.compile(
+    r"(?i)\s+cho\s+(?=[^\s,]+\s)|[;:]|\.(?:\s|$)|"
+    r"\s+(?:gồm|bao gồm|như sau|cụ thể|với (?:các )?nội dung|theo danh sách)\b|"
+    r",\s*(?=(?:chức vụ|chuyên viên|phó|trưởng|giám đốc|phóng viên|biên tập viên|kỹ thuật viên|"
+    r"nhân viên|kể từ|đã có|thuộc|hiện là|sinh ngày|đến công tác|về công tác)\b)"
+)
+_ARTICLE_ONE_ACTION = re.compile(
+    r"(?i)^(?:(?:ông|bà|đồng chí)\s+[^,]{2,40}?\s+)?(?:tặng|công nhận|ban hành|phê duyệt|"
+    r"thành lập|cử|điều động|bổ nhiệm|tuyển dụng|giao|chấm dứt|cho thôi|thôi giữ|thôi việc|"
+    r"kỷ luật|khen thưởng|điều chỉnh|sửa đổi|bổ sung|bãi bỏ|quy định|phân công|tiếp nhận|"
+    r"nâng|xếp|chuyển|kiện toàn|hợp nhất|giải thể|đổi tên|cho phép|chỉ định|ủy quyền|"
+    r"tổ chức|triển khai|áp dụng|công bố|thu hồi|hủy bỏ|đình chỉ|gia hạn|cấp|duyệt|chi|"
+    r"trích|hỗ trợ|tạm ứng|thanh lý|mua sắm|điều chuyển|luân chuyển|biệt phái|nghỉ hưu|"
+    r"phê chuẩn|chuẩn y|xác nhận|thực hiện)\b"
+)
+
 
 class AdministrativeMetadataExtractor:
     """Extracts structured administrative attributes using layout algorithms and LLM assistance."""
@@ -387,14 +416,68 @@ class AdministrativeMetadataExtractor:
 
     @classmethod
     def _extract_subject(cls, header_text: str) -> str | None:
-        subj_match = re.search(r"(?i)Về\s+(?:việc\s+)?([^\n\r]+)", header_text)
-        if subj_match:
-            clean = subj_match.group(1).strip()
-            clean = re.sub(r"^[#\s\*_]+|[#\s\*_]+$", "", clean)
-            if not clean.lower().startswith("việc"):
-                return f"Về việc {clean}"
-            return f"Về {clean}"
+        """The "Về việc …" / "V/v …" line under the document type, above the basis.
+
+        Only a line that *starts* with Về / VỀ / V/v (optionally after the
+        type name, "QUYẾT ĐỊNH Về việc …") and comes before the first
+        "Căn cứ" / "Điều 1" counts: "về việc" inside a cited decree
+        ("Căn cứ Nghị định 152 … về việc quy định về phân cấp …") is never
+        the subject of this document.
+        """
+        lines = [ln.strip(" \t#*_-+•") for ln in header_text.splitlines()]
+        lines = [ln for ln in lines if ln]
+        for idx, line in enumerate(lines):
+            if _SUBJECT_STOP.match(line):
+                return None
+            m = _SUBJECT_LINE.match(line)
+            prefix = m.group("prefix").strip(" :") if m else ""
+            if m and prefix and not (prefix.isupper() and len(prefix) <= 40):
+                m = None  # "… về việc" inside a sentence, not a subject line
+            if not m:
+                # "về …" in lower case directly under the type name ("QUYẾT ĐỊNH").
+                lower = re.match(r"^(?:v/v|về)[\s.:]+(.+)$", line)
+                if lower and idx > 0 and lines[idx - 1].isupper():
+                    m = lower
+            if not m:
+                continue
+            parts = [m.group(m.lastindex or 1).strip()]
+            # Long subjects wrap onto lowercase continuation lines.
+            for nxt in lines[idx + 1 : idx + 3]:
+                if not nxt or not nxt[0].islower() or _SUBJECT_STOP.match(nxt):
+                    break
+                parts.append(nxt)
+            clean = re.sub(r"\s+", " ", " ".join(parts)).strip(" ,.;")
+            if not clean:
+                continue
+            if clean.lower().startswith("việc"):
+                return f"Về {clean}"
+            return f"Về việc {clean}"
         return None
+
+    @classmethod
+    def _extract_subject_from_article1(cls, text: str) -> str | None:
+        """Fallback subject from the operative clause of Điều 1.
+
+        Used when the title line was lost (OCR / layout): "Điều 1. Tặng Bằng
+        khen của Tổng Giám đốc … cho …" → "Về việc tặng Bằng khen của Tổng
+        Giám đốc …". Only the action is kept, never the recipients.
+        """
+        m = _ARTICLE_ONE.search(text)
+        if not m:
+            return None
+        clause = re.sub(r"\s*\([^)]*\)?", "", m.group(1))  # "(danh sách kèm theo)", "(Loại 100"
+        clause = _ARTICLE_ONE_CUT.split(clause.strip(), maxsplit=1)[0]
+        clause = re.sub(r"(?i)\s+kèm theo (?:quyết định|chỉ thị) này", "", clause)
+        clause = re.sub(r"\s+", " ", clause).strip(" .,;")
+        # Only an operative clause names the decision ("Văn phòng, các đơn vị
+        # …" is the list of executors, not what was decided).
+        if not _ARTICLE_ONE_ACTION.search(clause) or len(clause.split()) < 2:
+            return None
+        if len(clause) > 160:
+            head = clause[:160]
+            # Prefer ending at the last listed item over mid-phrase.
+            clause = head.rsplit(",", 1)[0] if head.rfind(",") > 80 else head.rsplit(" ", 1)[0]
+        return f"Về việc {clause[0].lower()}{clause[1:]}"
 
     @classmethod
     def _extract_signatory(cls, tail_text: str) -> tuple[str | None, str | None]:

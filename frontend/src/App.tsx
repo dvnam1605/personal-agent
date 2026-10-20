@@ -6,6 +6,7 @@ import { CalendarWorkspace } from './components/workspaces/CalendarWorkspace'
 import { EmailWorkspace } from './components/workspaces/EmailWorkspace'
 import { MeetingsWorkspace } from './components/workspaces/MeetingsWorkspace'
 import { KnowledgeWorkspace } from './components/workspaces/KnowledgeWorkspace'
+import { DocumentsWorkspace } from './components/workspaces/DocumentsWorkspace'
 import { SettingsWorkspace } from './components/workspaces/SettingsWorkspace'
 import { Drawer } from './components/ui/Drawer'
 import { ToastProvider, useToast } from './components/ui/Toast'
@@ -645,6 +646,8 @@ const AppContent: React.FC = () => {
               onSelectCitation={(cite) => setSelectedCitation(cite)}
             />
           )}
+
+          {activeWorkspace === 'documents' && <DocumentsWorkspace />}
 
           {activeWorkspace === 'settings' && <SettingsWorkspace />}
         </main>

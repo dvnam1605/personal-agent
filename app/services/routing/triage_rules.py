@@ -154,6 +154,10 @@ RESEARCH_DOC_PATTERN = re.compile(
     r"nhan su|tien luong|luong|phu cap|bo nhiem|thoi viec|nghi huu|hop dong lao dong|"
     r"phat song|chuong trinh phat thanh|khung phat song|"
     r"chi thi|cong van|thong bao|ke hoach|chuong trinh|"
+    # Every document kind the profiler knows (generic RAG, not only decisions).
+    r"hop dong|phu luc hop dong|thoa thuan|bien ban|to trinh|de xuat|phuong an|"
+    r"do an|luan van|luan an|khoa luan|tieu luan|bai bao|giang vien huong dan|"
+    r"quy trinh|dac ta|tai lieu ky thuat|sach|bang tinh|file excel|ho so|"
     r"dai tieng noi|tieng noi viet nam|vov|tong giam doc|pho tong giam doc|trung tam r&d|ban ke hoach|tai chinh|"
     r"qd-tnvn|qd\s*/\s*tnvn|qd\s*\d+"
     r")\b",
@@ -203,7 +207,10 @@ DOC_DURATION_PATTERN = re.compile(
 # ----------------------------------------------------------------------
 
 CASUAL_PATTERN = re.compile(
-    r"\b(xin chao|chao ban|chao|hello|hi|hey|ban la ai|can tro giup|tro giup|help|cam on|thanks|thank you|chuc|tot lanh)\b|"
+    # "chuc" alone also matches "viên chức"/"tổ chức" once accents are folded,
+    # which sent real questions to chit-chat; only greeting phrases count.
+    r"\b(xin chao|chao ban|chao|hello|hi|hey|ban la ai|can tro giup|tro giup|help|cam on|thanks|thank you|"
+    r"chuc mung|chuc ban|chuc anh|chuc chi|chuc em|chuc ngu ngon|chuc mot ngay|tot lanh)\b|"
     r"\b(an gi|uong gi|mon gi|an com|an trua|an toi|an sang|thoi tiet|tam trang|khoe khong|the nao roi|co vui khong)\b",
     re.IGNORECASE,
 )

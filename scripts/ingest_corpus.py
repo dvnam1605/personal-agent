@@ -1,20 +1,23 @@
-"""Batch ingestion script: Ingests real Vietnamese administrative documents into PostgreSQL + pgvector.
+"""Batch ingestion: any document kind (md / pdf / docx) into PostgreSQL + pgvector.
 
-Reads all markdown files in data/QuyetDinh, parses them, extracts administrative metadata,
-chunks them into parent/child hierarchy, computes embeddings, and persists them into the database.
+Walks a folder (default: data/), parses each file, profiles it (category +
+metadata, rules first, LLM only when unsure), chunks it into the parent/child
+hierarchy, embeds and persists it. Unchanged files are skipped by fingerprint.
 
 Run:
-    uv run python scripts/ingest_corpus.py
+    uv run python scripts/ingest_corpus.py                 # everything under data/
+    uv run python scripts/ingest_corpus.py --root data/DoAn --no-llm-profile
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import logging
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 # Fix Windows console encoding
 sys.stdout.reconfigure(encoding="utf-8")
@@ -31,6 +34,7 @@ from app.infrastructure.db.ingestion_repository import (  # noqa: E402
     SqlAlchemyIngestionRepository,
     SqlAlchemyUnitOfWork,
 )
+from app.infrastructure.db.profile_repository import SqlAlchemyProfileRepository  # noqa: E402
 from app.infrastructure.db.session import get_engine, get_session_factory  # noqa: E402
 from app.services.ingestion.embedding import (  # noqa: E402
     EmbeddingContract,
@@ -39,6 +43,7 @@ from app.services.ingestion.embedding import (  # noqa: E402
 )
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
+from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
 from app.services.ingestion.source import build_local_source_document  # noqa: E402
 
 logging.basicConfig(
@@ -49,27 +54,72 @@ logging.basicConfig(
 logger = logging.getLogger("ingest_corpus")
 
 
+SUPPORTED_SUFFIXES = {".md", ".pdf", ".docx"}
+DATA_ROOT = REPO_ROOT / "data"
+LEGACY_ROOT = DATA_ROOT / "QuyetDinh"
+
+
+def _source_id(path: Path) -> str:
+    """Deterministic id from the path; files under data/QuyetDinh keep their
+    historical ids (relative to that folder) so re-runs never duplicate them."""
+    resolved = path.resolve()
+    base = LEGACY_ROOT if resolved.is_relative_to(LEGACY_ROOT.resolve()) else DATA_ROOT
+    rel = (
+        resolved.relative_to(base.resolve())
+        if resolved.is_relative_to(base.resolve())
+        else resolved
+    )
+    # Always hash the Windows spelling ("ChiThi\\x.md"): the corpus was first
+    # ingested on Windows, and a Linux run (e.g. inside the GPU container)
+    # must produce the same ids instead of duplicating every document.
+    key = str(PureWindowsPath(*rel.parts))
+    return "src-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=DATA_ROOT, help="folder to ingest")
+    parser.add_argument("--no-llm-profile", action="store_true", help="rules-only profiling")
+    parser.add_argument("--force", action="store_true", help="re-index unchanged files")
+    return parser.parse_args()
+
+
 async def main() -> None:
-    data_dir = REPO_ROOT / "data" / "QuyetDinh"
+    args = _parse_args()
+    data_dir = args.root if args.root.is_absolute() else REPO_ROOT / args.root
     if not data_dir.exists():
         logger.error("Data directory not found: %s", data_dir)
         sys.exit(1)
 
-    md_files = sorted(data_dir.rglob("*.md"))
-    logger.info("Found %d markdown files in %s", len(md_files), data_dir)
+    md_files = sorted(
+        p for p in data_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+    )
+    logger.info("Found %d supported files in %s", len(md_files), data_dir)
 
     # 1. Ensure embedding model snapshot is downloaded and ready
     model_name = settings.embedding.model
     logger.info("Preparing embedding backend for model: %s", model_name)
-    try:
-        model_path = snapshot_download(model_name, local_files_only=False)
-        logger.info("Embedding model loaded from snapshot: %s", model_path)
-    except Exception as exc:
-        logger.error("Failed to prepare embedding model: %s", exc)
-        sys.exit(1)
+    local_path = settings.embedding.local_path
+    if local_path and (REPO_ROOT / local_path).exists():
+        # Same snapshot the backend container uses (./models) — no download.
+        model_path = str(REPO_ROOT / local_path)
+        logger.info("Embedding model from local snapshot: %s", model_path)
+    else:
+        try:
+            model_path = snapshot_download(model_name, local_files_only=False)
+            logger.info("Embedding model loaded from snapshot: %s", model_path)
+        except Exception as exc:
+            logger.error("Failed to prepare embedding model: %s", exc)
+            sys.exit(1)
 
     # 2. Build local embedding service with CLS pooling for Vietnamese embedding
-    backend = TransformersPoolingBackend(model_path, max_length=512)
+    import torch
+
+    device = settings.embedding.device
+    if device == "cuda" and not torch.cuda.is_available():
+        logger.warning("CUDA requested but unavailable here; embedding on CPU")
+        device = "cpu"
+    backend = TransformersPoolingBackend(model_path, max_length=512, device=device)
     logger.info("Loading PyTorch transformer weights into memory...")
     backend._ensure_loaded()
     logger.info("Embedding backend loaded and ready!")
@@ -91,6 +141,8 @@ async def main() -> None:
         transaction=transaction,
         embedding=embedding_service,
         heartbeat_callback=job_service.heartbeat,
+        profiler=DocumentProfiler(use_llm=not args.no_llm_profile),
+        profile_store=SqlAlchemyProfileRepository(session_factory),
     )
 
     # 4. Ingest each file
@@ -105,19 +157,15 @@ async def main() -> None:
     print("=" * 80 + "\n")
 
     for idx, file_path in enumerate(md_files, start=1):
-        rel_path = file_path.relative_to(data_dir)
         file_bytes = file_path.read_bytes()
-
-        # Deterministic unique source_id from path
-        source_id = "src-" + hashlib.sha256(str(rel_path).encode("utf-8")).hexdigest()[:16]
         source = build_local_source_document(
             file_path,
-            source_type="preparsed_markdown",
-            source_id=source_id,
+            source_type="preparsed_markdown" if file_path.suffix.lower() == ".md" else "upload",
+            source_id=_source_id(file_path),
         )
 
         try:
-            obs = await orchestrator.ingest_source(source, file_bytes)
+            obs = await orchestrator.ingest_source(source, file_bytes, force_reindex=args.force)
             if obs.status in (IngestionStatus.COMPLETED, IngestionStatus.SKIPPED):
                 success_count += 1
                 total_parents += obs.parent_count

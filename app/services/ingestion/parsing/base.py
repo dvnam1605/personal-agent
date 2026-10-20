@@ -30,6 +30,7 @@ from app.services.ingestion.type_detection import detect_document_type
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.services.ingestion.parsing.docling_parser import DoclingDocumentParser
     from app.services.ingestion.parsing.markdown_parser import MarkdownDocumentParser
+    from app.services.ingestion.parsing.pymupdf_parser import PyMuPDFDocumentParser
 
 
 class ParserUnavailableError(RuntimeError):
@@ -59,14 +60,59 @@ def build_parser_for_type(
     document_type: DetectedDocumentType | None,
     *,
     source_type: str,
-) -> DoclingDocumentParser | MarkdownDocumentParser:
-    """Pick the adapter for a detected type; preparsed_markdown always MD."""
+    content: bytes | None = None,
+    settings: ParsingSettings | None = None,
+) -> DoclingDocumentParser | MarkdownDocumentParser | PyMuPDFDocumentParser:
+    """Pick the adapter for a detected type; preparsed_markdown always MD.
+
+    PDFs with a text layer may go to PyMuPDF (see ``ParsingSettings.pdf_engine``);
+    that needs ``content`` to inspect the file.
+    """
     from app.services.ingestion.parsing.docling_parser import DoclingDocumentParser
     from app.services.ingestion.parsing.markdown_parser import MarkdownDocumentParser
 
     if document_type is DetectedDocumentType.MARKDOWN or source_type == "preparsed_markdown":
         return MarkdownDocumentParser()
+    if document_type is DetectedDocumentType.PDF and content is not None:
+        from app.services.ingestion.parsing.pymupdf_parser import (
+            PyMuPDFDocumentParser,
+            prefer_pymupdf,
+        )
+
+        settings = settings or app_settings.parsing
+        if prefer_pymupdf(
+            content, engine=settings.pdf_engine, min_pages=settings.pymupdf_min_pages
+        ):
+            return PyMuPDFDocumentParser()
     return DoclingDocumentParser()
+
+
+def parser_identity(
+    source: SourceDocument, content: bytes, *, settings: ParsingSettings | None = None
+) -> tuple[str, str]:
+    """(parser name, version) that ``parse_source`` will use for this source.
+
+    Known before parsing so it can enter the version fingerprint: switching
+    a document's engine re-ingests it.
+    """
+    if source.source_type == "preparsed_markdown":
+        from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
+
+        return "markdown", MARKDOWN_PARSER_VERSION
+    detection = detect_document_type(source.filename, source.mime_type, content[:64])
+    parser = build_parser_for_type(
+        detection.document_type,
+        source_type=source.source_type,
+        content=content,
+        settings=settings,
+    )
+    if type(parser).__name__ == "PyMuPDFDocumentParser":
+        from app.services.ingestion.parsing.pymupdf_parser import pymupdf_version
+
+        return "pymupdf", pymupdf_version()
+    from app.services.ingestion.parsing.docling_parser import docling_version
+
+    return "docling", docling_version()
 
 
 async def parse_source(
@@ -95,7 +141,9 @@ async def parse_source(
                 source_id=source.source_id,
                 failure_reason=f"unsupported input: {source.filename}",
             )
-        parser = build_parser_for_type(document_type, source_type=source.source_type)
+        parser = build_parser_for_type(
+            document_type, source_type=source.source_type, content=content, settings=settings
+        )
 
     try:
         parsed = await parser.parse(source, content)
@@ -143,5 +191,6 @@ __all__ = [
     "DocumentParser",
     "ParserUnavailableError",
     "build_parser_for_type",
+    "parser_identity",
     "parse_source",
 ]

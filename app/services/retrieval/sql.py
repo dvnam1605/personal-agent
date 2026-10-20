@@ -65,6 +65,7 @@ def document_scope_sql(document_ids: list[str]) -> str:
 CANDIDATE_FILTERS_TEMPLATE = """
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
+LEFT JOIN document_profiles p ON p.document_id = d.id
 WHERE c.hierarchy_level = {level}
   AND d.is_active
   AND {owner_scope}
@@ -84,7 +85,12 @@ ANCHOR_SELECT_COLUMNS = """\
        c.chunk_index AS chunk_index,
        c.page_start AS page_start,
        c.page_end AS page_end,
-       c.citation_label AS citation_label\
+       c.citation_label AS citation_label,
+       p.doc_category AS doc_category,
+       p.doc_subtype AS doc_subtype,
+       p.doc_number AS doc_number,
+       p.doc_date AS doc_date,
+       p.title AS profile_title\
 """
 
 
@@ -123,8 +129,18 @@ def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
         "page_start": row.get("page_start"),
         "page_end": row.get("page_end"),
         "citation_label": row.get("citation_label"),
+        # Profile fields (migration 0011): kind, number and date of the source.
+        "doc_category": row.get("doc_category"),
+        "doc_subtype": row.get("doc_subtype"),
+        "doc_number": row.get("doc_number"),
+        "doc_date": _iso(row.get("doc_date")),
+        "profile_title": row.get("profile_title"),
     }
     return {key: value for key, value in anchors.items() if value not in (None, [], "")}
+
+
+def _iso(value: Any) -> Any:
+    return value.isoformat() if hasattr(value, "isoformat") else value
 
 
 def coerce_heading_list(value: Any) -> list[str]:
@@ -154,9 +170,15 @@ SELECT c.id AS chunk_id,
        d.uri AS uri,
        d.title AS filename,
        d.id AS document_version_id,
-       d.version_number AS version_number
+       d.version_number AS version_number,
+       p.doc_category AS doc_category,
+       p.doc_subtype AS doc_subtype,
+       p.doc_number AS doc_number,
+       p.doc_date AS doc_date,
+       p.title AS profile_title
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
+LEFT JOIN document_profiles p ON p.document_id = d.id
 WHERE c.hierarchy_level = 0
   AND {parent_scope}
   AND d.is_active
@@ -179,9 +201,15 @@ SELECT c.id AS chunk_id,
        d.title AS filename,
        d.id AS document_version_id,
        d.version_number AS version_number,
+       p.doc_category AS doc_category,
+       p.doc_subtype AS doc_subtype,
+       p.doc_number AS doc_number,
+       p.doc_date AS doc_date,
+       p.title AS profile_title,
        c.content_raw AS content_raw
 FROM document_chunks c
 JOIN documents d ON c.document_id = d.id
+LEFT JOIN document_profiles p ON p.document_id = d.id
 WHERE c.hierarchy_level = 1
   AND {sibling_scope}
   AND d.is_active

@@ -217,7 +217,7 @@ export interface RAGCitation {
 
 export interface RAGDataPayload {
   citations?: RAGCitation[];
-  sufficiency?: 'sufficient' | 'insufficient' | 'ambiguous' | string;
+  sufficiency?: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT' | string;
 }
 
 export interface MeetingPrepDataPayload {
@@ -276,4 +276,95 @@ export interface DBConversationDetail {
   created_at: string;
   updated_at: string;
   messages: DBMessageItem[];
+}
+
+/* Generated documents (outline → approve → write → .docx) */
+export interface DocumentOutlineSection {
+  heading: string;
+  purpose: string;
+}
+
+/** A column of a generated table: metadata-backed (exact) or extracted from content. */
+export interface DocumentOutlineColumn {
+  name: string;
+  description: string;
+  source: 'content' | 'doc_number' | 'doc_date' | 'title' | 'issuer' | 'doc_type' | 'signer' | string;
+}
+
+export interface GeneratedDocumentSummary {
+  id: string;
+  title: string;
+  status: 'outline' | 'writing' | 'done' | 'failed' | 'cancelled' | string;
+  template_key: string;
+  kind?: 'document' | 'table' | string;
+  has_docx: boolean;
+  created_at?: string | null;
+}
+
+export interface GeneratedTableCell {
+  value: string;
+  status: 'ok' | 'meta' | 'empty' | 'cleared' | string;
+  note?: string;
+  citations?: number[];
+}
+
+export interface GeneratedTableRow {
+  document_id: string;
+  source_title: string;
+  cells: GeneratedTableCell[];
+  citations: number[];
+  review?: {
+    verdict: string;
+    rounds?: number;
+    issues?: { cell: string; problem: string; explanation?: string }[];
+    cleared?: { cell: string; value: string; reason?: string }[];
+  };
+}
+
+export interface SectionReviewIssue {
+  sentence: string;
+  problem: 'unsupported' | 'contradiction' | 'wrong_citation' | 'off_topic' | string;
+  explanation?: string;
+}
+
+/** Outcome of the automatic check of a section against its cited sources. */
+export interface SectionReview {
+  verdict: 'ok' | 'revised' | 'trimmed' | 'skipped' | string;
+  issues: SectionReviewIssue[];
+  removed_sentences: string[];
+  rounds: number;
+}
+
+export interface GeneratedDocumentSection {
+  heading: string;
+  text: string;
+  status: string;
+  citation_numbers?: number[];
+  review?: SectionReview | null;
+}
+
+export interface GeneratedDocumentView {
+  id: string;
+  status: GeneratedDocumentSummary['status'];
+  title: string;
+  template_key: string;
+  outline: {
+    template_key?: string;
+    title?: string;
+    kind?: 'document' | 'table' | string;
+    sections?: DocumentOutlineSection[];
+    columns?: DocumentOutlineColumn[];
+    row_unit?: string;
+    multi_rows?: boolean;
+    source_document_ids?: string[];
+    source_titles?: string[];
+  };
+  kind?: 'document' | 'table' | string;
+  file_format?: 'docx' | 'xlsx' | string | null;
+  /** Prose sections for documents; table rows (GeneratedTableRow) for tables. */
+  sections: GeneratedDocumentSection[];
+  citations: { number: number; title?: string; section_title?: string; page_start?: number }[];
+  markdown?: string | null;
+  has_docx: boolean;
+  error?: string | null;
 }

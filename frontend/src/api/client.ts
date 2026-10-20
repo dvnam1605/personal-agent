@@ -14,7 +14,11 @@ import type {
   DBConversationSummary,
   DenyRequestBody,
   DenyResponse,
+  DocumentOutlineColumn,
+  DocumentOutlineSection,
   ExecuteApprovalBody,
+  GeneratedDocumentSummary,
+  GeneratedDocumentView,
   GoogleDisconnectResponse,
   GoogleIntegrationStatus,
   HealthResponse,
@@ -240,6 +244,9 @@ class ApiClient {
                 if (data.delta) callbacks.onToken(data.delta)
               } else if (currentEvent === 'citations' && callbacks.onCitations) {
                 callbacks.onCitations(data)
+              } else if (currentEvent === 'document' && callbacks.onCitations) {
+                // Generated-document status rides the same merge path as citations.
+                callbacks.onCitations({ data: { generated_document: data } })
               } else if (currentEvent === 'done' && callbacks.onDone) {
                 callbacks.onDone(data)
               } else if (currentEvent === 'error' && callbacks.onError) {
@@ -258,6 +265,68 @@ class ApiClient {
         throw err
       }
     }
+  }
+
+  /* 1c. Generated documents */
+  async listGeneratedDocuments(): Promise<GeneratedDocumentSummary[]> {
+    return this.request<GeneratedDocumentSummary[]>('/documents')
+  }
+
+  async createDocumentOutline(request: string): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>('/documents/outline', {
+      method: 'POST',
+      body: JSON.stringify({ request }),
+    })
+  }
+
+  async getGeneratedDocument(id: string): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(`/documents/${encodeURIComponent(id)}`)
+  }
+
+  async approveDocument(
+    id: string,
+    edits: {
+      title?: string
+      sections?: DocumentOutlineSection[]
+      columns?: DocumentOutlineColumn[]
+      row_unit?: string
+      multi_rows?: boolean
+    }
+  ): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(`/documents/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(edits),
+    })
+  }
+
+  async rewriteDocumentSection(
+    id: string,
+    index: number,
+    feedback: string
+  ): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(
+      `/documents/${encodeURIComponent(id)}/sections/${index}/rewrite`,
+      { method: 'POST', body: JSON.stringify({ feedback }) }
+    )
+  }
+
+  /* .docx download needs the auth header, so no plain link */
+  async downloadGeneratedDocument(id: string, title?: string, ext: string = 'docx'): Promise<void> {
+    const response = await fetch(`/documents/${encodeURIComponent(id)}/download`, {
+      headers: this.getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${(title || 'tai-lieu').replace(/[\\/:*?"<>|]+/g, ' ').trim()}.${ext}`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
   }
 
   /* 2. Approvals (Human-in-the-Loop) */

@@ -18,6 +18,7 @@ import type {
 } from '../../types/api'
 import { CalendarCard } from '../domain/CalendarCard'
 import { EmailCard } from '../domain/EmailCard'
+import { apiClient } from '../../api/client'
 import { CitationCard } from '../domain/CitationCard'
 import { MeetingDossierCard } from '../domain/MeetingDossierCard'
 import { ApprovalCard } from '../safety/ApprovalCard'
@@ -269,6 +270,31 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               documents={data.documents}
               onSelectCitation={onSelectCitation}
             />
+          )}
+
+          {/* Generated document (.docx) or table (.xlsx) */}
+          {data.generated_document?.has_docx && (
+            <button
+              type="button"
+              className="citation-pill-btn"
+              onClick={() => {
+                apiClient
+                  .downloadGeneratedDocument(
+                    data.generated_document.id,
+                    data.generated_document.title,
+                    data.generated_document.file_format || 'docx'
+                  )
+                  .catch((err) => console.error('Download failed:', err))
+              }}
+              title={
+                data.generated_document.file_format === 'xlsx' ? 'Tải bảng Excel' : 'Tải tài liệu Word'
+              }
+            >
+              <FileText size={14} />
+              <span className="citation-pill-btn__title">
+                Tải .{data.generated_document.file_format || 'docx'} — {data.generated_document.title}
+              </span>
+            </button>
           )}
 
           {/* RAG Citations */}

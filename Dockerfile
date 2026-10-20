@@ -37,9 +37,14 @@ FROM python:3.12-slim-bookworm AS runner
 
 WORKDIR /app
 
-# Install curl for container healthcheck
+# curl: container healthcheck. libxcb1/libgl1/libglib2.0-0: OpenCV (pulled in
+# by docling's PDF layout pipeline) cannot load without them, so every PDF
+# ingest inside the container failed with "libxcb.so.1: cannot open".
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libxcb1 \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtualenv and application artifacts from builder

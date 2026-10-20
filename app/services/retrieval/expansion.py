@@ -30,6 +30,7 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.services.ingestion.chunking.tokens import estimate_tokens
+from app.services.retrieval.metadata.filter_parser import DOC_NOUN_PATTERN as _DOC_NOUN
 from app.services.retrieval.packing import citation_anchors, unit_for_chunk
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
 from app.services.retrieval.sql import (
@@ -60,7 +61,9 @@ MAX_EXPANSION_PARENTS = 32
 
 
 _LISTING_PATTERNS = re.compile(
-    r"\b(nhung\s+van\s+ban|cac\s+van\s+ban|van\s+ban\s+nao|quyet\s+dinh\s+nao|liet\s+ke|danh\s+sach|da\s+ki|da\s+ky|ki\s+nhung|ky\s+nhung|ai\s+ky|ai\s+ki|tat\s+ca|toan\s+bo|tong\s+hop|con\s+van\s+ban|con\s+quyet\s+dinh)\b",
+    r"\b(liet\s+ke|danh\s+sach|da\s+ki|da\s+ky|ki\s+nhung|ky\s+nhung|ai\s+ky|ai\s+ki|tat\s+ca|toan\s+bo|tong\s+hop)\b"
+    # "những / các / còn <any document kind>", "<kind> nào" — every category.
+    rf"|\b(?:nhung|cac|con)\s+(?:{_DOC_NOUN})\b|\b(?:{_DOC_NOUN})\s+nao\b",
     re.IGNORECASE,
 )
 
@@ -137,18 +140,12 @@ class ExpansionService:
                 (
                     _chunk_score(chunk),
                     idx,
-                    unit_for_chunk(
-                        chunk, kind="TABLE_CHILD" if is_table_child(chunk) else "CHILD"
-                    ),
+                    unit_for_chunk(chunk, kind="TABLE_CHILD" if is_table_child(chunk) else "CHILD"),
                 )
                 for idx, chunk in enumerate(ranked)
                 if chunk.parent_id is None
             ]
-            core = [
-                (idx, chunk)
-                for idx, chunk in enumerate(ranked)
-                if chunk.parent_id is not None
-            ]
+            core = [(idx, chunk) for idx, chunk in enumerate(ranked) if chunk.parent_id is not None]
             expanded_scored = await self._parent_units(core, query)
             all_scored = [*orphan_scored, *expanded_scored]
         else:  # NEIGHBORS
@@ -235,14 +232,16 @@ class ExpansionService:
             if row is None:
                 logger.warning("parent_payload_missing", extra={"parent_id": pid})
                 best_hit = max(entry["hits"], key=_chunk_score)
-                evidences.append((
-                    _priority(entry["best"], len(entry["hits"])),
-                    entry["min_index"],
-                    unit_for_chunk(
-                        best_hit,
-                        kind="TABLE_CHILD" if is_table_child(best_hit) else "CHILD",
-                    ),
-                ))
+                evidences.append(
+                    (
+                        _priority(entry["best"], len(entry["hits"])),
+                        entry["min_index"],
+                        unit_for_chunk(
+                            best_hit,
+                            kind="TABLE_CHILD" if is_table_child(best_hit) else "CHILD",
+                        ),
+                    )
+                )
                 continue
             best_hit = max(entry["hits"], key=_chunk_score)
             content_raw = str(row["content_raw"])

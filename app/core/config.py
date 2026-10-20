@@ -306,6 +306,37 @@ class ParsingSettings(BaseModel):
         default=0.25,
         description="Ratio of replacement/non-printable chars that marks a parse corrupt",
     )
+    pdf_engine: str = Field(
+        default="auto",
+        pattern="^(auto|docling|pymupdf)$",
+        description=(
+            "PDF parser: 'docling' always; 'pymupdf' for every text-layer PDF; 'auto' "
+            "PyMuPDF for long text-layer PDFs (Docling needs GBs of RAM on books), "
+            "Docling otherwise. Scanned PDFs always go to Docling (NEEDS_OCR)."
+        ),
+    )
+    pymupdf_min_pages: int = Field(
+        default=20,
+        ge=1,
+        description="In 'auto' mode, text-layer PDFs with at least this many pages use PyMuPDF",
+    )
+
+
+class ProfilingSettings(BaseModel):
+    """Document category + metadata profiling at ingest (rules first, LLM if unsure)."""
+
+    llm_enabled: bool = Field(
+        default=True,
+        description="Allow one LLM extraction call when rule confidence is low",
+    )
+    llm_threshold: float = Field(
+        default=0.6,
+        description="Category confidence below which the LLM fallback runs",
+    )
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        description="Wall-clock cap for the profiling LLM call",
+    )
 
 
 class ChunkingSettings(BaseModel):
@@ -515,6 +546,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     parsing: ParsingSettings = Field(default_factory=ParsingSettings)
+    profiling: ProfilingSettings = Field(default_factory=ProfilingSettings)
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     react_budget: ReActBudgetSettings = Field(default_factory=ReActBudgetSettings)
     supervisor_budget: SupervisorBudgetSettings = Field(default_factory=SupervisorBudgetSettings)

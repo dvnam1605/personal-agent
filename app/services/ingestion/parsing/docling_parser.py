@@ -179,7 +179,13 @@ class DoclingDocumentParser:
                     )
                 )
             elif isinstance(node_item, TableItem):
-                markdown = node_item.export_to_markdown(document)
+                markdown = (node_item.export_to_markdown(document) or "").strip()
+                if not markdown:
+                    # Layout detected a table region with no cells (common on
+                    # slide decks / images); one empty table must not fail the
+                    # whole document.
+                    warnings.append(f"empty table skipped at block {block_index}")
+                    continue
                 table_data = getattr(node_item, "data", None)
                 row_count = int(getattr(table_data, "num_rows", 0) or 0)
                 column_count = int(getattr(table_data, "num_cols", 0) or 0)
@@ -274,7 +280,9 @@ class DoclingDocumentParser:
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
-        full_text = " ".join(n.text for n in nodes)
+        # Newline-joined: header/tail layout rules are line-based (a space join
+        # collapsed the whole document into one "line").
+        full_text = "\n".join(n.text for n in nodes)
         from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 
         admin_meta = AdministrativeMetadataExtractor.extract(full_text, filename=source.filename)

@@ -18,6 +18,7 @@ from app.services.ingestion.embedding import EmbeddingContract, LocalEmbeddingSe
 from app.services.retrieval.dense import DenseRetrievalService
 from app.services.retrieval.hybrid import HybridRetrievalService
 from app.services.retrieval.sparse import SparseRetrievalService
+from app.services.retrieval.sql import fts_query_expression
 
 CONTRACT = EmbeddingContract(model_name="test-model", dimensions=4)
 
@@ -199,8 +200,12 @@ class TestSparseRetrieval:
         await service.retrieve(make_query(search_query="hop dong O'Brien & phu luc"))
 
         sql = provider.sqls[0]
+        # Free text becomes OR-ed syllable bigrams (AND-ing every syllable kills recall).
+        assert "websearch_to_tsquery('public.vietnamese_simple', '" in sql
+        assert '"hop dong"' in sql
         assert (
-            "websearch_to_tsquery('public.vietnamese_simple', 'hop dong O''Brien & phu luc')" in sql
+            fts_query_expression("O'Brien")
+            == "websearch_to_tsquery('public.vietnamese_simple', 'O''Brien')"
         )
         assert "@@ c.search_vector" in sql or "c.search_vector @@" in sql
         assert "ts_rank_cd" in sql
