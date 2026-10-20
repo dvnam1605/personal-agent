@@ -4,7 +4,7 @@ Bản kế hoạch đầy đủ đã duyệt: `C:\Users\dauva\.claude\plans\thi-
 File này ghi lại **đã làm gì** và **làm tiếp từ đâu**.
 
 - **Nhánh làm việc:** `feat/generic-rag-profiles`, tách từ `fix/rag-hardening`. Cả hai nhánh đều chưa merge vào `main`.
-- **Cập nhật lần cuối:** 2026-10-20.
+- **Cập nhật lần cuối:** 2026-10-20 (đã xong P1, P2, P5, P3).
 
 ## Mục tiêu
 
@@ -28,9 +28,10 @@ RAG dùng được cho **mọi loại tài liệu**: hành chính, báo cáo/t�
 | P2b | Grounding: từ chối khi số hiệu/mã hỏi không có trong bằng chứng; câu có số liệu mà không trích dẫn → `PARTIAL` | ✅ `e551d28` |
 | P2c | Migration `0012` (`run_evidence`), lưu snapshot bằng chứng phía server, `/turn` dựng lại citation từ server, `GET /runs/{id}/evidence` | ✅ `d0bcc74` (DB thật đã ở `0012`) |
 | Sửa thêm | LLM fail nhanh khi 9router không chạy (connect 10s, không POST lại); số hiệu khớp bất kể dấu phân cách (`80/QĐ` = `80-QĐ`) | ✅ `8332aaf`, `82a3eea` |
-| P5 | Tạo tài liệu: dàn ý → duyệt → viết từng mục → .docx + Markdown | ⏭ **làm tiếp từ đây** |
-| P3 | Gold set + runner đánh giá (gồm cả nhóm generation) | ⬜ |
-| P4 | Excel → bảng SQL + text-to-SQL an toàn | ⬜ |
+| P5 | Tạo tài liệu: migration `0013`, template theo loại, dàn ý (rule/LLM) → chat "duyệt" → viết từng mục bằng RAG có trích dẫn → Markdown + .docx; API `/documents/*`; nút tải .docx ở frontend | ✅ `1545b28`, `359dd22`, `a8b66d5` |
+| Sửa từ dữ liệu thật | Tiêu đề chức danh không phải người; loại con hành chính đủ (25 QĐ năm 2026); chọn nguồn theo chủ đề | ✅ `3f4571f` |
+| P3 | Gold set 19 câu (`tests/evaluation/gold/rag_gold_v1.json`), runner live `scripts/eval_rag.py`, smoke test CI; sửa triage `chuc`→chit-chat | ✅ `77bcc1e` |
+| P4 | Excel → bảng SQL + text-to-SQL an toàn | ⏭ **làm tiếp từ đây** (đã thiết kế trong plan) |
 
 **Test:** toàn bộ unit test chạy ổn (khoảng 1150 test). Hai test đỏ đã có từ trước và không liên quan:
 - `test_config::test_timeouts_settings` (kỳ vọng 30s, cấu hình hiện là 90s);
@@ -64,14 +65,31 @@ Lệnh ingest lại file slide:
 uv run python scripts/ingest_corpus.py --root data/DoAn --no-llm-profile
 ```
 
-## P5 — tạo tài liệu (việc tiếp theo)
+## Kết quả đánh giá gold set (baseline 2026-10-20, 9router không chạy)
 
-Thiết kế chi tiết nằm trong plan. Các điểm chính:
-- Intent `document_generation` trong triage.
-- Registry template theo loại tài liệu.
-- `DocumentPlanner` sinh dàn ý; dàn ý được duyệt qua cơ chế interrupt/question đã có.
-- `SectionWriter` viết từng mục bằng RAG `DOCUMENT_SEARCH` có nhãn `[E#]`; bằng chứng ghi vào `run_evidence`.
-- `DocxRenderer` dùng python-docx; tải file qua `GET /documents/generated/{id}` có kiểm tra quyền sở hữu.
+| Chỉ số | Kết quả |
+|---|---|
+| `count_exact` (route metadata đếm đúng) | 7/7 |
+| `latest_doc`, `route_metadata` | 1/1, 8/8 |
+| `retrieval_doc_hit` (đúng tài liệu nằm trong bằng chứng) | 8/8 |
+| `retrieval_quote_hit` (đúng đoạn trích nằm trong bằng chứng) | 7/8 — câu 664: lấy đúng văn bản nhưng không lấy được đoạn chứa "500.000 đồng/người" |
+| Tạo tài liệu: template đúng, nguồn liên quan | 1/1 |
+| Các chỉ số cần LLM (`answer_cited`, `citation_precision`, `answer_must_include`) | Bỏ qua: 9router không chạy |
+
+Baseline lưu ở `eval_results/baseline.json` (bị gitignore). Lệnh chạy lại và so sánh:
+
+```
+uv run python scripts/eval_rag.py --split all --compare eval_results/baseline.json
+```
+
+## Việc tiếp theo
+
+1. **Bật lại 9router**, rồi chạy lại gold set để có số liệu thật cho các chỉ số cần LLM. Sau đó chạy `scripts/backfill_profiles.py` (không có `--no-llm`) để LLM điền tiêu đề đồ án và 3 profile đang cần review.
+2. **Câu 664 cho thấy recall theo đoạn còn yếu khi không có rerank.** Hai hướng: bật ViRanker với khoảng 20–30 ứng viên, hoặc tăng số chunk lấy trong một tài liệu ở chế độ `DOCUMENT_SEARCH`. Đo lại bằng gold set.
+3. **P4 Excel** (thiết kế trong plan): xlsx → bảng `sheets.*` + text-to-SQL an toàn, dùng `StructuredResult` và route metadata đã có.
+4. **Ingest lại file slide** `DoAn/Nguyễn Tuấn Linh…pdf` (lỗi bảng rỗng đã sửa). Kiểm tra sách 399 trang đã embed xong chưa (đang chạy nền lúc cập nhật).
+5. **Mở rộng gold set** khi có thêm tài liệu thật cho các loại hợp đồng, biên bản, Excel; thêm nhóm câu hỏi follow-up.
+6. **Frontend P5:** hiện mới có nút tải .docx; chỉnh dàn ý trực tiếp vẫn phải qua API `POST /documents/{id}/approve`, chưa có trên giao diện.
 
 ## Lưu ý khi làm tiếp
 
