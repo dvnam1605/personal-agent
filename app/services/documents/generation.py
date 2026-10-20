@@ -13,20 +13,18 @@ import logging
 import re
 from typing import Any
 
-import httpx
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
-from app.core.http import llm_http_timeout
-from app.core.jsonutil import extract_json_object
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.documents.llm import llm_json
 from app.services.documents.quality import (
     DOCUMENT_WRITER_SYSTEM_PROMPT,
     apply_quality_gates,
     polish_style,
 )
+from app.services.documents.review import SectionReviewer
 from app.services.documents.templates import (
     TEMPLATE_BY_KEY,
     DocTemplate,
@@ -66,6 +64,8 @@ class WrittenSection(BaseModel):
     text: str
     status: str
     citation_numbers: list[int] = Field(default_factory=list)
+    # Self-review outcome (review.SectionReview dump); None when not reviewed.
+    review: dict[str, Any] | None = None
 
 
 class WrittenDocument(BaseModel):
@@ -113,34 +113,6 @@ def _plain_summary(text: str, limit: int = 300) -> str:
     plain = re.sub(r"\[\d+\]|[#*_>`]", "", text)
     plain = re.sub(r"\s+", " ", plain).strip()
     return plain[:limit] + ("…" if len(plain) > limit else "")
-
-
-async def _llm_json(system: str, user: str, *, timeout: float) -> dict[str, Any] | None:
-    api_key = str(settings.llm.openai_api_key or "")
-    if not api_key:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
-            resp = await client.post(
-                settings.llm.chat_completions_url(),
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": settings.llm.primary_model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": 0.2,
-                    # 9router answers with SSE unless told otherwise.
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"].get("content") or ""
-        return extract_json_object(content)
-    except Exception as exc:  # noqa: BLE001 - the template outline is the fallback
-        logger.warning("document_outline_llm_failed error=%s", exc)
-        return None
 
 
 class DocumentPlanner:
@@ -294,7 +266,7 @@ class DocumentPlanner:
             f"Trích đoạn nội dung từ tài liệu nguồn:\n{excerpts}\n\n"
             'Trả về: {"title": "...", "sections": [{"heading": "...", "purpose": "..."}]}'
         )
-        return await _llm_json(system, user, timeout=OUTLINE_TIMEOUT_SECONDS)
+        return await llm_json(system, user, timeout=OUTLINE_TIMEOUT_SECONDS)
 
 
 _GENERIC_HEADING = re.compile(
@@ -344,8 +316,9 @@ def normalize_outline_sections(
 class SectionWriter:
     """Writes each approved section from evidence in the source documents."""
 
-    def __init__(self, pipeline: Any) -> None:
+    def __init__(self, pipeline: Any, *, reviewer: SectionReviewer | None = None) -> None:
         self._pipeline = pipeline
+        self._reviewer = reviewer
 
     async def write(
         self, outline: DocumentOutline, request: str, requester_id: str | None
@@ -422,6 +395,40 @@ class SectionWriter:
             answer = polish_style(answer)
             removed_meta += gate.removed_meta
             removed_unverified += gate.removed_unverified
+
+            review = None
+            if self._reviewer is not None and answer:
+                evidence_by_number = {
+                    int(row["citation_number"]): str(row.get("prompt_text") or "")
+                    for row in getattr(result, "evidence", []) or []
+                    if row.get("citation_number")
+                }
+
+                def regate(
+                    text: str,
+                    evidence_text: str = evidence_text,
+                    sink: list[str] = removed_unverified,
+                ) -> str:
+                    cleaned, again = apply_quality_gates(text, evidence_text)
+                    sink.extend(again.removed_unverified)
+                    return polish_style(cleaned)
+
+                answer, outcome = await self._reviewer.review_section(
+                    heading=section.heading,
+                    purpose=section.purpose,
+                    style=f"{template.tone}. {style_for(template)}",
+                    text=answer,
+                    evidence=evidence_by_number,
+                    regate=regate,
+                )
+                review = outcome.model_dump()
+                logger.info(
+                    "document_section_reviewed heading=%s verdict=%s issues=%d removed=%d",
+                    section.heading,
+                    outcome.verdict,
+                    len(outcome.issues),
+                    len(outcome.removed_sentences),
+                )
             used = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
             if not answer or not used:
                 written.append(
@@ -464,6 +471,7 @@ class SectionWriter:
                     text=text.strip(),
                     status=status,
                     citation_numbers=sorted(set(local_to_global.values())),
+                    review=review,
                 )
             )
         if removed_meta or removed_unverified:

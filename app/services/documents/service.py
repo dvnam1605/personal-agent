@@ -19,6 +19,7 @@ from app.services.documents.generation import (
     SectionWriter,
 )
 from app.services.documents.render import render_docx, render_markdown
+from app.services.documents.review import SectionReviewer
 from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
 
 logger = logging.getLogger(__name__)
@@ -33,9 +34,18 @@ class DocumentNotFoundError(LookupError):
 
 
 class DocumentGenerationService:
-    def __init__(self, *, metadata_service: Any, pipeline: Any, use_llm: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        metadata_service: Any,
+        pipeline: Any,
+        use_llm: bool = True,
+        review: bool = True,
+    ) -> None:
         self._planner = DocumentPlanner(metadata_service, pipeline, use_llm=use_llm)
-        self._writer = SectionWriter(pipeline)
+        # Every written section is checked against its evidence and fixed.
+        reviewer = SectionReviewer() if use_llm and review else None
+        self._writer = SectionWriter(pipeline, reviewer=reviewer)
 
     # ------------------------------------------------------------ queries
 
@@ -185,4 +195,19 @@ def result_message(row: GeneratedDocument) -> str:
         if missing
         else ""
     )
-    return (row.markdown or "") + note
+    return (row.markdown or "") + note + review_note(row.sections)
+
+
+def review_note(sections: list[dict[str, Any]]) -> str:
+    """One line on what the self-review checked and changed."""
+    reviews = [s["review"] for s in sections if s.get("review")]
+    if not reviews:
+        return ""
+    if all(r.get("verdict") == "skipped" for r in reviews):
+        return "\n\n> Chưa tự kiểm tra được nội dung (mô hình không phản hồi)."
+    revised = sum(1 for r in reviews if r.get("verdict") in {"revised", "trimmed"})
+    removed = sum(len(r.get("removed_sentences") or []) for r in reviews)
+    if not revised:
+        return "\n\n> Đã tự kiểm tra từng mục với tài liệu nguồn: không phát hiện sai lệch."
+    detail = f", loại {removed} câu không có căn cứ" if removed else ""
+    return f"\n\n> Đã tự kiểm tra từng mục với tài liệu nguồn: sửa lại {revised} mục{detail}."
