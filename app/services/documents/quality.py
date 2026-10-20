@@ -30,13 +30,16 @@ DOCUMENT_WRITER_SYSTEM_PROMPT = (
     "4. TUYỆT ĐỐI KHÔNG viết các câu kiểu: 'không tìm thấy…', 'bằng chứng không cung cấp…', "
     "'tài liệu chưa đề cập…', 'dữ liệu chưa đầy đủ…', 'thông báo về tài liệu…'; không nhắc mã "
     "tài liệu (doc-…), nhãn E# ngoài ngoặc vuông hay cách hệ thống truy xuất.\n\n"
-    "YÊU CẦU VĂN PHONG:\n"
-    "5. Văn phong theo yêu cầu của mục; câu văn mạch lạc, có câu dẫn và liên kết giữa các ý, "
-    "tổng hợp và nhóm các ý cùng chủ đề thay vì liệt kê rời rạc; gọi đúng tên văn bản "
-    "(loại, số hiệu, ngày) khi viện dẫn.\n"
-    "6. Không lặp lại tiêu đề mục, không mở đầu bằng câu chào hay giải thích nhiệm vụ.\n"
-    "7. Dùng Markdown gọn: đoạn văn, gạch đầu dòng khi liệt kê, **in đậm** số hiệu/mốc quan trọng; "
-    "bảng Markdown khi trình bày số liệu nhiều dòng.\n\n"
+    "YÊU CẦU VĂN PHONG (đây là văn bản do người viết, KHÔNG phải câu trả lời của chatbot):\n"
+    "5. Viết như một chuyên viên đã đọc các văn bản rồi tự tổng hợp lại bằng lời của mình, đúng "
+    "thể loại và giọng văn được yêu cầu cho mục (xem 'Văn phong' trong đề bài).\n"
+    "6. Mặc định là văn xuôi: đoạn văn có câu chủ đề, các câu liên kết với nhau; gộp các văn bản "
+    "cùng chủ đề vào một mạch ý. Chỉ dùng gạch đầu dòng hoặc bảng khi thật sự liệt kê nhiều đối "
+    "tượng song song hoặc số liệu nhiều dòng.\n"
+    "7. Viện dẫn văn bản tự nhiên trong câu ('Ngày 13/4/2026, Tổng Giám đốc ban hành Quyết định "
+    "số 1119/QĐ-TNVN tặng Bằng khen…'), không viết 'Theo bằng chứng…', 'Theo tài liệu E2…'.\n"
+    "8. Không tạo tiêu đề con, không in đậm, không kẻ ngang; không mở đầu kiểu 'Dưới đây là…', "
+    "'Sau đây là…', không kết thúc bằng câu hỏi hay lời mời, không lặp lại tiêu đề mục.\n\n"
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )
 
@@ -112,3 +115,42 @@ def apply_quality_gates(text: str, evidence_text: str) -> tuple[str, GateReport]
     # A heading left without any content under it is dropped too.
     cleaned = re.sub(r"(?m)^#{1,6} .+\n+(?=#{1,6} |\Z)", "", cleaned).strip()
     return cleaned, report
+
+
+_CHATBOT_SENTENCE = re.compile(
+    r"^(?:duoi day la|sau day la|duoi day|sau day|hy vong|neu ban can|neu anh/chi can|"
+    r"ban co the|xin luu y rang toi|toi da|toi se)\b"
+)
+
+
+def polish_style(text: str) -> str:
+    """Remove chatbot formatting habits from a written section.
+
+    Headings inside a section, bold/italic markers, horizontal rules and
+    opener/closer sentences ("Dưới đây là…", "Hy vọng…") have no place in a
+    document a person wrote; the content around them is kept.
+    """
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.fullmatch(r"[-*_]{3,}", stripped):
+            continue
+        if stripped.startswith("#"):
+            # Inner sub-heading: keep its words only if they carry content.
+            heading = stripped.lstrip("#").strip().strip("*_ ")
+            if heading and not re.fullmatch(r"[\dIVX.]+\s*\S{0,40}", heading):
+                lines.append("")
+            continue
+        line = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), line)
+        line = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"\1", line)
+        marker = _LIST_MARKER.match(line)
+        prefix = marker.group(0) if marker else ""
+        body = line[len(prefix) :]
+        kept = [
+            s
+            for s in _sentences(body)
+            if not _CHATBOT_SENTENCE.match(unaccent_vietnamese(s.strip()))
+        ]
+        if kept or not body.strip():
+            lines.append(prefix + " ".join(kept) if kept else line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()

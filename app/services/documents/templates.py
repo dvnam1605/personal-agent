@@ -130,6 +130,44 @@ TEMPLATES: tuple[DocTemplate, ...] = (
 _DEFAULT_KEY = "summary_report"
 TEMPLATE_BY_KEY: dict[str, DocTemplate] = {t.key: t for t in TEMPLATES}
 
+# How a human specialist writes each kind: register, sentence shape, what
+# a paragraph does. Prose by default — lists only for genuinely parallel items.
+_PROSE = (
+    "Viết thành các đoạn văn xuôi liền mạch như người đã đọc kỹ tài liệu rồi tự tổng hợp lại: "
+    "mỗi đoạn có câu chủ đề, các câu nối với nhau bằng từ liên kết, tổng hợp nhiều văn bản vào "
+    "cùng một mạch ý thay vì liệt kê từng văn bản. "
+)
+STYLE_GUIDES: dict[str, str] = {
+    "weekly_report": _PROSE
+    + "Giọng báo cáo công việc ngắn gọn, ở ngôi tổ chức/đơn vị ('Trong tuần, bộ phận đã…'). "
+    "Mỗi mục 1–2 đoạn; chỉ dùng gạch đầu dòng cho danh sách đầu việc khi có từ bốn việc trở lên.",
+    "proposal": _PROSE
+    + "Giọng tờ trình hành chính: lập luận chặt chẽ đi từ căn cứ pháp lý, thực tiễn đến đề xuất; "
+    "dùng các cụm 'Căn cứ…', 'Xét thấy…', 'Để…, [đơn vị] kính trình…'. Mục Kiến nghị kết thúc "
+    "bằng câu kính trình xem xét, phê duyệt.",
+    "meeting_minutes": "Giọng biên bản: ghi nhận khách quan ở thì quá khứ, câu ngắn, chính xác "
+    "('Cuộc họp đã thống nhất…', 'Đồng chí … trình bày…'). Thành phần và phân công nhiệm vụ có "
+    "thể trình bày dạng danh sách; nội dung thảo luận viết thành đoạn văn.",
+    "plan": _PROSE
+    + "Giọng kế hoạch: rõ mục tiêu, nhiệm vụ, đơn vị chủ trì, thời hạn. Phần tiến độ có thể dùng "
+    "bảng (nhiệm vụ – đơn vị – thời gian); các phần khác viết đoạn văn.",
+    "official_letter": "Giọng công văn: trang trọng, ngắn gọn, đi thẳng vào việc; viện dẫn văn "
+    "bản liên quan ở câu đầu; phần đề nghị nêu rõ việc cần làm và thời hạn. Viết đoạn văn, "
+    "không dùng gạch đầu dòng trừ khi liệt kê các đầu việc yêu cầu.",
+    "document_summary": _PROSE
+    + "Giọng tóm lược trung thực: giữ đúng ý, đúng số liệu của tài liệu gốc, diễn đạt lại gọn hơn "
+    "chứ không chép nguyên câu; nêu tài liệu theo đúng tên gọi, số hiệu, ngày.",
+    "summary_report": _PROSE
+    + "Giọng báo cáo tổng hợp hành chính: mở mục bằng một câu khái quát, sau đó đi vào các nội dung "
+    "theo nhóm chủ đề, có nhận định ngắn rút ra từ chính các văn bản. Chỉ dùng danh sách khi "
+    "liệt kê nhiều đối tượng song song (ví dụ danh sách tập thể được khen thưởng).",
+}
+
+
+def style_for(template: DocTemplate) -> str:
+    return STYLE_GUIDES.get(template.key, _PROSE)
+
+
 _GENERATION_VERB = re.compile(
     r"\b(?:viet|soan|soan thao|tao|lap|xay dung|chuan bi|tong hop thanh|lam)\b"
 )

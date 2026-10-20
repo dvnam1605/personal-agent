@@ -44,3 +44,23 @@ def test_heading_left_empty_is_dropped() -> None:
     text = "### 1. Mục đích\n\nKhông tìm thấy dữ liệu.\n\n### 2. Nội dung\n\nQuà 500.000 đồng [1]."
     cleaned, _ = apply_quality_gates(text, EVIDENCE)
     assert cleaned.startswith("### 2. Nội dung")
+
+
+def test_polish_style_removes_chatbot_habits() -> None:
+    from app.services.documents.quality import polish_style
+
+    text = (
+        "Dưới đây là nội dung mục Đánh giá.\n\n### 1. Kết quả\n\n"
+        "**Về căn cứ:** Tổng Giám đốc ban hành **Quyết định số 1119/QĐ-TNVN** [1].\n\n---\n\n"
+        "- *Một ý phụ* [2]\nHy vọng nội dung trên hữu ích."
+    )
+    out = polish_style(text)
+    assert "Dưới đây" not in out and "Hy vọng" not in out
+    assert "**" not in out and "###" not in out and "---" not in out
+    assert "Quyết định số 1119/QĐ-TNVN [1]" in out and "- Một ý phụ [2]" in out
+
+
+def test_every_template_has_a_style_guide() -> None:
+    from app.services.documents.templates import STYLE_GUIDES, TEMPLATES
+
+    assert {t.key for t in TEMPLATES} <= set(STYLE_GUIDES)

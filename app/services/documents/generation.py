@@ -21,8 +21,17 @@ from app.core.http import llm_http_timeout
 from app.core.jsonutil import extract_json_object
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-from app.services.documents.quality import DOCUMENT_WRITER_SYSTEM_PROMPT, apply_quality_gates
-from app.services.documents.templates import TEMPLATE_BY_KEY, DocTemplate, select_template
+from app.services.documents.quality import (
+    DOCUMENT_WRITER_SYSTEM_PROMPT,
+    apply_quality_gates,
+    polish_style,
+)
+from app.services.documents.templates import (
+    TEMPLATE_BY_KEY,
+    DocTemplate,
+    select_template,
+    style_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +267,8 @@ class SectionWriter:
             )
             question = (
                 f'Viết nội dung mục "{section.heading}" ({section.purpose}) cho {template.label} '
-                f'"{outline.title}". Yêu cầu gốc: {request}. Văn phong: {template.tone}. '
+                f'"{outline.title}". Yêu cầu gốc: {request}. '
+                f"Văn phong: {template.tone}. {style_for(template)} "
                 f"Các mục của tài liệu: {all_headings}. "
                 + (
                     f"Các mục trước đã viết (không lặp lại, không mâu thuẫn):\n{earlier}\n"
@@ -309,6 +319,7 @@ class SectionWriter:
                 str(row.get("prompt_text") or "") for row in getattr(result, "evidence", []) or []
             )
             answer, gate = apply_quality_gates(result.answer, evidence_text)
+            answer = polish_style(answer)
             removed_meta += gate.removed_meta
             removed_unverified += gate.removed_unverified
             used = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
