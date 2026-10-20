@@ -40,7 +40,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v5"
+EXTRACTOR_VERSION = "profile-v6"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -331,7 +331,14 @@ class DocumentProfiler:
         sources["doc_category"] = "rule"
         return DocumentProfileDraft(
             doc_category=cls.category,
-            doc_subtype=cls.subtype,
+            # Admin docs whose title line was not matched still have the type the
+            # layout rules detected (filename QD/CT, header) — keep them countable.
+            doc_subtype=cls.subtype
+            or (
+                str(f.extras.get("doc_type"))
+                if cls.category is DocCategory.ADMINISTRATIVE and f.extras.get("doc_type")
+                else None
+            ),
             title=f.title,
             doc_number=f.doc_number,
             issuer=f.issuer,

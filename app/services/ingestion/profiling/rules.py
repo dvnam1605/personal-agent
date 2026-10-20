@@ -169,7 +169,10 @@ _NON_NAME_PHRASES = re.compile(
     r"\b(?:bao cao|quyet dinh|hop dong|ke hoach|chuong trinh|phu luc|danh sach|muc luc|"
     r"bien ban|to trinh|thong tin|cong van|nghi dinh|quy che|quy dinh|dieu khoan|noi nhan|"
     r"du toan|kinh phi|ket luan|huong dan|tai lieu|de an|tong hop|cong hoa|chu nghia|"
-    r"thong bao|chi thi|giay moi|bang tong|thi dua|khen thuong)\b"
+    r"thong bao|chi thi|giay moi|bang tong|thi dua|khen thuong|"
+    # Job titles printed in signature blocks are roles, not names.
+    r"giam doc|chu tich|truong phong|truong ban|hieu truong|vien truong|bo truong|"
+    r"thu truong|chanh van phong|ky thay|thua lenh)\b"
     r"|\b(?:report|chapter|table|contents|appendix|summary)\b"
 )
 

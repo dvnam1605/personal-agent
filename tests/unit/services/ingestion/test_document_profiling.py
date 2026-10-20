@@ -242,3 +242,8 @@ def test_headings_are_not_people_but_real_names_survive() -> None:
     # Syllables that also occur in document words must not reject real names.
     for name in ("Nguyễn Văn Bảo", "Cao Thị Hương", "Trần Quốc Toàn", "Đinh Công Nam"):
         assert clean_person(name)[0] == name
+
+
+def test_job_titles_are_not_people() -> None:
+    assert clean_person("Tổng Giám Đốc")[0] is None
+    assert clean_person("PHÓ GIÁM ĐỐC")[0] is None
