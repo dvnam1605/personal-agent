@@ -179,7 +179,13 @@ class DoclingDocumentParser:
                     )
                 )
             elif isinstance(node_item, TableItem):
-                markdown = node_item.export_to_markdown(document)
+                markdown = (node_item.export_to_markdown(document) or "").strip()
+                if not markdown:
+                    # Layout detected a table region with no cells (common on
+                    # slide decks / images); one empty table must not fail the
+                    # whole document.
+                    warnings.append(f"empty table skipped at block {block_index}")
+                    continue
                 table_data = getattr(node_item, "data", None)
                 row_count = int(getattr(table_data, "num_rows", 0) or 0)
                 column_count = int(getattr(table_data, "num_cols", 0) or 0)
