@@ -286,6 +286,47 @@ class RunEvidence(Base):
     )
 
 
+class GeneratedDocument(Base):
+    """A document written on request: outline → user approval → sections → files."""
+
+    __tablename__ = "generated_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    template_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    request: Mapped[str] = mapped_column(Text, nullable=False)
+    outline: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict, nullable=False)
+    source_document_ids: Mapped[list[str]] = mapped_column(_JSONB, default=list, nullable=False)
+    sections: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list, nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list, nullable=False)
+    markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docx_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="outline", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_generated_documents_user_status", "user_id", "status"),
+        Index("ix_generated_documents_conversation", "conversation_id"),
+        CheckConstraint(
+            "status IN ('outline', 'writing', 'done', 'failed', 'cancelled')",
+            name="ck_generated_documents_status",
+        ),
+    )
+
+
 class Message(Base):
     """Individual conversation message with sanitized content."""
 

@@ -83,6 +83,14 @@ _RAG_TOP_K_SPARSE = 60
 _RAG_MAX_CANDIDATES = 16
 _RAG_PER_DOCUMENT_CAP = 4
 _RAG_CONTEXT_TOKEN_BUDGET = 8192
+# Short replies that approve a pending document outline ("duyệt", "ok viết đi").
+_APPROVAL_RE = re.compile(
+    # At most two trailing words ("duyệt nhé", "ok viết đi") so a real
+    # question that merely starts with "ok" is never taken as approval.
+    r"^(?:duyệt|duyet|đồng ý|dong y|ok|oke|okay|viết đi|viet di|bắt đầu|bat dau|"
+    r"tiến hành|tien hanh|làm đi|lam di)\b[\s!.,]*(?:\w+[\s!.,]*){0,2}$",
+    re.IGNORECASE,
+)
 # Profile-selected documents read together in one scoped RAG pass.
 _RAG_MAX_SCOPED_DOCUMENTS = 8
 
@@ -178,6 +186,7 @@ class QueryOrchestrator:
         pipeline: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
+        self._document_service: Any | None = None
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
         self._communication_for_user = communication_for_user
@@ -249,6 +258,13 @@ class QueryOrchestrator:
             active_skill=decision.target_agent,
             goal=query,
         )
+
+        document_result = await self._maybe_handle_document(
+            session, user_id, query, effective_query, run_id, decision, conversation_id
+        )
+        if document_result is not None:
+            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return document_result
 
         try:
             result = await self._dispatch(
@@ -432,6 +448,17 @@ class QueryOrchestrator:
         final_error: str | None = None
 
         try:
+            if decision.route_type is not RouteType.REJECT:
+                document_result = await self._maybe_handle_document(
+                    session, user_id, query, effective_query, run_id, decision, conversation_id
+                )
+                if document_result is not None:
+                    async for item in _stream_text(document_result.message):
+                        yield item
+                    yield _sse("document", document_result.data.get("generated_document", {}))
+                    yield _emit_done("completed")
+                    return
+
             if decision.route_type is RouteType.REJECT:
                 msg = "Yêu cầu bị từ chối vì vi phạm ranh giới an toàn."
                 async for item in _stream_text(msg):
@@ -905,6 +932,79 @@ class QueryOrchestrator:
             message=str(getattr(synthesis, "answer", "")),
             route=route,
             data={"citations": citations, "sufficiency": status},
+        )
+
+    def _documents(self) -> Any:
+        if self._document_service is None:
+            from app.services.documents.service import DocumentGenerationService
+
+            self._document_service = DocumentGenerationService(
+                metadata_service=self._metadata(), pipeline=self._live_pipeline()
+            )
+        return self._document_service
+
+    async def _maybe_handle_document(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        query: str,
+        effective_query: str,
+        run_id: str,
+        decision: RouteDecision,
+        conversation_id: str | None,
+    ) -> QueryResult | None:
+        """Document generation in chat: request → outline; "duyệt" → written document.
+
+        Returns ``None`` when the turn is not about generating a document, so
+        normal routing continues. Rejected requests never reach this point.
+        """
+        from app.services.documents.service import (
+            DocumentGenerationService,
+            outline_message,
+            result_message,
+        )
+        from app.services.documents.templates import is_generation_request
+
+        if decision.route_type is RouteType.REJECT:
+            return None
+        try:
+            pending = await DocumentGenerationService.pending_outline(
+                session, user_id, conversation_id
+            )
+            requester = retrieval_requester_id(user_id)
+            if pending is not None and _APPROVAL_RE.match(query.strip()):
+                row = await self._documents().approve_and_write(
+                    session, user_id=user_id, requester_id=requester, doc_id=pending.id
+                )
+                message = result_message(row)
+            elif is_generation_request(effective_query):
+                row = await self._documents().create_outline(
+                    session,
+                    user_id=user_id,
+                    requester_id=requester,
+                    request=effective_query,
+                    conversation_id=conversation_id,
+                )
+                message = outline_message(row)
+            else:
+                return None
+        except Exception:  # noqa: BLE001 - fall back to normal routing
+            logger.exception("document_generation_route_failed", extra={"run_id": run_id})
+            return None
+        return QueryResult(
+            run_id=run_id,
+            status="completed",
+            message=message,
+            route=route_info(decision),
+            data={
+                "generated_document": {
+                    "id": row.id,
+                    "status": row.status,
+                    "title": row.title,
+                    "has_docx": bool(row.docx_path),
+                    "download_path": f"/documents/{row.id}/download" if row.docx_path else None,
+                }
+            },
         )
 
     @staticmethod
