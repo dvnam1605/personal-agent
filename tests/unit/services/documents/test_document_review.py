@@ -29,7 +29,7 @@ class Script:
         return self.reviews.pop(0)
 
     async def text_call(self, system: str, user: str, **_: Any) -> str | None:
-        return self.rewrites.pop(0)
+        return self.rewrites.pop(0) if self.rewrites else None
 
     def reviewer(self) -> SectionReviewer:
         return SectionReviewer(json_call=self.json_call, text_call=self.text_call)
@@ -114,3 +114,23 @@ def test_review_note_summarises_outcomes() -> None:
     )
     assert "sửa lại 2 mục" in note and "loại 2 câu" in note
     assert "Chưa tự kiểm tra" in review_note([{"review": {"verdict": "skipped"}}])
+
+
+async def test_at_most_three_reviews_then_trim() -> None:
+    v2 = f"{GOOD} Quyết định số 1119/QĐ-TNVN tặng 11 tập thể [2]."
+    v3 = f"{GOOD} Quyết định số 1119/QĐ-TNVN tặng 10 tập thể [2]."
+    flag = {"issues": [{"sentence": "Quyết định số 1119/QĐ-TNVN tặng", "problem": "contradiction"}]}
+    script = Script([{"issues": [ISSUE]}, flag, flag], rewrites=[v2, v3, "never used"])
+    text, review = await _run(script)
+    assert len(script.review_inputs) == 3  # never a fourth review
+    assert script.rewrites == ["never used"]  # two rewrites at most
+    assert text == GOOD and review.verdict == "trimmed" and review.rounds == 3
+
+
+async def test_second_rewrite_can_fix_the_section() -> None:
+    v2 = f"{GOOD} Quyết định số 1119/QĐ-TNVN tặng 11 tập thể [2]."
+    fixed = f"{GOOD} Quyết định số 1119/QĐ-TNVN tặng Bằng khen cho 09 tập thể [2]."
+    flag = {"issues": [{"sentence": v2.split(" [1]. ")[1], "problem": "contradiction"}]}
+    script = Script([{"issues": [ISSUE]}, flag, {"issues": []}], rewrites=[v2, fixed])
+    text, review = await _run(script)
+    assert text == fixed and review.verdict == "revised" and review.rounds == 3

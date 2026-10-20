@@ -7,14 +7,14 @@ After a section is written, a reviewer LLM checks every sentence against the
 cited evidence:
 
 1. no issue → the section is kept;
-2. issues → the section is rewritten once with the issues as instructions,
-   passed through the gates again and re-reviewed;
-3. sentences still flagged after the rewrite (or when the rewrite fails) are
+2. issues → the section is rewritten with the issues as instructions,
+   passed through the gates again and re-reviewed, up to three reviews;
+3. sentences still flagged by the last review (or when a rewrite fails) are
    removed, so a wrong statement never reaches the document.
 
 When the gateway is down the review is skipped, never blocking the document.
-Budget: one review per section, plus a rewrite and a second review only for
-sections with issues.
+Budget: one review per section; a section with issues costs at most two
+rewrites and two more reviews.
 """
 
 from __future__ import annotations
@@ -34,6 +34,8 @@ from app.services.documents.quality import _LIST_MARKER, _sentences
 logger = logging.getLogger(__name__)
 
 REVIEW_TIMEOUT_SECONDS = 60.0
+# Reviews per section; a section can be rewritten MAX_REVIEW_ROUNDS - 1 times.
+MAX_REVIEW_ROUNDS = 3
 MAX_EVIDENCE_CHARS = 1800  # per cited evidence unit shown to the reviewer
 PROBLEMS = ("unsupported", "contradiction", "wrong_citation", "off_topic")
 
@@ -200,37 +202,38 @@ class SectionReviewer:
         evidence: dict[int, str],
         regate: Callable[[str], str],
     ) -> tuple[str, SectionReview]:
-        """Check, rewrite once if needed, then remove what is still wrong.
+        """Review → rewrite → review … up to MAX_REVIEW_ROUNDS reviews.
 
-        ``regate`` re-applies the deterministic quality gates to a rewrite.
+        Sentences still flagged by the last review (or when a rewrite fails)
+        are removed. ``regate`` re-applies the deterministic quality gates to
+        every rewrite.
         """
         if not evidence or not text.strip():
             return text, SectionReview(verdict="skipped")
-        issues = await self.find_issues(heading, purpose, text, evidence)
-        if issues is None:
-            return text, SectionReview(verdict="skipped")
-        if not issues:
-            return text, SectionReview(verdict="ok", rounds=1)
-
-        revised = await self.rewrite(heading, purpose, style, text, issues, evidence)
-        if revised:
-            revised = regate(revised)
-        if revised and re.search(r"\[\d+\]", revised):
-            remaining = await self.find_issues(heading, purpose, revised, evidence)
-            if remaining is not None and not remaining:
-                return revised, SectionReview(verdict="revised", issues=issues, rounds=2)
-            # The second review failed to run: trust neither version blindly —
-            # drop the originally flagged sentences from the rewrite too.
-            flagged = [i.sentence for i in (remaining or issues)]
-            cleaned, removed = remove_flagged_sentences(revised, flagged)
-            return cleaned, SectionReview(
-                verdict="trimmed",
-                issues=issues + (remaining or []),
-                removed_sentences=removed,
-                rounds=2,
-            )
-
-        cleaned, removed = remove_flagged_sentences(text, [i.sentence for i in issues])
+        current = text
+        all_issues: list[ReviewIssue] = []
+        last: list[ReviewIssue] = []
+        rounds = 0
+        while rounds < MAX_REVIEW_ROUNDS:
+            issues = await self.find_issues(heading, purpose, current, evidence)
+            if issues is None:
+                if rounds == 0:
+                    return text, SectionReview(verdict="skipped")
+                break  # reviewer failed after a rewrite: trim what was flagged last
+            rounds += 1
+            if not issues:
+                verdict = "revised" if all_issues else "ok"
+                return current, SectionReview(verdict=verdict, issues=all_issues, rounds=rounds)
+            all_issues += issues
+            last = issues
+            if rounds == MAX_REVIEW_ROUNDS:
+                break
+            revised = await self.rewrite(heading, purpose, style, current, issues, evidence)
+            revised = regate(revised) if revised else None
+            if not revised or not re.search(r"\[\d+\]", revised):
+                break
+            current = revised
+        cleaned, removed = remove_flagged_sentences(current, [i.sentence for i in last])
         return cleaned, SectionReview(
-            verdict="trimmed", issues=issues, removed_sentences=removed, rounds=1
+            verdict="trimmed", issues=all_issues, removed_sentences=removed, rounds=rounds
         )
