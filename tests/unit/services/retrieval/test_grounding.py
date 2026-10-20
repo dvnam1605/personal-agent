@@ -78,3 +78,8 @@ async def test_uncited_figure_caps_status_at_partial() -> None:
     result = await PromptAnswerSynthesizer(generate=gen).synthesize("Q?", bundle)
     assert result.status is SufficiencyStatus.PARTIAL
     assert result.unsupported_claims == ["Tổng là 3.000.000 đồng."]
+
+
+def test_number_spelling_variants_match() -> None:
+    bundle = _bundle(_ev("Số: 80-QĐ/TNVN Hà Nội, ngày ..."))
+    assert check_identifiers("Quyết định 80/QĐ-TNVN quy định gì?", bundle).abstain is False

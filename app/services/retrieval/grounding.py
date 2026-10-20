@@ -32,7 +32,8 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 
 def _norm(text: str) -> str:
-    return re.sub(r"\s+", "", unaccent_vietnamese(text))
+    # Letters and digits only: "80/QĐ-TNVN" and "80-QĐ/TNVN" are the same number.
+    return re.sub(r"[^0-9a-z]", "", unaccent_vietnamese(text))
 
 
 @dataclass

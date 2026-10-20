@@ -193,9 +193,14 @@ def extract_doc_number(header_text: str) -> str | None:
 
 
 def normalize_doc_number(number: str | None) -> str | None:
+    """Canonical form for matching: letters and digits only, unaccented, upper.
+
+    Documents print the same number as "80/QĐ-TNVN", "80-QĐ/TNVN" or
+    "80 /QĐ-TNVN"; all normalise to "80QDTNVN".
+    """
     if not number:
         return None
-    return unaccent_vietnamese(re.sub(r"\s+", "", number)).upper()
+    return re.sub(r"[^0-9A-Z]", "", unaccent_vietnamese(number).upper()) or None
 
 
 _ORG_LINE = re.compile(

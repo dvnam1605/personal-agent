@@ -16,6 +16,7 @@ from app.domain.models.retrieval.metadata_filter import (
 )
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import Document, DocumentProfile, User
+from app.services.ingestion.profiling.rules import normalize_doc_number
 from app.services.retrieval.metadata import (
     KnowledgeQueryPlanner,
     MetadataLookupService,
@@ -153,7 +154,7 @@ async def sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
             doc_subtype=sub,
             title=f"Tài liệu {i}",
             doc_number=number,
-            doc_number_norm=unaccent_vietnamese(number).upper() if number else None,
+            doc_number_norm=normalize_doc_number(number),
             doc_date=d,
             entities=ents,
             entity_names_norm=unaccent_vietnamese(person) if person else None,
@@ -242,3 +243,11 @@ async def test_render_count_answer(sessions: async_sessionmaker[AsyncSession]) -
     )
     assert empty_answer.startswith("Không tìm thấy quyết định nào năm 2025")
     assert empty_cites == []
+
+
+async def test_number_matches_across_separator_styles(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    service = MetadataLookupService(sessions)
+    result = await service.run(MetadataFilterSpec(doc_number="1119-QĐ/TNVN"), None)
+    assert [r["document_id"] for r in result.rows] == ["doc-1"]

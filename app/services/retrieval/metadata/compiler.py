@@ -7,13 +7,12 @@ always enforced through ``documents``: active version + owner scope
 
 from __future__ import annotations
 
-import re
-
 from sqlalchemy import Select, and_, func, or_, select
 
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import MetadataFilterSpec, MetadataOperation
 from app.infrastructure.db.models import Document, DocumentProfile
+from app.services.ingestion.profiling.rules import normalize_doc_number
 
 ROW_COLUMNS = (
     "document_id",
@@ -46,14 +45,18 @@ def _conditions(spec: MetadataFilterSpec, requester_id: str | None) -> list:
     if spec.date_to:
         conds.append(DocumentProfile.doc_date <= spec.date_to)
     if spec.doc_number:
-        norm = unaccent_vietnamese(re.sub(r"\s+", "", spec.doc_number)).upper()
+        norm = normalize_doc_number(spec.doc_number) or ""
         if norm.isdigit():
-            # "1119" matches 1119/QĐ-…, 1119-QĐ/… but not 11190/…
+            # "1119" matches 1119QDTNVN (any separators) but not 11190QD…:
+            # the character right after the digits must not be a digit.
+            next_char = func.substr(DocumentProfile.doc_number_norm, len(norm) + 1, 1)
             conds.append(
                 or_(
-                    DocumentProfile.doc_number_norm.like(f"{norm}/%"),
-                    DocumentProfile.doc_number_norm.like(f"{norm}-%"),
                     DocumentProfile.doc_number_norm == norm,
+                    and_(
+                        DocumentProfile.doc_number_norm.like(f"{norm}%"),
+                        next_char.not_in(list("0123456789")),
+                    ),
                 )
             )
         else:

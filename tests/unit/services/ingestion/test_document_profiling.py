@@ -96,7 +96,7 @@ async def test_administrative_decision(profiler: DocumentProfiler) -> None:
     assert d.doc_date == date(2026, 3, 5)
     assert d.title and d.title.startswith("Quyết định về việc ban hành Quy chế")
     assert any(e["kind"] == "signer" and e["name"] == "Trần Văn Bình" for e in d.entities)
-    assert d.doc_number_norm == "123/QD-ABC"
+    assert d.doc_number_norm == "123QDABC"
 
 
 async def test_weekly_report(profiler: DocumentProfiler) -> None:
