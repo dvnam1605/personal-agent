@@ -129,17 +129,27 @@ def parse_date_any(text: str) -> date | None:
 def label_values(lines: tuple[str, ...]) -> list[tuple[str, str, str]]:
     """``(field, raw_label, value)`` for recognised ``Nhãn: giá trị`` lines."""
     found: list[tuple[str, str, str]] = []
-    for line in lines:
-        m = _LABEL_VALUE.match(line.strip())
-        if not m:
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        m = _LABEL_VALUE.match(stripped)
+        if m:
+            raw_label, value = m.group("label"), m.group("value")
+        elif stripped.endswith((":", "：")) and idx + 1 < len(lines):
+            # PDF layouts often break "Giảng viên hướng dẫn:" and its value
+            # onto two lines; take the next line unless it is a label itself.
+            nxt = lines[idx + 1].strip()
+            if not nxt or _LABEL_VALUE.match(nxt) or nxt.endswith((":", "：")):
+                continue
+            raw_label, value = stripped[:-1], nxt
+        else:
             continue
-        label = unaccent_vietnamese(m.group("label")).strip(" -•*")
-        value = m.group("value").strip(" .;")
+        label = unaccent_vietnamese(raw_label).strip(" -•*")
+        value = value.strip(" .;")
         if not value or set(value) <= {".", " ", "…"}:
             continue
         for pattern, fld in _LABEL_FIELDS:
             if pattern.match(label):
-                found.append((fld, m.group("label").strip(), value))
+                found.append((fld, raw_label.strip(), value))
                 break
     return found
 

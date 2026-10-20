@@ -40,7 +40,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v3"
+EXTRACTOR_VERSION = "profile-v4"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -305,11 +305,12 @@ class DocumentProfiler:
             text = f"{head} {cont}".strip() if cont and len(head.split()) <= 3 else head
             return text[:_TITLE_MAX_CHARS]
         for heading in signals.headings:
-            if len(heading.split()) >= 3:
+            if len(heading.split()) >= 3 and _title_like(heading):
                 return heading[:_TITLE_MAX_CHARS]
         for idx, line in enumerate(lines[:10]):
-            if len(line) >= 6 and not line.isdigit():
+            if len(line) >= 6 and not line.isdigit() and _title_like(line):
                 return (line + " " + _continuation(lines, idx + 1)).strip()[:_TITLE_MAX_CHARS]
+        # Better no title (UI falls back to the filename) than a wrong one.
         return None
 
     # ----------------------------------------------------------- draft
@@ -436,6 +437,26 @@ def _before_body(lines: tuple[str, ...]) -> str:
             break
         out.append(line)
     return "\n".join(out)
+
+
+_BOILERPLATE_HEADING = re.compile(
+    r"^(?:loi cam on|loi mo dau|loi noi dau|muc ?luc|tom ?tat|danh muc|phu luc|"
+    r"tai lieu tham khao|table of contents|contents|preface|abstract|chuong \d|chapter \d|"
+    r"cong hoa xa hoi|doc lap"
+    # Numbered section headings ("1.1 Đặt vấn đề", "2. Giải pháp") are body
+    # sections, never the document title.
+    r"|\d+(?:\.\d+)*\.?\s)"
+)
+
+
+def _title_like(text: str) -> bool:
+    """Not a person's name, an e-mail, a label or a front-matter heading."""
+    if "@" in text or ":" in text:
+        return False
+    name, _ = clean_person(text)
+    if name and len(text.split()) <= 5:
+        return False
+    return not _BOILERPLATE_HEADING.match(unaccent_vietnamese(text))
 
 
 def _continuation(lines: tuple[str, ...], start: int, max_lines: int = 3) -> str:

@@ -220,3 +220,17 @@ async def test_number_conflict_with_filename_is_flagged(profiler: DocumentProfil
     assert d.doc_number == "4357/QĐ-TNVN"  # the printed value is kept
     assert d.needs_review is True
     assert "number_mismatch" in (d.review_reason or "")
+
+
+async def test_label_value_on_next_line_and_name_is_never_title(
+    profiler: DocumentProfiler,
+) -> None:
+    text = (
+        "PHẠM MINH KHOA\nkhoa.pm@example.edu.vn\nChương trình đào tạo: Khoa học máy tính\n"
+        "Giảng viên hướng dẫn:\nPGS. TS. Nguyễn Văn An\nKhoa:\nKhoa học máy tính\n"
+        "HÀ NỘI, 06/2026\nLỜI CẢM ƠN\n"
+    )
+    d = await profiler.aprofile_text(text, "DoAn-x.pdf", headings=("PHẠM MINH KHOA", "LỜI CẢM ƠN"))
+    assert d.doc_category is DocCategory.ACADEMIC
+    assert any(e["kind"] == "supervisor" and e["name"] == "Nguyễn Văn An" for e in d.entities)
+    assert d.title != "PHẠM MINH KHOA"

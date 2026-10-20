@@ -104,9 +104,21 @@ class SqlAlchemyProfileRepository:
                 .order_by(DocumentChunk.chunk_index)
             )
             rows = (await session.execute(stmt)).all()
+        # Heading text lives only in heading_path (not in content_raw), and a
+        # cover page is often nothing but headings ("ĐỒ ÁN TỐT NGHIỆP", topic,
+        # author). Re-emit each new heading line so header rules can see it.
         headings: list[str] = []
+        lines: list[str] = []
+        previous: list[str] = []
         for r in rows:
-            path = list(r.heading_path or [])
-            if path and path[-1] not in headings:
-                headings.append(str(path[-1]))
-        return "\n".join(r.content_raw for r in rows), tuple(headings)
+            path = [str(h) for h in (r.heading_path or [])]
+            shared = 0
+            while shared < min(len(path), len(previous)) and path[shared] == previous[shared]:
+                shared += 1
+            for heading in path[shared:]:
+                lines.append(heading)
+                if heading not in headings:
+                    headings.append(heading)
+            previous = path
+            lines.append(r.content_raw)
+        return "\n".join(lines), tuple(headings)
