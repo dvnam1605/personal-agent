@@ -14,7 +14,10 @@ import type {
   DBConversationSummary,
   DenyRequestBody,
   DenyResponse,
+  DocumentOutlineSection,
   ExecuteApprovalBody,
+  GeneratedDocumentSummary,
+  GeneratedDocumentView,
   GoogleDisconnectResponse,
   GoogleIntegrationStatus,
   HealthResponse,
@@ -263,7 +266,33 @@ class ApiClient {
     }
   }
 
-  /* 1c. Generated documents (.docx download needs the auth header, so no plain link) */
+  /* 1c. Generated documents */
+  async listGeneratedDocuments(): Promise<GeneratedDocumentSummary[]> {
+    return this.request<GeneratedDocumentSummary[]>('/documents')
+  }
+
+  async createDocumentOutline(request: string): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>('/documents/outline', {
+      method: 'POST',
+      body: JSON.stringify({ request }),
+    })
+  }
+
+  async getGeneratedDocument(id: string): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(`/documents/${encodeURIComponent(id)}`)
+  }
+
+  async approveDocument(
+    id: string,
+    edits: { title?: string; sections?: DocumentOutlineSection[] }
+  ): Promise<GeneratedDocumentView> {
+    return this.request<GeneratedDocumentView>(`/documents/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(edits),
+    })
+  }
+
+  /* .docx download needs the auth header, so no plain link */
   async downloadGeneratedDocument(id: string, title?: string): Promise<void> {
     const response = await fetch(`/documents/${encodeURIComponent(id)}/download`, {
       headers: this.getHeaders(),

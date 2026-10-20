@@ -277,3 +277,37 @@ export interface DBConversationDetail {
   updated_at: string;
   messages: DBMessageItem[];
 }
+
+/* Generated documents (outline → approve → write → .docx) */
+export interface DocumentOutlineSection {
+  heading: string;
+  purpose: string;
+}
+
+export interface GeneratedDocumentSummary {
+  id: string;
+  title: string;
+  status: 'outline' | 'writing' | 'done' | 'failed' | 'cancelled' | string;
+  template_key: string;
+  has_docx: boolean;
+  created_at?: string | null;
+}
+
+export interface GeneratedDocumentView {
+  id: string;
+  status: GeneratedDocumentSummary['status'];
+  title: string;
+  template_key: string;
+  outline: {
+    template_key?: string;
+    title?: string;
+    sections?: DocumentOutlineSection[];
+    source_document_ids?: string[];
+    source_titles?: string[];
+  };
+  sections: { heading: string; text: string; status: string }[];
+  citations: { number: number; title?: string; section_title?: string; page_start?: number }[];
+  markdown?: string | null;
+  has_docx: boolean;
+  error?: string | null;
+}
