@@ -469,11 +469,20 @@ class QueryOrchestrator:
                             async for item in _yield_token(delta):
                                 yield item
                     elif ev_type == "citations":
+                        # The prompt-text snapshot is stored server-side, not streamed.
+                        await self._record_evidence(
+                            session,
+                            run_id,
+                            evidence=event.get("evidence"),
+                            retrieval_trace_id=event.get("retrieval_trace_id"),
+                            answer_status=event.get("status"),
+                        )
                         yield _sse(
                             "citations",
                             {
                                 "citations": event.get("citations", []),
                                 "sufficiency": event.get("status"),
+                                "unsupported_claims": event.get("unsupported_claims", []),
                             },
                         )
                 yield _emit_done("completed")
@@ -635,7 +644,12 @@ class QueryOrchestrator:
             return await self._handle_calendar(session, user_id, query, run_id, route)
         if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
             return await self._handle_knowledge(
-                user_id, query, run_id, route, conversation_history=conversation_history
+                user_id,
+                query,
+                run_id,
+                route,
+                conversation_history=conversation_history,
+                session=session,
             )
         if agent == COMMUNICATION_AGENT_NAME:
             return await self._handle_communication(session, user_id, query, run_id, route)
@@ -868,6 +882,7 @@ class QueryOrchestrator:
         run_id: str,
         route: QueryRouteInfo,
         conversation_history: list[dict[str, str]] | None = None,
+        session: AsyncSession | None = None,
     ) -> QueryResult:
         synthesis = await self._run_retrieval(
             query, user_id, conversation_history=conversation_history
@@ -877,6 +892,13 @@ class QueryOrchestrator:
             for citation in list(getattr(synthesis, "citations", []))
         ]
         status = getattr(getattr(synthesis, "status", None), "value", None)
+        await self._record_evidence(
+            session,
+            run_id,
+            evidence=getattr(synthesis, "evidence", None),
+            retrieval_trace_id=getattr(synthesis, "retrieval_trace_id", None),
+            answer_status=status,
+        )
         return QueryResult(
             run_id=run_id,
             status="completed",
@@ -884,6 +906,31 @@ class QueryOrchestrator:
             route=route,
             data={"citations": citations, "sufficiency": status},
         )
+
+    @staticmethod
+    async def _record_evidence(
+        session: AsyncSession | None,
+        run_id: str,
+        *,
+        evidence: Any,
+        retrieval_trace_id: str | None,
+        answer_status: str | None,
+    ) -> None:
+        """Persist what the model saw for this run (best-effort, never fails the answer)."""
+        if session is None:
+            return
+        try:
+            from app.infrastructure.db.evidence_repository import record_run_evidence
+
+            await record_run_evidence(
+                session,
+                run_id,
+                evidence=list(evidence or []),
+                retrieval_trace_id=retrieval_trace_id,
+                answer_status=answer_status,
+            )
+        except Exception:  # noqa: BLE001 - audit trail must not break answering
+            logger.warning("run_evidence_record_failed", extra={"run_id": run_id}, exc_info=True)
 
     async def _handle_communication_draft(
         self,

@@ -65,6 +65,9 @@ class CitationNumberer:
                 badges.append(badge)
         return "".join(badges)
 
+    def number_of(self, evidence_id: str) -> int | None:
+        return self._number_by_eid.get(evidence_id)
+
     def rewrite(self, text: str) -> str:
         """Rewrite every citation bracket in a complete answer."""
         out = CITATION_BRACKET_RE.sub(lambda m: self.render_bracket(m.group(0)), text)
@@ -83,3 +86,42 @@ class CitationNumberer:
 
 def strip_orphan_ids(text: str) -> str:
     return _ORPHAN_HEX_RE.sub("", text)
+
+
+def evidence_snapshot(
+    bundle: EvidenceBundle, numberer: CitationNumberer | None = None
+) -> list[dict]:
+    """Exactly what the model was shown, per evidence unit, plus citation use.
+
+    Persisted as ``run_evidence`` so a past answer can be audited and its
+    citations rebuilt server-side even after the corpus is re-ingested.
+    """
+    import hashlib
+
+    from app.services.retrieval.injection_boundary import sanitize_evidence_for_prompt
+
+    rows: list[dict] = []
+    for idx, item in enumerate(bundle.items):
+        label = evidence_label(idx)
+        prompt_text = sanitize_evidence_for_prompt(item, index=idx, label=label)
+        number = numberer.number_of(item.evidence_id) if numberer else None
+        rows.append(
+            {
+                "label": label,
+                "rank": idx,
+                "evidence_id": item.evidence_id,
+                "kind": item.kind,
+                "primary_chunk_id": item.primary_chunk_id,
+                "chunk_ids": list(item.chunk_ids),
+                "document_id": item.document_id,
+                "document_version_id": item.document_version_id,
+                "version_number": item.anchors.get("version_number"),
+                "title": item.anchors.get("profile_title") or item.title or item.filename,
+                "prompt_text": prompt_text,
+                "content_hash": hashlib.sha256(item.content_raw.encode("utf-8")).hexdigest(),
+                "score": item.score,
+                "cited": number is not None,
+                "citation_number": number,
+            }
+        )
+    return rows

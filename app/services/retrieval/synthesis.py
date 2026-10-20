@@ -31,6 +31,7 @@ from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.services.retrieval.citations import (
     REFUSAL_RE,
     CitationNumberer,
+    evidence_snapshot,
     strip_orphan_ids,
 )
 from app.services.retrieval.grounding import GroundingReport, check_answer
@@ -55,6 +56,9 @@ class SynthesisResult(BaseModel):
     synthesis_trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     # Sentences stating data (amounts, dates, %) without a citation badge.
     unsupported_claims: list[str] = Field(default_factory=list)
+    # Server-side snapshot of every evidence unit shown to the model (P2).
+    retrieval_trace_id: str | None = None
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @runtime_checkable
@@ -432,6 +436,8 @@ class PromptAnswerSynthesizer:
                 ),
                 citations=citations,
                 status=SufficiencyStatus.PARTIAL if citations else SufficiencyStatus.INSUFFICIENT,
+                retrieval_trace_id=bundle.retrieval_trace_id,
+                evidence=evidence_snapshot(bundle),
             )
 
         numberer = CitationNumberer(bundle)
@@ -444,6 +450,8 @@ class PromptAnswerSynthesizer:
                 answer=cleaned_answer + _INTERRUPTED_NOTE,
                 citations=citations,
                 status=SufficiencyStatus.PARTIAL,
+                retrieval_trace_id=bundle.retrieval_trace_id,
+                evidence=evidence_snapshot(bundle, numberer),
             )
         if not citations and status is SufficiencyStatus.PARTIAL:
             cleaned_answer += _UNCITED_NOTE
@@ -453,6 +461,8 @@ class PromptAnswerSynthesizer:
             citations=citations,
             status=_grounded_status(status, grounding),
             unsupported_claims=grounding.unsupported,
+            retrieval_trace_id=bundle.retrieval_trace_id,
+            evidence=evidence_snapshot(bundle, numberer),
         )
 
     async def synthesize_stream(
@@ -598,6 +608,8 @@ class PromptAnswerSynthesizer:
             "citations": [c.model_dump(mode="json") for c in citations],
             "status": status.value,
             "unsupported_claims": grounding.unsupported,
+            "retrieval_trace_id": bundle.retrieval_trace_id,
+            "evidence": evidence_snapshot(bundle, numberer),
         }
 
 

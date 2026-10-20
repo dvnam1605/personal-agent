@@ -200,6 +200,10 @@ class AssistantRun(Base, TimestampMixin):
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     telemetry_degraded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Knowledge answers (migration 0012): link to the retrieval trace and the
+    # final SUFFICIENT/PARTIAL/INSUFFICIENT status; evidence in run_evidence.
+    retrieval_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    answer_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -245,6 +249,41 @@ class AssistantRun(Base, TimestampMixin):
         ),
     )
     __mapper_args__ = {"version_id_col": state_version}
+
+
+class RunEvidence(Base):
+    """One evidence unit sent to answer synthesis for a run (immutable snapshot)."""
+
+    __tablename__ = "run_evidence"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assistant_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    retrieval_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    primary_chunk_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chunk_ids: Mapped[list[str]] = mapped_column(_JSONB, default=list, nullable=False)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    document_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    citation_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_run_evidence_run", "run_id", "rank"),
+        Index("ix_run_evidence_document", "document_version_id"),
+    )
 
 
 class Message(Base):

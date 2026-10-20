@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_current_user_id
-from app.infrastructure.db.models import Conversation, Message
+from app.infrastructure.db.evidence_repository import citation_payload, run_evidence
+from app.infrastructure.db.models import AssistantRun, Conversation, Message
 from app.infrastructure.db.session import get_db_session
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -66,6 +67,35 @@ class SaveTurnRequest(BaseModel):
     turn_id: str | None = Field(default=None, max_length=64)
     run_id: str | None = Field(default=None, max_length=36)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+async def _server_side_citations(
+    session: AsyncSession, user_id: str, body: SaveTurnRequest
+) -> dict[str, Any]:
+    """Message metadata with citations rebuilt from the run's stored evidence.
+
+    Client-sent citations are only kept when the run recorded no evidence
+    (e.g. metadata-route answers) — a client can no longer attach citations
+    to evidence the model never saw, and never to another user's run.
+    """
+    metadata = dict(body.metadata or {})
+    if not body.run_id:
+        return metadata
+    run = await session.get(AssistantRun, body.run_id)
+    if run is None or run.user_id != user_id:
+        data = dict(metadata.get("data") or {})
+        data.pop("citations", None)
+        metadata.pop("data", None)
+        return {**metadata, "data": data} if data else metadata
+    cited = await run_evidence(session, body.run_id, cited_only=True)
+    data = dict(metadata.get("data") or {})
+    if cited:
+        data["citations"] = [citation_payload(row) for row in cited]
+    if run.answer_status:
+        data["sufficiency"] = run.answer_status
+    if data:
+        metadata["data"] = data
+    return metadata
 
 
 @router.get(
@@ -304,7 +334,7 @@ async def save_turn(
             run_id=body.run_id,
             role="assistant",
             content=body.assistant_response,
-            metadata_=body.metadata or {},
+            metadata_=await _server_side_citations(session, user_id, body),
             created_at=now,
         )
         session.add(assistant_msg)

@@ -80,7 +80,7 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         "claimed_at",
     }.issubset(job_columns)
     assert {"doc_category", "doc_date", "entities", "extractor_version"}.issubset(profile_columns)
-    assert version == "0011"
+    assert version == "0012"
 
 
 @pytest.mark.asyncio
@@ -118,6 +118,7 @@ async def test_all_p5_tables_created() -> None:
         "google_integrations",
         "user_questions",
         "document_profiles",
+        "run_evidence",
     }
 
     assert expected_tables.issubset(table_names), f"Missing tables: {expected_tables - table_names}"
