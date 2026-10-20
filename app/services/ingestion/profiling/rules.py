@@ -162,6 +162,18 @@ _HONORIFIC = re.compile(
 _PERSON_TOKEN = re.compile(r"^[A-ZĐÀ-Ỹ][a-zđà-ỹA-ZĐÀ-Ỹ]*$")
 
 
+# Folded two-word document vocabulary. Single syllables cannot be used: once
+# accents are stripped they collide with real names (Văn→van, Bảo→bao, Cao,
+# Toàn, Hương…), but these pairs never form a personal name.
+_NON_NAME_PHRASES = re.compile(
+    r"\b(?:bao cao|quyet dinh|hop dong|ke hoach|chuong trinh|phu luc|danh sach|muc luc|"
+    r"bien ban|to trinh|thong tin|cong van|nghi dinh|quy che|quy dinh|dieu khoan|noi nhan|"
+    r"du toan|kinh phi|ket luan|huong dan|tai lieu|de an|tong hop|cong hoa|chu nghia|"
+    r"thong bao|chi thi|giay moi|bang tong|thi dua|khen thuong)\b"
+    r"|\b(?:report|chapter|table|contents|appendix|summary)\b"
+)
+
+
 def clean_person(raw: str) -> tuple[str | None, str | None]:
     """``("Nguyễn Tuấn Linh", "20220033")`` from "Nguyễn Tuấn Linh - 20220033"."""
     value = raw.strip()
@@ -174,6 +186,9 @@ def clean_person(raw: str) -> tuple[str | None, str | None]:
     value = _HONORIFIC.sub("", value).strip(" .")
     words = value.split()
     if not 2 <= len(words) <= 6 or not all(_PERSON_TOKEN.match(w) for w in words):
+        return None, student_id
+    if _NON_NAME_PHRASES.search(unaccent_vietnamese(value)):
+        # Capitalised headings ("BÁO CÁO TỔNG HỢP", "KẾ HOẠCH CÔNG TÁC") are not people.
         return None, student_id
     if value.isupper():
         value = " ".join(w.capitalize() for w in words)

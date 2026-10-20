@@ -218,3 +218,20 @@ async def test_outline_then_approve_writes_files(
     # Another user cannot touch it.
     with pytest.raises(LookupError):
         await service.approve_and_write(session, user_id="u2", requester_id=None, doc_id=row.id)
+
+
+async def test_many_candidates_are_ranked_by_relevance_not_recency() -> None:
+    from types import SimpleNamespace
+
+    ids = [f"doc-{i}" for i in range(12)]
+
+    class RankingPipeline(FakePipeline):
+        async def run(self, query: Any) -> Any:
+            assert query.document_ids == ids  # RAG restricted to the candidates
+            items = [SimpleNamespace(document_id=d) for d in ("doc-9", "doc-3", "doc-9")]
+            return SimpleNamespace(items=items)
+
+    planner = DocumentPlanner(FakeMetadata(ids), RankingPipeline([]), use_llm=False)
+    sources = await planner.select_sources("Viết báo cáo về các quyết định năm 2026", None)
+    assert sources[:2] == ["doc-9", "doc-3"]
+    assert len(sources) == 8

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 MAX_SECTIONS = 8
 MAX_SOURCES = 8
+MAX_CANDIDATES = 50
 OUTLINE_TIMEOUT_SECONDS = 45.0
 SECTION_CONTEXT_TOKENS = 6000
 
@@ -71,6 +72,28 @@ def _topic(request: str) -> str:
     return text.strip(" .?!") or request.strip()
 
 
+_SUBJECT_SPLIT = re.compile(r"(?i)\b(?:về|dựa trên|dựa vào|từ các|từ|theo|cho)\s+")
+_OUTPUT_KIND = re.compile(
+    r"(?i)^(?:một\s+)?(?:báo cáo(?:\s+(?:tuần|tháng|quý|năm|tổng hợp))?|tờ trình|"
+    r"biên bản(?:\s+(?:cuộc\s+)?họp)?|kế hoạch|công văn|tóm tắt|tài liệu|văn bản|đề cương)\s+"
+)
+
+
+def _subject(request: str) -> str:
+    """What the sources are about, without the document being written.
+
+    "Viết báo cáo tổng hợp về các quyết định khen thưởng năm 2026" →
+    "các quyết định khen thưởng năm 2026": "báo cáo" names the output, it
+    must not become a filter on the sources.
+    """
+    topic = _topic(request)
+    parts = _SUBJECT_SPLIT.split(topic, maxsplit=1)
+    if len(parts) == 2 and parts[1].strip():
+        return parts[1].strip()
+    stripped = _OUTPUT_KIND.sub("", topic, count=1).strip()
+    return stripped or topic
+
+
 async def _llm_json(system: str, user: str, *, timeout: float) -> dict[str, Any] | None:
     api_key = str(settings.llm.openai_api_key or "")
     if not api_key:
@@ -106,26 +129,38 @@ class DocumentPlanner:
         self._use_llm = use_llm
 
     async def select_sources(self, request: str, requester_id: str | None) -> list[str]:
-        plan = await self._metadata.plan(request, requester_id)
+        """Pick up to MAX_SOURCES documents about the request's subject.
+
+        Metadata filters (kind, date, person, number) narrow the candidates;
+        when more match than can be read, they are ranked by relevance to the
+        subject with RAG restricted to that set — never just "newest first".
+        """
+        subject = _subject(request)
+        plan = await self._metadata.plan(subject, requester_id)
+        candidates: list[str] = []
         if plan.spec.has_selector or plan.spec.categories:
-            ids, _ = await self._metadata.resolve_document_ids(
-                plan.spec, requester_id, cap=MAX_SOURCES
+            candidates, _ = await self._metadata.resolve_document_ids(
+                plan.spec, requester_id, cap=MAX_CANDIDATES
             )
-            if ids:
-                return ids
-        bundle = await self._pipeline.run(
-            RetrievalQuery(
-                original_query=_topic(request),
-                search_query=_topic(request),
-                requester_id=requester_id,
-                top_k_dense=40,
-                top_k_sparse=40,
-            )
+            if 0 < len(candidates) <= MAX_SOURCES:
+                return candidates
+        query = RetrievalQuery(
+            original_query=subject,
+            search_query=subject,
+            requester_id=requester_id,
+            top_k_dense=40,
+            top_k_sparse=40,
+            mode=RetrievalMode.DOCUMENT_SEARCH if candidates else RetrievalMode.CORPUS_SEARCH,
+            document_ids=candidates,
         )
+        bundle = await self._pipeline.run(query)
         ordered: list[str] = []
         for item in bundle.items:
             if item.document_id not in ordered:
                 ordered.append(item.document_id)
+        if candidates:
+            # Keep relevance order, then fill with the newest remaining matches.
+            ordered += [c for c in candidates if c not in ordered]
         return ordered[:MAX_SOURCES]
 
     async def plan(

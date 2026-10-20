@@ -40,7 +40,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v4"
+EXTRACTOR_VERSION = "profile-v5"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -249,6 +249,10 @@ class DocumentProfiler:
         if subject:
             f.set("title", f"{doc_type} {subject[0].lower()}{subject[1:]}")
         signer, role = ext._extract_signatory(tail)
+        if signer and clean_person(signer)[0] is None:
+            # The layout rule grabbed a heading after the signature block
+            # (e.g. an appendix titled "BÁO CÁO TỔNG HỢP"), not a person.
+            signer = None
         if signer:
             f.people.append(person(signer, role or "Người ký", "signer"))
         f.extras.update({"signer": signer, "signer_role": role, "doc_type": doc_type})

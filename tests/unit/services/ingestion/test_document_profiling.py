@@ -234,3 +234,11 @@ async def test_label_value_on_next_line_and_name_is_never_title(
     assert d.doc_category is DocCategory.ACADEMIC
     assert any(e["kind"] == "supervisor" and e["name"] == "Nguyễn Văn An" for e in d.entities)
     assert d.title != "PHẠM MINH KHOA"
+
+
+def test_headings_are_not_people_but_real_names_survive() -> None:
+    assert clean_person("BÁO CÁO TỔNG HỢP")[0] is None
+    assert clean_person("KẾ HOẠCH CÔNG TÁC")[0] is None
+    # Syllables that also occur in document words must not reject real names.
+    for name in ("Nguyễn Văn Bảo", "Cao Thị Hương", "Trần Quốc Toàn", "Đinh Công Nam"):
+        assert clean_person(name)[0] == name
