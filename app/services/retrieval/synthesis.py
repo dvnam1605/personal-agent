@@ -33,6 +33,7 @@ from app.services.retrieval.citations import (
     CitationNumberer,
     strip_orphan_ids,
 )
+from app.services.retrieval.grounding import GroundingReport, check_answer
 from app.services.retrieval.prompts import (
     SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -52,6 +53,8 @@ class SynthesisResult(BaseModel):
     status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT
     confidence: float | None = None
     synthesis_trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    # Sentences stating data (amounts, dates, %) without a citation badge.
+    unsupported_claims: list[str] = Field(default_factory=list)
 
 
 @runtime_checkable
@@ -444,7 +447,13 @@ class PromptAnswerSynthesizer:
             )
         if not citations and status is SufficiencyStatus.PARTIAL:
             cleaned_answer += _UNCITED_NOTE
-        return SynthesisResult(answer=cleaned_answer, citations=citations, status=status)
+        grounding = check_answer(cleaned_answer)
+        return SynthesisResult(
+            answer=cleaned_answer,
+            citations=citations,
+            status=_grounded_status(status, grounding),
+            unsupported_claims=grounding.unsupported,
+        )
 
     async def synthesize_stream(
         self,
@@ -577,15 +586,18 @@ class PromptAnswerSynthesizer:
             }
 
         citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        grounding = check_answer("".join(streamed))
         if failure is None:
             status = _uncited_status("".join(streamed), citations, status)
             if not citations and status is SufficiencyStatus.PARTIAL:
                 yield {"type": "token", "delta": _UNCITED_NOTE}
+            status = _grounded_status(status, grounding)
 
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
             "status": status.value,
+            "unsupported_claims": grounding.unsupported,
         }
 
 
@@ -608,6 +620,14 @@ def _uncited_status(
     if REFUSAL_RE.search(answer):
         return SufficiencyStatus.INSUFFICIENT
     return SufficiencyStatus.PARTIAL
+
+
+def _grounded_status(status: SufficiencyStatus, grounding: GroundingReport) -> SufficiencyStatus:
+    """Uncited data sentences cap an otherwise SUFFICIENT answer at PARTIAL."""
+    if status is SufficiencyStatus.SUFFICIENT and not grounding.ok:
+        logger.info("synthesis_unsupported_claims count=%d", len(grounding.unsupported))
+        return SufficiencyStatus.PARTIAL
+    return status
 
 
 _INTERRUPTED_NOTE = (
