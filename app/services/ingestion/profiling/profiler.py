@@ -40,7 +40,7 @@ from app.services.ingestion.profiling.signals import (
 )
 from app.services.skills.matching import unaccent_vietnamese
 
-EXTRACTOR_VERSION = "profile-v1"
+EXTRACTOR_VERSION = "profile-v2"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -241,6 +241,9 @@ class DocumentProfiler:
         if raw_date:
             f.set("doc_date", date.fromisoformat(raw_date))
         subject = ext._extract_subject(header)
+        if subject:
+            # OCR often merges the next "Căn cứ …; Nghị định …" clause into the line.
+            subject = subject.split(";")[0].strip(" ,.")
         f.set("subject", subject)
         doc_type = cls.subtype or ext._extract_document_type(header, signals.filename)
         if subject:

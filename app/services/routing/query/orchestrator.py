@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -82,6 +83,20 @@ _RAG_TOP_K_SPARSE = 60
 _RAG_MAX_CANDIDATES = 16
 _RAG_PER_DOCUMENT_CAP = 4
 _RAG_CONTEXT_TOKEN_BUDGET = 8192
+# Profile-selected documents read together in one scoped RAG pass.
+_RAG_MAX_SCOPED_DOCUMENTS = 8
+
+
+@dataclass
+class _KnowledgeRoute:
+    """Either a finished structured answer or the RAG query to run."""
+
+    answer: str | None = None
+    citations: list[Any] = field(default_factory=list)
+    status: Any = None
+    rag_query: Any = None
+    prefix: str = ""
+
 
 FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
@@ -168,7 +183,10 @@ class QueryOrchestrator:
         clock: ClockFn | None = None,
         new_run_id: RunIdFn | None = None,
         summarize_emails_fn: SummarizeEmailsFn | None = None,
+        metadata_service: Any | None = None,
+        pipeline: Any | None = None,
     ) -> None:
+        self._metadata_service = metadata_service
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
         self._communication_for_user = communication_for_user
@@ -177,7 +195,7 @@ class QueryOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
         self._summarize_emails_fn = summarize_emails_fn
-        self._pipeline: Any | None = None
+        self._pipeline: Any | None = pipeline
 
     @staticmethod
     async def _load_conversation_history(
@@ -356,8 +374,20 @@ class QueryOrchestrator:
 
         def _emit_done(status: str, extra: dict[str, Any] | None = None) -> str:
             now = time.perf_counter()
-            ttft = (first_token_at - stream_started_at) if first_token_at is not None else (now - stream_started_at)
-            stream_duration = (last_token_at - first_token_at) if (first_token_at is not None and last_token_at is not None and last_token_at > first_token_at) else max(0.001, now - stream_started_at)
+            ttft = (
+                (first_token_at - stream_started_at)
+                if first_token_at is not None
+                else (now - stream_started_at)
+            )
+            stream_duration = (
+                (last_token_at - first_token_at)
+                if (
+                    first_token_at is not None
+                    and last_token_at is not None
+                    and last_token_at > first_token_at
+                )
+                else max(0.001, now - stream_started_at)
+            )
             tok_per_sec = (total_tokens / max(0.001, stream_duration)) if total_tokens > 0 else 0.0
 
             route_name = getattr(route, "route_type", None)
@@ -489,7 +519,9 @@ class QueryOrchestrator:
                     summaries = list(getattr(page, "items", []) or [])
                     messages = await _load_gmail_details(service, summaries)
                     if not messages:
-                        async for item in _stream_text("Không có email nào khớp trong hộp thư đến."):
+                        async for item in _stream_text(
+                            "Không có email nào khớp trong hộp thư đến."
+                        ):
                             yield item
                     else:
                         async for delta in summarize_emails_stream(
@@ -1001,6 +1033,75 @@ class QueryOrchestrator:
             context_token_budget=_RAG_CONTEXT_TOKEN_BUDGET,
         )
 
+    def _metadata(self) -> Any:
+        if self._metadata_service is None:
+            from app.services.retrieval.metadata import MetadataLookupService
+
+            self._metadata_service = MetadataLookupService()
+        return self._metadata_service
+
+    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
+        """Pick SQL-over-profiles, profile-scoped RAG, or corpus RAG for a question.
+
+        Numbers and lists come from ``document_profiles`` (never paraphrased by
+        an LLM); a hard selector (number / person / date / "mới nhất") next to a
+        content question scopes RAG to the selected documents. Any failure here
+        degrades to plain corpus RAG.
+        """
+        from app.domain.models.retrieval import RetrievalMode
+        from app.domain.models.retrieval.metadata_filter import KnowledgeIntent
+        from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+        from app.services.retrieval.metadata import render_metadata_answer
+        from app.services.retrieval.metadata.render import describe_filters, describe_noun
+
+        base_query = self._live_retrieval_query(query, user_id)
+        requester = retrieval_requester_id(user_id)
+        try:
+            service = self._metadata()
+            plan = await service.plan(query, requester)
+            logger.info(
+                "knowledge_route_planned",
+                extra={"intent": plan.intent.value, "reason": plan.reason},
+            )
+            if plan.intent is KnowledgeIntent.METADATA:
+                result = await service.run(plan.spec, requester)
+                answer, citations = render_metadata_answer(plan.spec, result)
+                status = (
+                    SufficiencyStatus.SUFFICIENT if result.total else SufficiencyStatus.INSUFFICIENT
+                )
+                return _KnowledgeRoute(answer=answer, citations=citations, status=status)
+            if plan.intent is KnowledgeIntent.METADATA_THEN_CONTENT:
+                ids, total = await service.resolve_document_ids(
+                    plan.spec, requester, cap=_RAG_MAX_SCOPED_DOCUMENTS
+                )
+                if total == 0:
+                    note = (
+                        f"(Không có {describe_noun(plan.spec)} nào"
+                        f"{describe_filters(plan.spec)}; tìm trên toàn bộ kho tài liệu.)\n\n"
+                    )
+                    return _KnowledgeRoute(rag_query=base_query, prefix=note)
+                if total > _RAG_MAX_SCOPED_DOCUMENTS:
+                    result = await service.run(plan.spec, requester)
+                    answer, citations = render_metadata_answer(plan.spec, result)
+                    answer += (
+                        f"\n\nCó {total} tài liệu khớp, quá nhiều để đọc nội dung cùng lúc; "
+                        "hãy nêu rõ hơn (số hiệu, thời gian, người liên quan)."
+                    )
+                    return _KnowledgeRoute(
+                        answer=answer, citations=citations, status=SufficiencyStatus.PARTIAL
+                    )
+                scoped = base_query.model_copy(
+                    update={
+                        "mode": RetrievalMode.DOCUMENT_SEARCH,
+                        "document_ids": ids,
+                        "require_source_diversity": len(ids) > 1,
+                    }
+                )
+                return _KnowledgeRoute(rag_query=scoped)
+        except Exception:  # noqa: BLE001 - the metadata route must never break answering
+            logger.exception("knowledge_metadata_route_failed")
+        return _KnowledgeRoute(rag_query=base_query)
+
     async def _run_retrieval(
         self,
         query: str,
@@ -1009,11 +1110,21 @@ class QueryOrchestrator:
     ) -> Any:
         if self._retrieve is not None:
             return await self._retrieve(query, user_id)
-        return await self._live_pipeline().run_with_synthesis(
-            self._live_retrieval_query(query, user_id),
+        from app.services.retrieval.synthesis import SynthesisResult
+
+        route = await self._route_knowledge(query, user_id)
+        if route.answer is not None:
+            return SynthesisResult(
+                answer=route.answer, citations=route.citations, status=route.status
+            )
+        result = await self._live_pipeline().run_with_synthesis(
+            route.rag_query,
             internal_only=True,
             conversation_history=conversation_history,
         )
+        if route.prefix:
+            result = result.model_copy(update={"answer": route.prefix + result.answer})
+        return result
 
     async def _run_retrieval_stream(
         self,
@@ -1021,8 +1132,19 @@ class QueryOrchestrator:
         user_id: str,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        route = await self._route_knowledge(query, user_id)
+        if route.answer is not None:
+            yield {"type": "token", "delta": route.answer}
+            yield {
+                "type": "citations",
+                "citations": [c.model_dump(mode="json") for c in route.citations],
+                "status": route.status.value,
+            }
+            return
+        if route.prefix:
+            yield {"type": "token", "delta": route.prefix}
         async for event in self._live_pipeline().run_with_streaming_synthesis(
-            self._live_retrieval_query(query, user_id),
+            route.rag_query,
             internal_only=True,
             conversation_history=conversation_history,
         ):
