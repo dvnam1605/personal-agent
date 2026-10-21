@@ -66,8 +66,10 @@ def sanitize_evidence_for_prompt(
     header_parts: list[str] = [f'id="{html.escape(header_id, quote=True)}"']
     if evidence.document_id:
         header_parts.append(f'document_id="{html.escape(evidence.document_id, quote=True)}"')
-    if evidence.title:
-        header_parts.append(f'title="{html.escape(evidence.title, quote=True)}"')
+    # The profile title ("Designing Multi-Agent Systems …") over the file name.
+    title = (evidence.anchors or {}).get("profile_title") or evidence.title
+    if title:
+        header_parts.append(f'title="{html.escape(str(title), quote=True)}"')
     if evidence.heading_path:
         section = " > ".join(evidence.heading_path)
         header_parts.append(f'section="{html.escape(section, quote=True)}"')

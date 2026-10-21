@@ -60,6 +60,10 @@ _MULTI_STEP_CONJUNCTIONS = re.compile(
 )
 
 
+# "hợp" (ơ with a dot) is never "họp" (meeting); folding both to "hop" lost that.
+_ACCENTED_HOP = re.compile(r"(?<!\w)h[ợỢ]p(?!\w)", re.IGNORECASE)
+
+
 def _is_meeting_only_calendar(unaccented_cal: str) -> bool:
     """True when no calendar signal survives after removing title noise/durations.
 
@@ -152,8 +156,11 @@ class FastTriage:
                 self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
                 return decision
 
-        # Calendar domain detection
-        unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented))
+        # Calendar domain detection. With diacritics "họp" (meeting) and "hợp"
+        # (tích hợp, hợp nhất, phù hợp …) differ; only the unaccented form needs
+        # the NON_MEETING_HOP list, so accented "hợp" never reads as a meeting.
+        unaccented_cal = unaccent_vietnamese(_ACCENTED_HOP.sub("hopx", normalized))
+        unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented_cal))
         has_calendar_core = bool(CALENDAR_CORE.search(unaccented_cal))
         has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented))
         has_cal_relative = bool(CALENDAR_RELATIVE.search(unaccented))

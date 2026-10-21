@@ -8,6 +8,7 @@ the evaluation harness can tell rule, LLM and human values apart.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 from datetime import date
@@ -40,7 +41,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v7"
+EXTRACTOR_VERSION = "profile-v8"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -312,6 +313,17 @@ class DocumentProfiler:
     @staticmethod
     def _title(signals: DocumentSignals, cls: Classification) -> str | None:
         lines = signals.header_lines
+        if cls.category is DocCategory.TECHNICAL:
+            # A book's cover: the full title sits right above "by <author>".
+            for idx, line in enumerate(lines[:30]):
+                if idx and re.match(r"(?i)^by\s+\S", line) and _title_like(lines[idx - 1]):
+                    return lines[idx - 1][:_TITLE_MAX_CHARS]
+        head_line = lines[cls.title_line_index] if cls.title_line_index is not None else ""
+        if head_line and _BOILERPLATE_HEADING.match(
+            unaccent_vietnamese(head_line.lstrip("# ").strip()).lower()
+        ):
+            # "Table of contents" / "Mục lục" matched a title rule: not a title.
+            cls = dataclasses.replace(cls, title_line_index=None)
         if cls.title_line_index is not None:
             head = lines[cls.title_line_index].lstrip("# ").strip()
             cont = _continuation(lines, cls.title_line_index + 1)

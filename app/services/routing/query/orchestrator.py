@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -96,6 +97,13 @@ _APPROVAL_RE = re.compile(
 _RAG_MAX_SCOPED_DOCUMENTS = 8
 
 
+# Per-request scope of a follow-up that points into the previous answer:
+# (documents that answer cited, the answer line it points at).
+_FOLLOWUP_SCOPE: ContextVar[tuple[list[str], str] | None] = ContextVar(
+    "_FOLLOWUP_SCOPE", default=None
+)
+
+
 def _mentions(text: str, target: str) -> bool:
     """Whether ``text`` names ``target`` (accent/punctuation-insensitive prefix)."""
     from app.core.text import unaccent_vietnamese
@@ -150,9 +158,106 @@ def is_followup_query(query: str) -> bool:
     return False
 
 
-def condense_query_with_history(query: str, history: list[dict[str, str]]) -> str:
-    """Condense a follow-up query with the prior conversation subject/entities."""
-    if not history or not is_followup_query(query):
+# Function words of a follow-up request: they say *how* to answer, not *what*.
+_FOLLOWUP_STOPWORDS = frozenset(
+    "trinh bay chi tiet cho toi minh em ban hay giai thich ro hon them noi ve cai nay "
+    "do kia la gi the nao sao di nhe voi cua va cac nhung mot phan tich lam xem duoc "
+    "khong can muon biet ky tom tat mo ta cu the hoi tiep nua o tren duoi".split()
+)
+_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+
+def _folded_tokens(text: str) -> list[str]:
+    from app.core.text import unaccent_vietnamese
+
+    return _TOKEN.findall(unaccent_vietnamese(text).lower())
+
+
+def answer_anchor(query: str, history: list[dict[str, str]] | None) -> str | None:
+    """The lines of the previous answer this turn points at, if any.
+
+    "trình bày chi tiết giai đoạn 3" → the "Giai đoạn 3: Tích hợp …" line of
+    the last answer. A line matches when it contains a word pair of the
+    query that is not just request words; pairs with a number ("đoạn 3")
+    weigh more, so "giai đoạn" alone does not pick all three stages.
+    """
+    if not history:
+        return None
+    answer = next(
+        (m.get("content", "") for m in reversed(history) if m.get("role") == "assistant"), ""
+    )
+    if not answer:
+        return None
+    tokens = _folded_tokens(query)
+    pairs = [
+        (a, b)
+        for a, b in zip(tokens, tokens[1:], strict=False)
+        if not (a in _FOLLOWUP_STOPWORDS and b in _FOLLOWUP_STOPWORDS)
+    ]
+    if not pairs:
+        return None
+    scored: list[tuple[int, int, str]] = []
+    for idx, line in enumerate(answer.splitlines()):
+        clean = line.strip()
+        if not clean:
+            continue
+        words = _folded_tokens(clean)
+        line_pairs = set(zip(words, words[1:], strict=False))
+        score = sum(
+            2 if (a.isdigit() or b.isdigit()) else 1 for a, b in pairs if (a, b) in line_pairs
+        )
+        if score:
+            scored.append((score, -idx, clean))
+    if not scored:
+        return None
+    best = max(scored)[0]
+    lines = [
+        text for score, _, text in sorted(scored, key=lambda t: t[1], reverse=True) if score == best
+    ]
+    excerpt = " ".join(re.sub(r"[*_#>`]|\[\d+\]", "", ln).strip(" -") for ln in lines[:2])
+    return excerpt[:600] or None
+
+
+_STANDALONE_PROMPT = (
+    "Viết lại câu hỏi tiếp nối của người dùng thành MỘT câu hỏi độc lập, đầy đủ chủ thể, "
+    "bằng tiếng Việt, để tìm trong kho tài liệu. Dùng câu hỏi trước và đoạn câu trả lời mà "
+    "người dùng đang nhắc tới để nêu rõ họ hỏi về điều gì (tên khái niệm, tên phần, tên tài "
+    "liệu). Giữ yêu cầu của người dùng (trình bày chi tiết, so sánh…). Chỉ trả về câu hỏi."
+)
+
+
+async def standalone_followup(query: str, history: list[dict[str, str]], anchor: str) -> str:
+    """A self-contained question for a turn that points into the previous answer."""
+    previous = next(
+        (m.get("content", "").strip() for m in reversed(history) if m.get("role") == "user"), ""
+    )
+    fallback = f"{previous} — {anchor} ({query})" if previous else f"{anchor} ({query})"
+    try:
+        from app.services.documents.llm import llm_text
+
+        rewritten = await llm_text(
+            _STANDALONE_PROMPT,
+            f"Câu hỏi trước: {previous}\nĐoạn được nhắc tới: {anchor}\nCâu hỏi tiếp nối: {query}",
+            timeout=15.0,
+            temperature=0.0,
+        )
+    except Exception:  # noqa: BLE001 - the deterministic condensation is fine
+        rewritten = None
+    rewritten = (rewritten or "").strip().strip('"')
+    if not rewritten or len(rewritten) > 400 or "\n" in rewritten:
+        return fallback
+    return rewritten
+
+
+def condense_query_with_history(
+    query: str, history: list[dict[str, str]], *, force: bool = False
+) -> str:
+    """Condense a follow-up query with the prior conversation subject/entities.
+
+    ``force`` condenses even when no follow-up phrase matched (used when the
+    turn alone is too vague to route but the conversation gives it a subject).
+    """
+    if not history or not (force or is_followup_query(query)):
         return query
 
     last_user_query = ""
@@ -253,15 +358,8 @@ class QueryOrchestrator:
         """Persist a run, execute the routed specialist, and return a QueryResult."""
         started = time.perf_counter()
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query = query
-        if history and is_followup_query(query):
-            effective_query = condense_query_with_history(query, history)
-            logger.info(
-                "condensed_followup_query",
-                extra={"original": query, "condensed": effective_query},
-            )
-
-        decision = self._triage.triage(effective_query)
+        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        await self._set_followup_scope(session, conversation_id, anchor)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(
@@ -336,15 +434,8 @@ class QueryOrchestrator:
 
         started = time.perf_counter()
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query = query
-        if history and is_followup_query(query):
-            effective_query = condense_query_with_history(query, history)
-            logger.info(
-                "condensed_followup_query",
-                extra={"original": query, "condensed": effective_query},
-            )
-
-        decision = self._triage.triage(effective_query)
+        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        await self._set_followup_scope(session, conversation_id, anchor)
         route = route_info(decision)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
@@ -1169,6 +1260,87 @@ class QueryOrchestrator:
         )
         return CommunicationService.from_client(client)
 
+    @staticmethod
+    async def _set_followup_scope(
+        session: AsyncSession, conversation_id: str | None, anchor: str | None
+    ) -> None:
+        """Scope a follow-up's retrieval to what the previous answer cited."""
+        _FOLLOWUP_SCOPE.set(None)
+        if not anchor or not conversation_id:
+            return
+        try:
+            from app.infrastructure.db.models import Message, RunEvidence
+
+            message = (
+                await session.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id, Message.role == "assistant")
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if message is None:
+                return
+            data = (message.metadata_ or {}).get("data") or {}
+            ids = [
+                str(c.get("document_id"))
+                for c in data.get("citations") or []
+                if isinstance(c, dict) and c.get("document_id")
+            ]
+            if not ids and message.run_id:
+                ids = list(
+                    (
+                        await session.execute(
+                            select(RunEvidence.document_id).where(
+                                RunEvidence.run_id == message.run_id, RunEvidence.cited
+                            )
+                        )
+                    ).scalars()
+                )
+            ids = list(dict.fromkeys(i for i in ids if i))[:_RAG_MAX_SCOPED_DOCUMENTS]
+            if ids:
+                _FOLLOWUP_SCOPE.set((ids, anchor))
+        except Exception:  # noqa: BLE001 - an unscoped follow-up still works
+            logger.warning("followup_scope_failed", exc_info=True)
+
+    async def _triage_in_context(
+        self, query: str, history: list[dict[str, str]] | None
+    ) -> tuple[str, RouteDecision, str | None]:
+        """Route a turn with its conversation: resolve follow-ups, never ask twice.
+
+        A turn that points into the previous answer ("trình bày chi tiết giai
+        đoạn 3 đi" after an answer listing three stages) is rewritten into a
+        standalone question from that answer. Other follow-up phrasings are
+        condensed with the previous question, and a turn still too vague to
+        route is re-tried with the previous question before asking the user.
+        """
+        effective_query = query
+        anchor = answer_anchor(query, history) if history else None
+        if history and anchor:
+            effective_query = await standalone_followup(query, history, anchor)
+            logger.info(
+                "followup_resolved_from_answer",
+                extra={"original": query, "standalone": effective_query},
+            )
+        elif history and is_followup_query(query):
+            effective_query = condense_query_with_history(query, history)
+            logger.info(
+                "condensed_followup_query",
+                extra={"original": query, "condensed": effective_query},
+            )
+        decision = self._triage.triage(effective_query)
+        if decision.route_type is RouteType.CLARIFICATION and history and effective_query == query:
+            condensed = condense_query_with_history(query, history, force=True)
+            if condensed != query:
+                retried = self._triage.triage(condensed)
+                if retried.route_type is not RouteType.CLARIFICATION:
+                    logger.info(
+                        "clarification_resolved_from_history",
+                        extra={"original": query, "condensed": condensed},
+                    )
+                    return condensed, retried, None
+        return effective_query, decision, anchor
+
     def _live_pipeline(self) -> Any:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
@@ -1225,6 +1397,22 @@ class QueryOrchestrator:
 
         base_query = self._live_retrieval_query(query, user_id)
         requester = retrieval_requester_id(user_id)
+        scope = _FOLLOWUP_SCOPE.get()
+        if scope is not None:
+            # A follow-up on the previous answer reads the documents it cited,
+            # searched with that answer's own words (often the source language).
+            document_ids, anchor = scope
+            logger.info("knowledge_route_planned", extra={"intent": "followup_scope"})
+            return _KnowledgeRoute(
+                rag_query=base_query.model_copy(
+                    update={
+                        "mode": RetrievalMode.DOCUMENT_SEARCH,
+                        "document_ids": document_ids,
+                        "search_query": f"{anchor} {query}"[:600],
+                        "require_source_diversity": len(document_ids) > 1,
+                    }
+                )
+            )
         try:
             relation = await self._relations().answer(query, requester)
             if relation is not None:
