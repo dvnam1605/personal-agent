@@ -22,7 +22,7 @@ _BOLD = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC = re.compile(r"(?<!\*)_(.+?)_(?!\*)")
 
 
-def _source_line(c: dict[str, Any]) -> str:
+def source_line(c: dict[str, Any]) -> str:
     bits = [str(c.get("title") or c.get("document_id"))]
     if c.get("section_title"):
         bits.append(f"mục {c['section_title']}")
@@ -43,11 +43,11 @@ def render_markdown(
     parts = [f"# {title}", f"_{template.label} — ngày {created:%d/%m/%Y}_", ""]
     for s in sections:
         if s.get("status") == "missing":
-            continue  # nothing grounded to say: the section is left out
+            continue
         parts.extend([f"## {s['heading']}", "", s["text"].strip(), ""])
     if citations:
         parts.extend(["## Tài liệu tham khảo", ""])
-        parts.extend(f"[{c['number']}] {_source_line(c)}" for c in citations)
+        parts.extend(f"[{c['number']}] {source_line(c)}" for c in citations)
     return "\n".join(parts).strip() + "\n"
 
 
@@ -140,7 +140,7 @@ def render_docx(
     if citations:
         doc.add_heading("Tài liệu tham khảo", level=1)
         for c in citations:
-            doc.add_paragraph(f"[{c['number']}] {_source_line(c)}")
+            doc.add_paragraph(f"[{c['number']}] {source_line(c)}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))

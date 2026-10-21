@@ -1,14 +1,9 @@
 """XlsxDocumentParser: Excel workbooks as sheets of titled tables (openpyxl).
 
-Each sheet becomes a heading; inside it, runs of non-empty rows separated by
-blank rows are blocks. A block whose rows have several filled cells is a
-table (its first row the header, kept verbatim), anything else is text
-(report titles like "ĐÁNH GIÁ KẾT QUẢ NHẬN DIỆN — Từ 09/10 đến 21/10",
-section labels like "Quầy line"). Cached formula results are read
-(``data_only``), so a summary sheet shows its numbers, not "=A1/B1".
-
-Large tables are split into row groups by the chunker, each repeating the
-header row, so every chunk stays readable on its own.
+Each sheet becomes a heading; blank rows split it into blocks. A block with
+several filled cells per row is a Markdown table (first row = header), anything
+else is text. Cached formula results are read (``data_only``), so cells show
+values rather than formulas.
 """
 
 from __future__ import annotations
@@ -118,8 +113,7 @@ class XlsxDocumentParser:
                 width = max(len(r) for r in block)
                 used = [c for c in range(width) if any(c < len(r) and r[c] for r in block)]
                 trimmed = [[r[c] if c < len(r) else "" for c in used] for r in block]
-                # Single-cell rows on top ("Quầy line" above its metrics table)
-                # are labels, not the table header.
+                # Single-cell rows on top are labels, not the table header.
                 labels: list[list[str]] = []
                 while len(trimmed) > 2 and _filled(trimmed[0]) <= 1:
                     labels.append(trimmed.pop(0))

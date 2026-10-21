@@ -12,8 +12,7 @@ from app.services.ingestion.relations.llm import extract_llm_relations
 from app.services.ingestion.relations.rules import dedupe, extract_rule_relations
 from app.services.ingestion.relations.types import RelationDraft, RelationType, TargetKind
 
-# Only administrative documents state legal bases, replacements or awards in
-# this phrasing; running the rules on a thesis would only produce noise.
+# Only administrative documents use this phrasing; elsewhere the rules add noise.
 _RELATION_CATEGORIES = {"administrative"}
 
 
@@ -46,10 +45,9 @@ _SIGNER_LOOKAHEAD = 4
 
 
 def signer_from_signature_block(text: str) -> RelationDraft | None:
-    """The name printed under the signing title ("TỔNG GIÁM ĐỐC" … "Đỗ Tiến Sỹ").
+    """Fallback signer: the name printed a few lines under the signing title.
 
-    Fallback for profiles without a signer: the seal image and OCR symbols
-    ("★Đỗ Tiên Sỹ") often sit between the title and the name.
+    Seal images and OCR symbols often sit between the title and the name.
     """
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for i, line in enumerate(lines):

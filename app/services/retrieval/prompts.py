@@ -81,10 +81,6 @@ SYNTHESIS_EXTERNAL_SYSTEM_PROMPT = (
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )
 
-# ---------------------------------------------------------------------------
-# User-message template
-# ---------------------------------------------------------------------------
-
 _QUESTION_HEADER = "## Question\n\n{question}\n\n## Retrieved Evidence\n\n"
 
 
@@ -106,7 +102,7 @@ def build_synthesis_user_message(
         for m in conversation_history[-4:]:
             role_label = "Người dùng" if m.get("role") == "user" else "Trợ lý"
             content = (m.get("content") or "").strip()
-            # Truncate assistant response if overly long so it doesn't consume all prompt budget
+            # Cap long turns so history does not eat the prompt budget.
             if len(content) > 1200:
                 content = content[:1200] + "... [phần tóm tắt phía trước]"
             history_lines.append(f"**{role_label}:** {content}\n")
@@ -131,7 +127,7 @@ def build_synthesis_user_message(
     else:
         for idx, item in enumerate(bundle.items):
             parts.append(sanitize_evidence_for_prompt(item, index=idx, label=evidence_label(idx)))
-            parts.append("")  # blank line separator
+            parts.append("")
 
     parts.append(
         "\n## Instructions\n\n"

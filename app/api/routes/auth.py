@@ -1,6 +1,7 @@
 """Authentication routes for user registration, login, and profile lookup."""
 
 import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,7 +128,9 @@ async def login(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> AuthResponse:
     client_ip = get_client_ip(request)
-    allowed, error_msg, retry_after = await auth_rate_limiter.check_login_allowed(body.email, client_ip)
+    allowed, error_msg, retry_after = await auth_rate_limiter.check_login_allowed(
+        body.email, client_ip
+    )
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

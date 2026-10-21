@@ -1,10 +1,8 @@
 """Outline planning and evidence-grounded section writing.
 
-Budget: one optional LLM call for the outline, one per section. Every
-section is written by the normal RAG pipeline restricted to the selected
-source documents, so it inherits the [E#] citation, grounding and
-abstention rules; a section without evidence is marked for the user to
-complete instead of being invented.
+One optional LLM call plans the outline, then each section is written by the
+RAG pipeline restricted to the selected sources, inheriting its citation and
+grounding rules; a section without evidence is marked missing, never invented.
 """
 
 from __future__ import annotations
@@ -18,15 +16,8 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-from app.services.documents.formulas import Formula, formula_hint
 from app.services.documents.llm import llm_json
-from app.services.documents.quality import (
-    DOCUMENT_WRITER_SYSTEM_PROMPT,
-    apply_quality_gates,
-    polish_style,
-)
-from app.services.documents.review import SectionReviewer
-from app.services.documents.table import (
+from app.services.documents.tables.writer import (
     DEFAULT_COLUMNS,
     MAX_COLUMNS,
     TABLE_MAX_SOURCES,
@@ -41,6 +32,13 @@ from app.services.documents.templates import (
     select_template,
     style_for,
 )
+from app.services.documents.writing.formulas import Formula, formula_hint
+from app.services.documents.writing.quality import (
+    DOCUMENT_WRITER_SYSTEM_PROMPT,
+    apply_quality_gates,
+    polish_style,
+)
+from app.services.documents.writing.review import SectionReviewer
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +60,14 @@ MISSING_SECTION_NOTE = (
 class OutlineSection(BaseModel):
     heading: str = Field(min_length=1, max_length=200)
     purpose: str = Field(default="", max_length=400)
-    # Headings of the source document(s) this section draws on ("3.2 Hệ
-    # thống tìm kiếm lai"); they steer the section's retrieval.
+    # Source-document headings this section draws on; they steer its retrieval.
     sources: list[str] = Field(default_factory=list, max_length=8)
 
 
 class DocumentOutline(BaseModel):
     template_key: str
     title: str = Field(min_length=1, max_length=300)
-    # "document": sections of prose (.docx); "table": columns filled per
-    # source document (.xlsx).
+    # "document" (prose sections, .docx) or "table" (columns per source, .xlsx).
     kind: str = "document"
     sections: list[OutlineSection] = Field(default_factory=list, max_length=MAX_SECTIONS)
     columns: list[TableColumn] = Field(default_factory=list, max_length=MAX_COLUMNS)
@@ -125,12 +121,7 @@ _OUTPUT_KIND = re.compile(
 
 
 def _subject(request: str) -> str:
-    """What the sources are about, without the document being written.
-
-    "Viết báo cáo tổng hợp về các quyết định khen thưởng năm 2026" →
-    "các quyết định khen thưởng năm 2026": "báo cáo" names the output, it
-    must not become a filter on the sources.
-    """
+    """What the sources are about: the request minus the output kind, which must not filter sources."""
     topic = _topic(request)
     parts = _SUBJECT_SPLIT.split(topic, maxsplit=1)
     if len(parts) == 2 and parts[1].strip():
@@ -159,9 +150,7 @@ class DocumentPlanner:
     ) -> list[str]:
         """Pick up to ``limit`` documents about the request's subject.
 
-        Metadata filters (kind, date, person, number) narrow the candidates;
-        when more match than can be read, they are ranked by relevance to the
-        subject with RAG restricted to that set — never just "newest first".
+        Metadata filters narrow the candidates; surplus matches are ranked by RAG relevance.
         """
         subject = _subject(request)
         plan = await self._metadata.plan(subject, requester_id)
@@ -219,8 +208,7 @@ class DocumentPlanner:
         if self._use_llm:
             snippets, headings = await self._source_snippets(request, requester_id, sources)
             if source_outline_for and 0 < len(sources) <= MAX_FULL_OUTLINE_SOURCES:
-                # Few sources: their whole table of contents, not only the
-                # headings of the passages a broad request happened to hit.
+                # Few sources: use their whole table of contents, not just the headings hit.
                 outline_lines = list(await source_outline_for(sources))
                 if outline_lines:
                     headings = outline_lines
@@ -284,13 +272,7 @@ class DocumentPlanner:
     async def _source_snippets(
         self, request: str, requester_id: str | None, sources: list[str]
     ) -> tuple[list[str], list[str]]:
-        """Excerpts of what the sources say, and the section headings they sit under.
-
-        The headings ("Nền tảng lý thuyết và công nghệ > Hệ thống tìm kiếm
-        lai") let the outline follow the source's own structure and cover all
-        of its relevant sub-sections instead of a few topics guessed from
-        scattered excerpts.
-        """
+        """Excerpts of the sources and their section headings, so the outline follows their structure."""
         if not sources:
             return [], []
         subject = _subject(request)
@@ -393,9 +375,7 @@ def normalize_outline_sections(
 ) -> list[OutlineSection]:
     """Conventional headings, consistent numbering, no generic 'Nội dung tổng hợp'.
 
-    A generic heading the model still produced is renamed to the template's
-    content slot (e.g. "Kết quả thực hiện"); numbering is redone in the
-    template's style so inserted topical sections never break the sequence.
+    Generic headings are renamed to the template's content slot; numbering follows the template.
     """
     topical = next((s for s in template.sections if s.topical), None)
     fallback = _HEADING_NUMBER.sub("", topical.heading) if topical else "Kết quả thực hiện"
@@ -514,8 +494,7 @@ class SectionWriter:
         removed_meta: list[str] = []
         removed_unverified: list[str] = []
         for section in outline.sections:
-            # Each section sees only its own evidence, so it should know what
-            # earlier sections already said (sections used to contradict each other).
+            # Sections only see their own evidence, so show what earlier ones said.
             earlier = "\n".join(
                 f"- {w.heading}: {_plain_summary(w.text, 600)}"
                 for w in written
@@ -559,8 +538,7 @@ class SectionWriter:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Rewrite one section following the user's feedback; the rest is kept.
 
-        The new text goes through the same evidence, gates and self-review as
-        the first draft. Citations are renumbered for the whole document.
+        Citations are renumbered for the whole document.
         """
         template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(request)
         current = sections[index]
@@ -673,13 +651,11 @@ class SectionWriter:
             logger.exception("document_section_failed heading=%s", section.heading)
             return missing
 
-        # Only text the model actually grounded counts: the LLM-failure
-        # fallback lists related documents but cites nothing.
+        # The LLM-failure fallback lists related documents but cites nothing.
         evidence_rows = getattr(result, "evidence", []) or []
         if not result.citations or not any(row.get("cited") for row in evidence_rows):
             return missing
 
-        # Quality gates: no meta-commentary, no figure absent from the evidence.
         evidence_text = "\n".join(str(row.get("prompt_text") or "") for row in evidence_rows)
         answer, gate = apply_quality_gates(result.answer, evidence_text)
         answer = polish_style(answer)

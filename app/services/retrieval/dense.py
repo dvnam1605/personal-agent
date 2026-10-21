@@ -14,7 +14,7 @@ from app.domain.models.retrieval import RetrievalMode, RetrievalQuery, Retrieved
 from app.services.ingestion.embedding import LocalEmbeddingService
 from app.services.retrieval.entity_catalog import get_entity_catalog
 from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
-from app.services.retrieval.query_reformulation import areformulate_query, reformulate_query
+from app.services.retrieval.query_reformulation import areformulate_query
 from app.services.retrieval.sql import (
     ANCHOR_SELECT_COLUMNS,
     CANDIDATE_FILTERS_TEMPLATE,

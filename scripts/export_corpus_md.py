@@ -1,10 +1,8 @@
 """Export the active corpus as Markdown files, one per document (read-only).
 
-Used to run another retrieval system (e.g. the GraphRAG spike, see
-docs/plans/graphrag-spike-plan.md) on exactly the text this system indexed,
-without re-parsing PDFs. Each file starts with a YAML front matter carrying
-the document profile (number, date, type, title, issuer, signer); the body is
-the document's top-level chunks in reading order, with their section heading.
+Lets another retrieval system run on exactly the text this system indexed.
+Each file has YAML front matter with the document profile, then the
+document's top-level chunks in reading order under their section headings.
 
 Run inside the backend container (it has the DB settings):
 

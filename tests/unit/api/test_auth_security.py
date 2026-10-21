@@ -1,6 +1,7 @@
 """Unit tests for authentication security hardening: rate limiting, lockout, and timing mitigation."""
 
 from collections.abc import AsyncGenerator
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -68,6 +69,7 @@ async def test_rate_limiter_direct_logic() -> None:
 @pytest.mark.asyncio
 async def test_account_lockout_endpoint(override_db_session: AsyncSession) -> None:
     """Verify that after 5 failed login attempts on /auth/login, account is locked with HTTP 429."""
+
     async def get_test_session():
         yield override_db_session
 
@@ -75,7 +77,9 @@ async def test_account_lockout_endpoint(override_db_session: AsyncSession) -> No
     try:
         transport = ASGITransport(app=app)
         headers = {"X-Forwarded-For": "198.51.100.1"}
-        async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=headers
+        ) as client:
             test_email = "lockout_target@example.com"
             await auth_rate_limiter.clear_login_failures(test_email)
 
@@ -115,6 +119,7 @@ async def test_account_lockout_endpoint(override_db_session: AsyncSession) -> No
 @pytest.mark.asyncio
 async def test_successful_login_clears_failure_counter(override_db_session: AsyncSession) -> None:
     """Verify that a successful login resets any previously accumulated failed attempts."""
+
     async def get_test_session():
         yield override_db_session
 
@@ -122,14 +127,20 @@ async def test_successful_login_clears_failure_counter(override_db_session: Asyn
     try:
         transport = ASGITransport(app=app)
         headers = {"X-Forwarded-For": "198.51.100.2"}
-        async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=headers
+        ) as client:
             test_email = "cleared_user@example.com"
             await auth_rate_limiter.clear_login_failures(test_email)
 
             # Register user
             reg_resp = await client.post(
                 "/auth/register",
-                json={"email": test_email, "password": "CorrectPassword123!", "full_name": "Clear User"},
+                json={
+                    "email": test_email,
+                    "password": "CorrectPassword123!",
+                    "full_name": "Clear User",
+                },
             )
             assert reg_resp.status_code == 201
 
@@ -145,7 +156,9 @@ async def test_successful_login_clears_failure_counter(override_db_session: Asyn
             assert success_resp.status_code == 200
 
             # Next failed attempt should reset and show remaining count as MAX - 1 (e.g. 4)
-            fail_again = await client.post("/auth/login", json={"email": test_email, "password": "wrong"})
+            fail_again = await client.post(
+                "/auth/login", json={"email": test_email, "password": "wrong"}
+            )
             assert fail_again.status_code == 401
             assert str(MAX_FAILED_LOGIN_ATTEMPTS - 1) in fail_again.json()["detail"]
 

@@ -41,9 +41,8 @@ _TRIGGERS: tuple[tuple[RelationType, re.Pattern[str]], ...] = (
     (RelationType.TERMINATES, re.compile(r"\bcham dut hop dong\b|\bnghi huu\b")),
     (RelationType.RECRUITS, re.compile(r"\btuyen dung\b")),
 )
-# Without an anchor the route only fires for lists, counts and "ai …":
-# "danh mục … năm 2026 thay thế quyết định nào" names one document by its
-# subject, which only RAG can resolve.
+# Without an anchor, fire only for lists/counts/"ai …"; a single document named
+# by its subject is left to RAG.
 _LIST_ASK = re.compile(
     r"\b(?:ai|bao nhieu|may|liet ke|tat ca|ke ten|danh sach)\b"
     rf"|\b(?:nhung|cac)\s+(?:{DOC_NOUN_PATTERN})\b"
@@ -139,8 +138,7 @@ class RelationQueryPlanner:
         if not (numbers or names or _LIST_ASK.search(folded)):
             return None
 
-        # With a document number, any date in the question describes that
-        # document ("… 852/QĐ-TNVN ngày 09/4/2025 …") and must not filter.
+        # With a document number, a date describes that document, not a filter.
         date_from = date_to = date_desc = None
         if not numbers:
             date_from, date_to, date_desc = parse_date_range(folded, today or date.today())

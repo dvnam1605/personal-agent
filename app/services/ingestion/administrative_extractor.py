@@ -57,21 +57,29 @@ class AdministrativeMetadataExtractor:
         (re.compile(r"(?i)\bĐÀI\s+TRUYỀN\s+HÌNH\s+VIỆT\s+NAM\b"), "Đài Truyền hình Việt Nam"),
         (re.compile(r"(?i)\bCHÍNH\s+PHỦ\b"), "Chính phủ"),
         (re.compile(r"(?i)\bTHỦ\s+TƯỚNG\s+CHÍNH\s+PHỦ\b"), "Thủ tướng Chính phủ"),
-        (re.compile(r"(?i)\bBỘ\s+THÔNG\s+TIN\s+VÀ\s+TRUYỀN\s+THÔNG\b"), "Bộ Thông tin và Truyền thông"),
+        (
+            re.compile(r"(?i)\bBỘ\s+THÔNG\s+TIN\s+VÀ\s+TRUYỀN\s+THÔNG\b"),
+            "Bộ Thông tin và Truyền thông",
+        ),
         (re.compile(r"(?i)\bBỘ\s+NỘI\s+VỤ\b"), "Bộ Nội vụ"),
         (re.compile(r"(?i)\bBỘ\s+TÀI\s+CHÍNH\b"), "Bộ Tài chính"),
         (re.compile(r"(?i)\bBỘ\s+GIÁO\s+DỤC\s+VÀ\s+ĐÀO\s+TẠO\b"), "Bộ Giáo dục và Đào tạo"),
         (re.compile(r"(?i)\bBỘ\s+Y\s+TẾ\b"), "Bộ Y tế"),
         (re.compile(r"(?i)\bBỘ\s+CÔNG\s+THƯƠNG\b"), "Bộ Công Thương"),
         (
-            re.compile(r"(?i)\b(?:BỘ|TỔNG\s+CỤC|CỤC|ỦY\s+BAN\s+NHÂN\s+DÂN|UBND|HỘI\s+ĐỒNG\s+NHÂN\s+DÂN|HĐND|HỌC\s+VIỆN|TRƯỜNG\s+ĐẠI\s+HỌC|VIỆN|TẬP\s+ĐOÀN|TỔNG\s+CÔNG\s+TY|CÔNG\s+TY|SỞ|BAN)\s+[A-ZĐÀ-Ỹa-zđà-ỹ\s0-9–\-]{3,60}\b"),
+            re.compile(
+                r"(?i)\b(?:BỘ|TỔNG\s+CỤC|CỤC|ỦY\s+BAN\s+NHÂN\s+DÂN|UBND|HỘI\s+ĐỒNG\s+NHÂN\s+DÂN|HĐND|HỌC\s+VIỆN|TRƯỜNG\s+ĐẠI\s+HỌC|VIỆN|TẬP\s+ĐOÀN|TỔNG\s+CÔNG\s+TY|CÔNG\s+TY|SỞ|BAN)\s+[A-ZĐÀ-Ỹa-zđà-ỹ\s0-9–\-]{3,60}\b"
+            ),
             None,
         ),
     ]
 
     ROLE_SIGNATURE_PATTERNS: ClassVar[list[tuple[re.Pattern[str], str]]] = [
         # Explicit Deputy / KT patterns (Nghị định 30/2020/NĐ-CP: KT. = Ký thay người đứng đầu)
-        (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*PH[ÓỐ]\s+TỔNG\s+GIÁM\s+ĐỐC\b"), "Phó Tổng Giám đốc"),
+        (
+            re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*PH[ÓỐ]\s+TỔNG\s+GIÁM\s+ĐỐC\b"),
+            "Phó Tổng Giám đốc",
+        ),
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*TỔNG\s+GIÁM\s+ĐỐC\b"), "Phó Tổng Giám đốc"),
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*PH[ÓỐ]\s+GIÁM\s+ĐỐC\b"), "Phó Giám đốc"),
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*GIÁM\s+ĐỐC\b"), "Phó Giám đốc"),
@@ -82,7 +90,6 @@ class AdministrativeMetadataExtractor:
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*TRƯỞNG\s+BAN\b"), "Phó Trưởng ban"),
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*TRƯỞNG\s+PHÒNG\b"), "Phó Trưởng phòng"),
         (re.compile(r"(?i)\b(?:KT[\./]|K/T|KÝ\s+THAY)\s*VIỆN\s+TRƯỞNG\b"), "Phó Viện trưởng"),
-
         # Deputy roles without KT prefix
         (re.compile(r"(?i)\bPH[ÓỐ]\s+TỔNG\s+GIÁM\s+ĐỐC\b"), "Phó Tổng Giám đốc"),
         (re.compile(r"(?i)\bPH[ÓỐ]\s+GIÁM\s+ĐỐC\b"), "Phó Giám đốc"),
@@ -93,7 +100,6 @@ class AdministrativeMetadataExtractor:
         (re.compile(r"(?i)\bPH[ÓỐ]\s+TRƯỞNG\s+PHÒNG\b"), "Phó Trưởng phòng"),
         (re.compile(r"(?i)\bPH[ÓỐ]\s+CHÁNH\s+VĂN\s+PHÒNG\b"), "Phó Chánh Văn phòng"),
         (re.compile(r"(?i)\bPH[ÓỐ]\s+VIỆN\s+TRƯỞNG\b"), "Phó Viện trưởng"),
-
         # Direct / Executive roles
         (re.compile(r"(?i)\b(?:TM[\./]|T/M)?\s*TỔNG\s+GIÁM\s+ĐỐC\b"), "Tổng Giám đốc"),
         (re.compile(r"(?i)\b(?:TM[\./]|T/M)?\s*GIÁM\s+ĐỐC\b"), "Giám đốc"),
@@ -107,17 +113,75 @@ class AdministrativeMetadataExtractor:
     ]
 
     _EXCLUDE_NAME_WORDS: ClassVar[set[str]] = {
-        "nơi", "nhận", "lưu", "vt", "r&d", "khtc", "tccb", "tổ", "chức",
-        "cộng", "hòa", "xã", "hội", "chủ", "nghĩa", "việt", "nam",
-        "độc", "lập", "tự", "do", "hạnh", "phúc", "đài", "tiếng", "nói",
-        "ban", "hành", "quyết", "định", "điều", "khoản", "ngày", "tháng", "năm",
-        "về", "việc", "kèm", "theo", "quy", "chế", "hướng", "dẫn", "thay",
-        "mặt", "thừa", "lệnh", "ủy", "quyền", "ký", "tên", "chữ", "đóng", "dấu",
+        "nơi",
+        "nhận",
+        "lưu",
+        "vt",
+        "r&d",
+        "khtc",
+        "tccb",
+        "tổ",
+        "chức",
+        "cộng",
+        "hòa",
+        "xã",
+        "hội",
+        "chủ",
+        "nghĩa",
+        "việt",
+        "nam",
+        "độc",
+        "lập",
+        "tự",
+        "do",
+        "hạnh",
+        "phúc",
+        "đài",
+        "tiếng",
+        "nói",
+        "ban",
+        "hành",
+        "quyết",
+        "định",
+        "điều",
+        "khoản",
+        "ngày",
+        "tháng",
+        "năm",
+        "về",
+        "việc",
+        "kèm",
+        "theo",
+        "quy",
+        "chế",
+        "hướng",
+        "dẫn",
+        "thay",
+        "mặt",
+        "thừa",
+        "lệnh",
+        "ủy",
+        "quyền",
+        "ký",
+        "tên",
+        "chữ",
+        "đóng",
+        "dấu",
     }
 
     _SKIP_LINE_PREFIXES: ClassVar[tuple[str, ...]] = (
-        "lưu:", "luru:", "nơi nhận:", "các ", "điều ", "theo ", "căn cứ ",
-        "chánh ", "trưởng ", "giám đốc ", "tổng giám đốc ", "phó "
+        "lưu:",
+        "luru:",
+        "nơi nhận:",
+        "các ",
+        "điều ",
+        "theo ",
+        "căn cứ ",
+        "chánh ",
+        "trưởng ",
+        "giám đốc ",
+        "tổng giám đốc ",
+        "phó ",
     )
 
     @classmethod
@@ -201,7 +265,9 @@ class AdministrativeMetadataExtractor:
             signer_role=data.get("signer_role"),
             subject=data.get("subject"),
             confidence=0.95,
-            extra_fields={"filename": filename, "extractor": "llm"} if filename else {"extractor": "llm"},
+            extra_fields={"filename": filename, "extractor": "llm"}
+            if filename
+            else {"extractor": "llm"},
         )
 
     @classmethod
@@ -215,7 +281,12 @@ class AdministrativeMetadataExtractor:
         meta = cls.extract(raw_text, filename=filename)
 
         # Return fast if algorithmic parser extracted complete core fields with high confidence
-        if meta.signer_name and meta.document_number and meta.promulgation_date and meta.confidence >= 0.8:
+        if (
+            meta.signer_name
+            and meta.document_number
+            and meta.promulgation_date
+            and meta.confidence >= 0.8
+        ):
             return meta
 
         if not use_llm_fallback:
@@ -403,7 +474,10 @@ class AdministrativeMetadataExtractor:
         lines = [line.strip() for line in header_text.splitlines() if line.strip()]
         for line in lines[:15]:
             clean = re.sub(r"^[#\s\*_()\-]+|[#\s\*_()\-]+$", "", line).strip()
-            if re.match(r"(?i)^(?:CỘNG\s+HÒA|ĐỘC\s+LẬP|QUYẾT\s+ĐỊNH|CHỈ\s+THỊ|QUY\s+CHẾ|THÔNG\s+BÁO)\b", clean):
+            if re.match(
+                r"(?i)^(?:CỘNG\s+HÒA|ĐỘC\s+LẬP|QUYẾT\s+ĐỊNH|CHỈ\s+THỊ|QUY\s+CHẾ|THÔNG\s+BÁO)\b",
+                clean,
+            ):
                 continue
             for pattern, canonical in cls.AUTHORITY_PREFIX_PATTERNS:
                 if pattern.search(clean):
@@ -501,7 +575,7 @@ class AdministrativeMetadataExtractor:
             return None, None
 
         # Search subsequent lines following the role block for the signer's name
-        for line in lines[role_idx + 1:]:
+        for line in lines[role_idx + 1 :]:
             clean_line = re.sub(r"^[#\s\*_()\-<]+|[#\s\*_()\-/>]+$", "", line).strip()
             clean_line = re.sub(r"<[^>]+>", "", clean_line).strip()
             low_clean = clean_line.lower()

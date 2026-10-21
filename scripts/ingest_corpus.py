@@ -19,7 +19,6 @@ import sys
 import time
 from pathlib import Path, PureWindowsPath
 
-# Fix Windows console encoding
 sys.stdout.reconfigure(encoding="utf-8")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,8 +61,7 @@ LEGACY_ROOT = DATA_ROOT / "QuyetDinh"
 
 
 def _source_id(path: Path) -> str:
-    """Deterministic id from the path; files under data/QuyetDinh keep their
-    historical ids (relative to that folder) so re-runs never duplicate them."""
+    """Deterministic id from the path; data/QuyetDinh keeps its historical ids."""
     resolved = path.resolve()
     base = LEGACY_ROOT if resolved.is_relative_to(LEGACY_ROOT.resolve()) else DATA_ROOT
     rel = (
@@ -71,9 +69,7 @@ def _source_id(path: Path) -> str:
         if resolved.is_relative_to(base.resolve())
         else resolved
     )
-    # Always hash the Windows spelling ("ChiThi\\x.md"): the corpus was first
-    # ingested on Windows, and a Linux run (e.g. inside the GPU container)
-    # must produce the same ids instead of duplicating every document.
+    # Always hash the Windows spelling so Linux runs produce the same ids.
     key = str(PureWindowsPath(*rel.parts))
     return "src-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
@@ -98,12 +94,10 @@ async def main() -> None:
     )
     logger.info("Found %d supported files in %s", len(md_files), data_dir)
 
-    # 1. Ensure embedding model snapshot is downloaded and ready
     model_name = settings.embedding.model
     logger.info("Preparing embedding backend for model: %s", model_name)
     local_path = settings.embedding.local_path
     if local_path and (REPO_ROOT / local_path).exists():
-        # Same snapshot the backend container uses (./models) — no download.
         model_path = str(REPO_ROOT / local_path)
         logger.info("Embedding model from local snapshot: %s", model_path)
     else:
@@ -114,7 +108,6 @@ async def main() -> None:
             logger.error("Failed to prepare embedding model: %s", exc)
             sys.exit(1)
 
-    # 2. Build local embedding service with CLS pooling for Vietnamese embedding
     import torch
 
     device = settings.embedding.device
@@ -133,7 +126,6 @@ async def main() -> None:
         batch_size=settings.embedding.batch_size,
     )
 
-    # 3. Build database orchestrator
     session_factory = get_session_factory()
     repository = SqlAlchemyIngestionRepository(session_factory)
     transaction = SqlAlchemyUnitOfWork(session_factory)
@@ -149,7 +141,6 @@ async def main() -> None:
         relation_store=SqlAlchemyRelationRepository(session_factory),
     )
 
-    # 4. Ingest each file
     total_start = time.perf_counter()
     success_count = 0
     fail_count = 0
@@ -215,7 +206,6 @@ async def main() -> None:
         f"Total time elapsed    : {total_duration:.2f}s (avg {total_duration / len(md_files):.2f}s/doc)"
     )
 
-    # 5. Query PostgreSQL to verify database contents
     async with session_factory() as session:
         res_docs = await session.execute(
             text("SELECT count(*) FROM documents WHERE is_active = true")
@@ -230,7 +220,6 @@ async def main() -> None:
         print(f"Chunks with pgvector   : {res_vectors.scalar()}")
         print("=" * 80 + "\n")
 
-    # Dispose engine
     engine = get_engine()
     await engine.dispose()
 

@@ -275,16 +275,16 @@ async def compose_email_draft(
                 "}\n"
             )
             if context:
-                user_content = f"Yêu cầu: {query}\n\nThông tin đã thu thập từ các bước trước:\n{context}"
+                user_content = (
+                    f"Yêu cầu: {query}\n\nThông tin đã thu thập từ các bước trước:\n{context}"
+                )
             else:
                 user_content = f"Yêu cầu: {query}"
             model = settings.llm.fast_model or settings.llm.primary_model
             timeout = 35.0
             chunks: list[str] = []
 
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout, connect=5.0)
-            ) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=5.0)) as client:
                 async with client.stream(
                     "POST",
                     settings.llm.chat_completions_url(),

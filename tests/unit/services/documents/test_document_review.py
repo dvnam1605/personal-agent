@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.documents.review import SectionReviewer, remove_flagged_sentences
 from app.services.documents.service import review_note
+from app.services.documents.writing.review import SectionReviewer, remove_flagged_sentences
 
 EVIDENCE = {
     1: "Quyết định số 91/QĐ-TNVN ngày 16/01/2026 tặng Bằng khen cho Liên Chi hội Nhà báo.",
@@ -137,7 +137,7 @@ async def test_second_rewrite_can_fix_the_section() -> None:
 
 
 def test_dangling_opening_is_detected() -> None:
-    from app.services.documents.review import structural_issues
+    from app.services.documents.writing.review import structural_issues
 
     issues = structural_issues(
         "Thực trạng này đòi hỏi người mua phải có hiểu biết [1]. Câu sau [2]."

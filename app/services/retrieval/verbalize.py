@@ -1,16 +1,10 @@
 """Phrase a structured (SQL) answer as natural prose without changing its facts.
 
-The relation and metadata routes answer from SQL: the facts are exact but
-the deterministic text reads like a report dump ("Tìm thấy 1 văn bản theo
-quan hệ đã lưu …"). One short LLM call rewrites that draft as a direct
-answer to the question; the rewrite is accepted only when it
-
-* keeps every citation label of the draft and invents none,
-* contains no figure (number, date, document number) absent from the draft,
-* stays within a sane length.
-
-Otherwise — or when the gateway is down — the deterministic draft is used,
-so this step can only change the wording, never the facts.
+The relation and metadata routes produce exact but report-like drafts. One short
+LLM call rewrites the draft as a direct answer; the rewrite is accepted only if it
+keeps exactly the draft's citation labels, adds no figure absent from the draft
+and stays within a sane length. Otherwise (or when the gateway is down) the draft
+is returned, so this step can change the wording but never the facts.
 """
 
 from __future__ import annotations
@@ -19,7 +13,7 @@ import logging
 import re
 
 from app.services.documents.llm import llm_text
-from app.services.documents.quality import _number_values, _significant
+from app.services.documents.writing.quality import _number_values, _significant
 
 logger = logging.getLogger(__name__)
 

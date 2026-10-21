@@ -1,11 +1,8 @@
 """Deterministic relations from administrative document text.
 
-Vietnamese administrative documents state their links to other documents in
-fixed phrasing: "Căn cứ …" lines (legal basis), "Theo đề nghị … tại Tờ trình
-số …" (proposal), "Kinh phí … theo Quyết định số …" (funding) and, in the
-body, "thay thế Quyết định số …" / "sửa đổi, bổ sung Quyết định số …". All
-of these carry a document number, so rules are both cheaper and more exact
-than an LLM here.
+Vietnamese administrative documents cite other documents in fixed phrasing
+(legal basis, proposal, funding, replaces, amends), each with a document
+number, so rules are cheaper and more exact than an LLM here.
 """
 
 from __future__ import annotations
@@ -32,9 +29,8 @@ _NUMBER = re.compile(
 )
 _DATE_NUMERIC = re.compile(r"ngày\s+(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{4})")
 _DATE_WORDS = re.compile(r"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})")
-# A reference only counts as a target when it starts the clause or follows a
-# list connector; "… sửa đổi một số điều của Nghị định số 115…" describes
-# the cited document and is not itself a basis.
+# A reference only counts when it starts the clause or follows a list connector;
+# otherwise it merely describes the cited document.
 _LEADING_OK = re.compile(r"(?:^|;|,|\bvà|\bCăn\s+cứ|\bđề\s+nghị\s+tại|\btại|\btheo)\s*$")
 _BASIS_LINE = re.compile(r"^\s*[-–•*]?\s*Căn\s+cứ\b", re.IGNORECASE)
 _PROPOSAL_LINE = re.compile(r"^\s*[-–•*]?\s*(?:Theo|Xét)\s+(?:đề\s+nghị|Tờ\s+trình)", re.IGNORECASE)
@@ -66,15 +62,10 @@ def _clean(text: str) -> str:
 
 
 def _number_in_head(segment: str) -> str | None:
-    """The document number when it sits in the identifying head of a reference.
-
-    The head ends at " ngày" / " của": numbers after that belong to the
-    description ("… sửa đổi Nghị định số 115/2020/NĐ-CP").
-    """
+    """The document number in a reference's head (before " ngày" / " của")."""
     ends = [i for marker in (" ngày", " của ") if (i := segment.find(marker)) > 0]
     head = segment[: min(ends)] if ends else segment[:160]
-    # "Luật Thực hành tiết kiệm, chống lãng phí số 44/2013/QH12": the number
-    # follows "số" after the name; otherwise it follows the kind directly.
+    # The number follows "số" after the name, or else the kind directly.
     m = re.search(rf"\bsố\s*{_NUMBER.pattern}", head)
     if m is None:
         comma = head.find(",")

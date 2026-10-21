@@ -1,9 +1,8 @@
-"""DoclingDocumentParser: born-digital PDF + DOCX via Docling (spec P9B-1).
+"""DoclingDocumentParser: born-digital PDF + DOCX via Docling.
 
-Docling is imported lazily inside this module only; nothing outside the
-parsing package ever sees a Docling type. The primary parser never runs OCR
+Docling is imported lazily and its types never leave this module. OCR is off
 (``do_ocr=False``): scanned PDFs fail the useful-text gate and come back as
-typed NEEDS_OCR results instead (spec P9B-4).
+typed NEEDS_OCR results instead.
 """
 
 from __future__ import annotations
@@ -71,11 +70,9 @@ def docling_version() -> str:
 
 
 class _FormulaTextReader:
-    """Text of an equation box from the PDF text layer (PyMuPDF), lazily opened.
+    """Text of an equation box read from the PDF text layer (PyMuPDF), lazily opened.
 
-    The box is widened to the page margins on the same rows so the equation
-    number printed at the right ("(3.6)") comes with it. Empty for non-PDF
-    sources, scanned pages, or when PyMuPDF is unavailable.
+    Empty for non-PDF sources, scanned pages, or when PyMuPDF is unavailable.
     """
 
     def __init__(self, content: bytes, filename: str) -> None:
@@ -104,7 +101,7 @@ class _FormulaTextReader:
             size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
             height = float(getattr(size, "height", 0) or page.rect.height)
             box = prov.bbox.to_top_left_origin(page_height=height)
-            # Same rows, full width: picks up "(3.6)" and the "nếu …" branches.
+            # Widen to full page width so the equation number on the right is kept.
             clip = (page.rect.x0, box.t - 2, page.rect.x1, box.b + 2)
             raw = page.get_text("text", clip=clip)
         except Exception:  # noqa: BLE001
@@ -179,8 +176,7 @@ class DoclingDocumentParser:
                         level=1,
                     )
                 )
-                # A title is the document root: it is never popped by later
-                # sections, only replaced by another title.
+                # A title is the root: only another title replaces it.
                 heading_stack[:] = [(0, title_text)]
             elif isinstance(node_item, SectionHeaderItem):
                 level = min(max(int(node_item.level or 2), 1), 6)
@@ -225,9 +221,7 @@ class DoclingDocumentParser:
             elif isinstance(node_item, TableItem):
                 markdown = (node_item.export_to_markdown(document) or "").strip()
                 if not markdown:
-                    # Layout detected a table region with no cells (common on
-                    # slide decks / images); one empty table must not fail the
-                    # whole document.
+                    # Docling finds empty table regions on slides/images; skip them.
                     warnings.append(f"empty table skipped at block {block_index}")
                     continue
                 table_data = getattr(node_item, "data", None)
@@ -249,8 +243,8 @@ class DoclingDocumentParser:
                 text = (node_item.text or "").strip()
                 item_label = str(getattr(node_item.label, "value", node_item.label) or "")
                 if item_label == "formula":
-                    # Without formula enrichment Docling keeps only the box of an
-                    # equation; its text is read from the PDF text layer there.
+                    # Without formula enrichment Docling keeps only the equation box;
+                    # read its text from the PDF text layer.
                     formula = text or formula_reader.text(node_item, document)
                     if formula:
                         nodes.append(
@@ -341,8 +335,7 @@ class DoclingDocumentParser:
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
-        # Newline-joined: header/tail layout rules are line-based (a space join
-        # collapsed the whole document into one "line").
+        # Newline-joined: the header/tail layout rules are line-based.
         full_text = "\n".join(n.text for n in nodes)
         from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 

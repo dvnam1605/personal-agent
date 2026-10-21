@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.documents.formulas import collect_formulas, insert_formulas
+from app.services.documents.writing.formulas import collect_formulas, insert_formulas
 
 TK = (
     "Với một thông số s, tập giá trị hợp lệ được xác định theo Công thức (3.5), còn khoảng "
@@ -122,7 +122,7 @@ def test_formulas_sharing_a_lead_are_introduced_once() -> None:
 
 
 def test_formula_hint_lists_only_the_section_formulas() -> None:
-    from app.services.documents.formulas import formula_hint
+    from app.services.documents.writing.formulas import formula_hint
 
     hint = formula_hint(FORMULAS, ["3.4.2 Kỹ thuật TK-Table và Self-Augmented Prompting"])
     assert "(3.5)" in hint and "(3.6)" in hint and "(3.3)" not in hint

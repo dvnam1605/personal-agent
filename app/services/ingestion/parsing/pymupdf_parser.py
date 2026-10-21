@@ -1,18 +1,10 @@
 """PyMuPDFDocumentParser: fast, low-memory parser for text-layer PDFs.
 
-Docling runs layout and table models per page, which is accurate but needs
-gigabytes of RAM for a book-length PDF. A born-digital PDF already carries
-its text, so this parser reads it directly with PyMuPDF:
-
-* headings come from the PDF outline (bookmarks) when it has one, matched
-  to the line where each section starts; otherwise from font size / bold;
-* running headers, footers and page numbers repeated across pages are
-  dropped; hyphenated line breaks are re-joined;
-* ruled tables are detected with ``find_tables`` and kept as Markdown;
-* every node is anchored to its page.
-
-Scanned or image-only PDFs never reach this parser: ``prefer_pymupdf``
-routes them to Docling so they still come back as NEEDS_OCR.
+Docling's per-page layout models need gigabytes of RAM on long PDFs; a
+born-digital PDF already carries its text, so this parser reads it directly.
+Headings come from the PDF outline (else font size / bold), running headers,
+footers and page numbers are dropped, and ruled tables become Markdown.
+Scanned PDFs are routed to Docling by ``prefer_pymupdf``.
 """
 
 from __future__ import annotations
@@ -99,9 +91,8 @@ _VI_VOWELS = "aăâeêioôơuưy" + _VI_TONED
 _VI_MARKED = re.compile(f"[ăâđêôơư{_VI_TONED}]")
 _VOWEL_RUN = re.compile(f"[{_VI_VOWELS}]+")
 _WORD = re.compile(r"[^\W\d_]+")
-# Some PDFs (fonts with odd glyph widths) lose the spaces between Vietnamese
-# syllables in the text layer ("hệthống"); Docling's own PDF backend reads
-# those correctly, so such files stay on Docling.
+# Some fonts lose the spaces between Vietnamese syllables ("hệthống") in the
+# text layer; Docling reads those correctly, so such files stay on Docling.
 _MAX_GLUED_RATIO = 0.05
 _MIN_VI_WORDS = 200
 
@@ -133,10 +124,7 @@ def pdf_text_stats(content: bytes) -> PdfTextStats | None:
 def prefer_pymupdf(content: bytes, *, engine: str, min_pages: int) -> bool:
     """Whether a PDF should be parsed by PyMuPDF instead of Docling.
 
-    ``engine``: "docling" never, "pymupdf" whenever the PDF has a text
-    layer, "auto" when it has one and is long enough (>= ``min_pages``) that
-    Docling's memory cost matters; short administrative PDFs keep Docling.
-    Scanned PDFs and PDFs whose text layer lost word spacing stay on Docling.
+    "auto" picks PyMuPDF only for clean text-layer PDFs of at least ``min_pages``.
     """
     if engine == "docling":
         return False
@@ -305,11 +293,7 @@ def _blocks_of(page: Any) -> list[_Block]:
 
 
 def _margin_key(text: str) -> str:
-    """Page-independent form of a margin line; empty for bare numbers.
-
-    Bare numbers (page or section numbers) are not running text: page
-    numbers are dropped by ``_PAGE_NUMBER``, section numbers must survive.
-    """
+    """Page-independent form of a margin line; empty for bare numbers (kept as content)."""
     key = re.sub(r"\d+", "#", _norm(text)) if text else ""
     return key if len(key.replace("#", "")) >= 4 else ""
 

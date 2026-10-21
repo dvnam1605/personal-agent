@@ -1,11 +1,8 @@
 """One LLM call per decision for relations whose targets are people or units.
 
-Award lists and personnel decisions name their targets in free-form lines
-("Bà Nguyễn Thuỷ Linh, Phó Bí thư …", "Ban Thư ký biên tập;"), so rules
-would be brittle. The reply is validated strictly: unknown types are
-dropped, and a target whose name does not occur in the document text is
-treated as hallucinated and discarded. Any failure returns ``[]`` so
-ingestion never fails because of this step.
+Award and personnel decisions name targets in free-form lines, so rules would
+be brittle. The reply is validated strictly: unknown types and targets absent
+from the document text are dropped. Any failure returns ``[]``.
 """
 
 from __future__ import annotations

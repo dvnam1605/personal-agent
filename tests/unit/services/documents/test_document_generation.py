@@ -20,7 +20,14 @@ from app.domain.models.retrieval.metadata_filter import (
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import Document, User
-from app.services.documents.generation import (
+from app.services.documents.rendering.report import render_docx, render_markdown
+from app.services.documents.service import DocumentGenerationService, outline_message
+from app.services.documents.templates import (
+    TEMPLATE_BY_KEY,
+    is_generation_request,
+    select_template,
+)
+from app.services.documents.writing.generation import (
     MISSING_SECTION_NOTE,
     DocumentOutline,
     DocumentPlanner,
@@ -28,13 +35,6 @@ from app.services.documents.generation import (
     SectionWriter,
     normalize_outline_sections,
     renumber_document,
-)
-from app.services.documents.render import render_docx, render_markdown
-from app.services.documents.service import DocumentGenerationService, outline_message
-from app.services.documents.templates import (
-    TEMPLATE_BY_KEY,
-    is_generation_request,
-    select_template,
 )
 from app.services.retrieval.synthesis import SynthesisResult
 

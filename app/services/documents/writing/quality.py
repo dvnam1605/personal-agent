@@ -1,13 +1,9 @@
 """Writing prompt and deterministic quality gates for generated documents.
 
-A generated document is a finished deliverable, not a Q&A turn: it must
-read well, carry no meta-commentary ("không tìm thấy bằng chứng…", document
-ids), and every figure in it must come from the evidence. The prompt asks
-for that; the gates below enforce it after generation:
-
-* meta sentences about missing data / evidence / document ids are removed;
-* a sentence whose numbers (amounts, dates, document numbers, counts) do
-  not all occur in the evidence the section was written from is removed.
+A generated document is a finished deliverable, not a Q&A turn. The prompt asks
+for clean, grounded prose; the gates enforce it afterwards by removing
+meta-commentary (missing data, document ids) and any sentence with a figure
+absent from the section's evidence.
 """
 
 from __future__ import annotations
@@ -85,7 +81,7 @@ def _number_values(text: str) -> set[int]:
 
 
 def _significant(values: set[int]) -> set[int]:
-    # 0–10 are too common (list numbering, "Điều 2", "09 tập thể") to verify.
+    # 0–10 are too common (list numbering, "Điều 2") to verify.
     return {v for v in values if v > 10}
 
 
@@ -127,7 +123,7 @@ def apply_quality_gates(text: str, evidence_text: str) -> tuple[str, GateReport]
         if kept:
             out_lines.append(prefix + " ".join(kept))
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(out_lines)).strip()
-    # A heading left without any content under it is dropped too.
+    # Drop headings left with no content under them.
     cleaned = re.sub(r"(?m)^#{1,6} .+\n+(?=#{1,6} |\Z)", "", cleaned).strip()
     return cleaned, report
 
@@ -139,19 +135,14 @@ _CHATBOT_SENTENCE = re.compile(
 
 
 def polish_style(text: str) -> str:
-    """Remove chatbot formatting habits from a written section.
-
-    Headings inside a section, bold/italic markers, horizontal rules and
-    opener/closer sentences ("Dưới đây là…", "Hy vọng…") have no place in a
-    document a person wrote; the content around them is kept.
-    """
+    """Strip chatbot habits (inner headings, bold/italic, rules, "Dưới đây là…" openers)."""
     lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
         if re.fullmatch(r"[-*_]{3,}", stripped):
             continue
         if stripped.startswith("#"):
-            # Inner sub-heading: keep its words only if they carry content.
+            # Inner sub-heading: dropped, leaving a paragraph break if it named a topic.
             heading = stripped.lstrip("#").strip().strip("*_ ")
             if heading and not re.fullmatch(r"[\dIVX.]+\s*\S{0,40}", heading):
                 lines.append("")

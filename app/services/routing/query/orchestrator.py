@@ -77,9 +77,7 @@ from .parsing import (
 
 logger = logging.getLogger(__name__)
 
-# Live RAG knobs while the cross-encoder reranker is disabled. RRF order is
-# the final order, so keep the prompt to the strongest candidates: fewer,
-# better chunks cost fewer gateway tokens and give the LLM less noise.
+# With the reranker disabled RRF order is final, so keep only the strongest chunks.
 _RAG_TOP_K_DENSE = 50
 _RAG_TOP_K_SPARSE = 60
 _RAG_MAX_CANDIDATES = 16
@@ -87,8 +85,7 @@ _RAG_PER_DOCUMENT_CAP = 4
 _RAG_CONTEXT_TOKEN_BUDGET = 8192
 # Short replies that approve a pending document outline ("duyệt", "ok viết đi").
 _APPROVAL_RE = re.compile(
-    # At most two trailing words ("duyệt nhé", "ok viết đi") so a real
-    # question that merely starts with "ok" is never taken as approval.
+    # At most two trailing words, so a real question starting with "ok" is not approval.
     r"^(?:duyệt|duyet|đồng ý|dong y|ok|oke|okay|viết đi|viet di|bắt đầu|bat dau|"
     r"tiến hành|tien hanh|làm đi|lam di)\b[\s!.,]*(?:\w+[\s!.,]*){0,2}$",
     re.IGNORECASE,
@@ -97,8 +94,7 @@ _APPROVAL_RE = re.compile(
 _RAG_MAX_SCOPED_DOCUMENTS = 8
 
 
-# Per-request scope of a follow-up that points into the previous answer:
-# (documents that answer cited, the answer line it points at).
+# Per-request follow-up scope: (documents the previous answer cited, the line pointed at).
 _FOLLOWUP_SCOPE: ContextVar[tuple[list[str], str] | None] = ContextVar(
     "_FOLLOWUP_SCOPE", default=None
 )
@@ -176,10 +172,7 @@ def _folded_tokens(text: str) -> list[str]:
 def answer_anchor(query: str, history: list[dict[str, str]] | None) -> str | None:
     """The lines of the previous answer this turn points at, if any.
 
-    "trình bày chi tiết giai đoạn 3" → the "Giai đoạn 3: Tích hợp …" line of
-    the last answer. A line matches when it contains a word pair of the
-    query that is not just request words; pairs with a number ("đoạn 3")
-    weigh more, so "giai đoạn" alone does not pick all three stages.
+    Lines are scored by shared non-request word pairs; pairs with a number weigh more.
     """
     if not history:
         return None
@@ -254,8 +247,7 @@ def condense_query_with_history(
 ) -> str:
     """Condense a follow-up query with the prior conversation subject/entities.
 
-    ``force`` condenses even when no follow-up phrase matched (used when the
-    turn alone is too vague to route but the conversation gives it a subject).
+    ``force`` condenses even when no follow-up phrase matched.
     """
     if not history or not (force or is_followup_query(query)):
         return query
@@ -269,9 +261,7 @@ def condense_query_with_history(
     if not last_user_query:
         return query
 
-    # Pronoun follow-ups ("ông ấy", "tài liệu đó") point at the person or
-    # document named in the previous question; substitute it in place so the
-    # rest of the new question (its own verb, date, document kind) is kept.
+    # Substitute the person from the previous question for the pronoun, keeping the rest.
     person = _PERSON_MENTION.search(last_user_query)
     if person and _PERSON_PRONOUN.search(query):
         return _PERSON_PRONOUN.sub(person.group(0).strip(), query, count=1)
@@ -469,7 +459,7 @@ class QueryOrchestrator:
             if first_token_at is None:
                 first_token_at = now
             last_token_at = now
-            # Vietnamese / English token approximation: count non-whitespace word chunks
+            # Approximate tokens as whitespace-separated chunks.
             tok_count = max(1, len(re.findall(r"\S+", delta)))
             total_tokens += tok_count
             yield _sse("token", {"delta": delta})
@@ -477,11 +467,10 @@ class QueryOrchestrator:
         async def _stream_text(text: str) -> AsyncGenerator[str, None]:
             if not text:
                 return
-            # Split into chunks of word + trailing whitespace or standalone whitespace:
             chunks = re.findall(r"\S+|\s+", text)
             if not chunks:
                 return
-            # Adaptive delay: fast for long answers, comfortable typewriter pacing for short answers
+            # Fast pacing for long answers, typewriter pacing for short ones.
             delay = min(0.018, max(0.004, 3.2 / max(1, len(chunks))))
             for chunk in chunks:
                 async for sse_event in _yield_token(chunk):
@@ -544,7 +533,6 @@ class QueryOrchestrator:
                 done_payload.update(extra)
             return _sse("done", done_payload)
 
-        # 1. Yield route metadata event
         yield _sse(
             "metadata",
             {
@@ -595,7 +583,6 @@ class QueryOrchestrator:
 
             agent = decision.target_agent
             if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
-                # Real LLM token streaming from RAG pipeline with multi-turn conversation history
                 async for event in self._run_retrieval_stream(
                     effective_query, user_id, conversation_history=history
                 ):
@@ -625,7 +612,6 @@ class QueryOrchestrator:
                 yield _emit_done("completed")
                 return
 
-            # For other routes (Calendar, Email, Workflows), execute specialist
             result: QueryResult
             if is_workflow_route(decision.route_type) or is_supervisor_route(decision.route_type):
                 handled = await self._handle_workflow(
@@ -682,12 +668,10 @@ class QueryOrchestrator:
                     route=route,
                 )
 
-            # Stream message
             if result.message:
                 async for item in _stream_text(result.message):
                     yield item
 
-            # Stream citations/data/approval
             if result.data or result.approval_id:
                 yield _sse(
                     "citations",
@@ -1308,11 +1292,8 @@ class QueryOrchestrator:
     ) -> tuple[str, RouteDecision, str | None]:
         """Route a turn with its conversation: resolve follow-ups, never ask twice.
 
-        A turn that points into the previous answer ("trình bày chi tiết giai
-        đoạn 3 đi" after an answer listing three stages) is rewritten into a
-        standalone question from that answer. Other follow-up phrasings are
-        condensed with the previous question, and a turn still too vague to
-        route is re-tried with the previous question before asking the user.
+        A turn pointing into the previous answer becomes a standalone question; other
+        follow-ups and too-vague turns are condensed with the previous question.
         """
         effective_query = query
         anchor = answer_anchor(query, history) if history else None
@@ -1382,12 +1363,7 @@ class QueryOrchestrator:
     async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
         """Pick SQL-over-relations, SQL-over-profiles, profile-scoped RAG, or corpus RAG.
 
-        Relation questions ("văn bản nào căn cứ …", "ai ký …", "… được khen theo
-        quyết định nào") are answered from ``document_relations`` when stored
-        facts match. Otherwise numbers and lists come from ``document_profiles``
-        (never paraphrased by an LLM); a hard selector (number / person / date / "mới nhất") next to a
-        content question scopes RAG to the selected documents. Any failure here
-        degrades to plain corpus RAG.
+        Any failure in the structured routes degrades to plain corpus RAG.
         """
         from app.domain.models.retrieval import RetrievalMode
         from app.domain.models.retrieval.metadata_filter import KnowledgeIntent
@@ -1399,8 +1375,7 @@ class QueryOrchestrator:
         requester = retrieval_requester_id(user_id)
         scope = _FOLLOWUP_SCOPE.get()
         if scope is not None:
-            # A follow-up on the previous answer reads the documents it cited,
-            # searched with that answer's own words (often the source language).
+            # Search the cited documents with the previous answer's own words.
             document_ids, anchor = scope
             logger.info("knowledge_route_planned", extra={"intent": "followup_scope"})
             return _KnowledgeRoute(
@@ -1420,8 +1395,7 @@ class QueryOrchestrator:
                     "knowledge_route_planned", extra={"intent": "relation", **relation.trace}
                 )
                 if 0 < relation.total <= _RAG_MAX_SCOPED_DOCUMENTS:
-                    # The facts say which documents and who; their text says the
-                    # rest (position, effective date, reason) — read it.
+                    # Facts give the documents and who; their text supplies the details.
                     return _KnowledgeRoute(rag_query=base_query, relation=relation)
                 return _KnowledgeRoute(
                     answer=await self._phrase(query, relation.answer),
@@ -1497,11 +1471,8 @@ class QueryOrchestrator:
     ) -> Any:
         """Relation facts from SQL + the text of those documents → one LLM answer.
 
-        SQL guarantees completeness (every rewarded unit, every signer); the
-        document text adds what the facts table does not keep. The facts go
-        into the system prompt, not the question, so the identifier and
-        grounding checks still judge the user's own question. Any target the
-        answer leaves out is appended; on failure the phrased fact list is used.
+        Facts go in the system prompt so grounding checks still judge the user's own
+        question; omitted targets are appended, and failures fall back to the fact list.
         """
         from app.domain.models.retrieval import RetrievalMode
         from app.domain.models.retrieval.sufficiency import SufficiencyStatus
@@ -1509,8 +1480,7 @@ class QueryOrchestrator:
         from app.services.retrieval.synthesis import SynthesisResult
 
         relation = route.relation
-        # "Ai ký các quyết định tặng Bằng khen": the awards only select the
-        # documents; the signers are what was asked (and must all be named).
+        # With signers plus another relation, the signers are what was asked.
         types = {str(f["relation_type"]) for f in relation.facts}
         asked = {"signed_by"} if "signed_by" in types and len(types) > 1 else types
         targets = list(
@@ -1611,8 +1581,7 @@ class QueryOrchestrator:
     ) -> AsyncGenerator[dict[str, Any], None]:
         route = await self._route_knowledge(query, user_id)
         if route.relation is not None:
-            # Not streamed token by token: the answer is checked for missing
-            # facts before it is shown.
+            # Not streamed: the answer is checked for missing facts before it is shown.
             result = await self._answer_relation(query, route, conversation_history)
             yield {"type": "token", "delta": result.answer}
             yield {

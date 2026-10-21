@@ -34,8 +34,7 @@ class RelationAnswer:
     citations: list[Citation]
     total: int
     trace: dict[str, Any]
-    # The matched facts ({document_id, relation_type, target_text, attributes}):
-    # the orchestrator requires every target to appear in an LLM answer.
+    # The orchestrator requires every fact target to appear in an LLM answer.
     facts: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -136,8 +135,7 @@ class RelationLookupService:
 
     async def run(self, plan: RelationPlan, requester_id: str | None) -> RelationAnswer | None:
         types = [t.value for t in plan.types]
-        # When "ai ký" is asked about documents of another kind ("các quyết
-        # định tặng Bằng khen"), the other relation selects the documents.
+        # For "ai ký" combined with another relation, the other one selects documents.
         topic = [t for t in types if t != RelationType.SIGNED_BY.value] or types
         visible = self._visible(requester_id)
         started = time.perf_counter()
@@ -201,8 +199,7 @@ class RelationLookupService:
                 DocumentRelation.document_id.in_(ids),
                 DocumentRelation.relation_type.in_(types),
             ]
-            # An anchored relation shows only the matching facts ("Ban X được
-            # khen theo QĐ nào" → the Ban X line, not all nine units).
+            # An anchored relation type shows only its matching facts.
             anchor_conds = [
                 _number_condition(DocumentRelation.target_number_norm, raw)
                 for raw in target_numbers

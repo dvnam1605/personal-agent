@@ -1,23 +1,11 @@
 """Put the equations of the sources into the sections that present them.
 
-Theses say "… được xác định theo Công thức (3.5)" and print the equation on
-its own line. Ingestion keeps that line as "Công thức: <text> (3.5)" (see
-parsing/docling_parser.py), but it lands in its own chunk, so a section's
-retrieval often brings the sentence without the equation — or no mention
-at all — and the report describes RRF or TK-Table without the formula.
-
-The equations of the source documents are collected once, each with the
-source section it belongs to ("3.2 Hệ thống tìm kiếm lai") and the text
-just before it. A written section then shows:
-
-* every numbered formula it mentions ("theo Công thức (3.5)"), right after
-  the mentioning sentence;
-* the formulas of the source sections it was planned from (outline
-  ``sources``), introduced by the source's own sentence ("Mức độ tương đồng
-  … được đo bằng cosine similarity theo Công thức (3.2):"), after the
-  paragraph that talks about them, or at the end of the section.
-
-Each formula is shown once per section and never twice in the document.
+Ingestion stores equations as "Công thức: <text> (3.5)" in their own chunks, so
+section retrieval often misses them. The source equations are collected once,
+with their section and preceding text, and inserted into each written section:
+after the sentence that mentions them by number, or, for the source sections the
+section was planned from, after the most related paragraph (else at the end).
+Each formula appears at most once in the document.
 """
 
 from __future__ import annotations
@@ -27,17 +15,15 @@ from dataclasses import dataclass
 
 from app.core.text import unaccent_vietnamese
 
-# "Công thức: Ps = {p ∈ Pcategory | …} (3.5)" as stored at ingestion.
+# Equation line as stored at ingestion: "Công thức: <body> (3.5)".
 _STORED = re.compile(r"Công thức:\s*(?P<body>.+?)\s*\((?P<num>\d+(?:\.\d+)+)\)", re.MULTILINE)
-# "Công thức (3.5)", "công thức 3.6", "biểu thức (3.3)" in written text.
+# A mention in written text: "Công thức (3.5)", "biểu thức 3.3".
 _MENTION = re.compile(r"(?i)(?:công thức|biểu thức|phương trình)\s*\(?(?P<num>\d+(?:\.\d+)+)\)?")
-# A colon or semicolon does not end a sentence: "… hai dạng truy vấn: tên sản
-# phẩm và mô tả nhu cầu." must not be split by an equation.
+# Colons/semicolons do not end a sentence, so an equation never splits one there.
 _SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 _LEAD_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-ZĐÀ-Ỹ])")
 _SECTION_NO = re.compile(r"^(\d+(?:\.\d+)+)\b")
-# Shared content words a paragraph needs with the source sentence that
-# introduces a formula to host it when the text does not mention it by number.
+# Content words a paragraph must share with a formula's context to host it.
 MIN_CONTEXT_OVERLAP = 4
 _WORD = re.compile(r"\w+", re.UNICODE)
 _STOP = frozenset(
@@ -90,7 +76,7 @@ def _covers(sources: list[str], heading: str) -> bool:
         key = _key(source)
         if key and (key in target or target in key):
             return True
-        # "3.4 Các kỹ thuật …" covers a formula under "3.4.2 Kỹ thuật TK-Table …".
+        # A section number covers its subsections (3.4 covers 3.4.2).
         source_no = _SECTION_NO.match(source.strip())
         if (
             source_no
@@ -167,7 +153,7 @@ def insert_formulas(
     def written_already(formula: Formula) -> bool:
         return _key(formula.body)[:24] in present
 
-    # 1. Explicit mentions ("theo Công thức (3.5)"): right after that sentence.
+    # Formulas mentioned by number go right after the mentioning sentence.
     after_sentence: dict[int, list[str]] = {}
     for m in _MENTION.finditer(text):
         formula = formulas.get(m.group("num"))
@@ -186,9 +172,7 @@ def insert_formulas(
         out.append(text[last:].lstrip(" "))
         text = re.sub(r"\n{3,}", "\n\n", "".join(out)).strip()
 
-    # 2. Formulas of the source sections this section was planned from: after
-    #    the paragraph that talks about them, introduced by the source's own
-    #    sentence; at the end of the section when no paragraph clearly does.
+    # Formulas of the planned source sections go after the most related paragraph.
     if not sources:
         return text
     paragraphs = text.split("\n\n")

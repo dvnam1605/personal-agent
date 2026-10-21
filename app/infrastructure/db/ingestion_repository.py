@@ -1,9 +1,8 @@
-"""SQLAlchemy adapter for the ingestion persistence ports (spec P9D-2).
+"""SQLAlchemy adapter for the ingestion persistence ports.
 
-Writes run inside the orchestrator-owned transaction: candidate version +
-chunk rows insert, previous ACTIVE versions archive, and the candidate flips
-ACTIVE in one commit — a failure anywhere leaves the previous searchable
-version untouched.
+Writes run inside the orchestrator-owned transaction, so inserting a candidate
+version and activating it commit together; a failure leaves the previous
+active version untouched.
 """
 
 from __future__ import annotations
@@ -63,12 +62,7 @@ def _is_postgres_session(session: AsyncSession) -> bool:
 
 
 class SqlAlchemyUnitOfWork:
-    """UnitOfWork adapter over an ``async_sessionmaker`` (review: live-PG fix).
-
-    ``async_sessionmaker`` exposes ``begin()`` but not the port's
-    ``transaction()``; this adapter bridges the two without leaking
-    SQLAlchemy types into the orchestrator.
-    """
+    """UnitOfWork adapter exposing ``async_sessionmaker.begin()`` as ``transaction()``."""
 
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker
@@ -130,7 +124,7 @@ class SqlAlchemyIngestionRepository:
     ) -> PersistCandidateResult:
         typed = self._session(session)
 
-        # Concurrency safety: check latest committed version within transaction with row lock
+        # Re-read the latest version under a row lock (PG) to resolve concurrent ingests.
         is_postgres = _is_postgres_session(typed)
         select_latest = (
             select(Document)
@@ -141,8 +135,7 @@ class SqlAlchemyIngestionRepository:
         if is_postgres:
             select_latest = select_latest.with_for_update()
         latest_row = (await typed.execute(select_latest)).scalar_one_or_none()
-        # A forced re-index (parser fixed, same file) must write a new version
-        # even though the source fingerprint is unchanged.
+        # A forced re-index writes a new version even for an unchanged fingerprint.
         if (
             not force_new_version
             and latest_row is not None
@@ -153,7 +146,6 @@ class SqlAlchemyIngestionRepository:
                 latest_row.id, latest_row.version_number, is_deduplicated=True
             )
 
-        # If another worker committed a new version concurrently, calculate next version cleanly
         actual_version = (
             (latest_row.version_number + 1) if latest_row is not None else version_number
         )
@@ -162,7 +154,7 @@ class SqlAlchemyIngestionRepository:
         else:
             actual_document_id = document_id
 
-        # Remap chunk IDs if actual_document_id changed to avoid DocumentChunk.id PK collisions
+        # A bumped version needs new chunk IDs to avoid PK collisions.
         parents_by_old_id = {p.id: p for p in parents}
         parent_id_map: dict[str, str] = {}
         for parent in parents:
@@ -233,9 +225,7 @@ class SqlAlchemyIngestionRepository:
                     content_hash=parent.content_hash,
                     source_block_ids=list(parent.source_block_ids),
                     parent_chunker_version=parent.parent_chunker_version,
-                    # Document-level metadata lives once in document_profiles
-                    # (and documents.metadata); copying it onto every chunk
-                    # only multiplied storage.
+                    # Document-level metadata lives in document_profiles, not per chunk.
                     metadata_={"ordinal": parent.ordinal},
                 )
             )
@@ -337,7 +327,7 @@ def _embedding_dimensions() -> int:
 
 
 def _json_safe(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Recursively keep JSON-serializable values; stringify the rest (review L4)."""
+    """Recursively keep JSON-serializable values; stringify the rest."""
 
     def convert(value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):

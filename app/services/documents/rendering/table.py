@@ -1,12 +1,8 @@
 """Render a generated table to Markdown (UI preview) and .xlsx (download).
 
-Layout of the workbook:
-
-* sheet "Bảng": title, subtitle (date, number of source documents), header
-  row (STT + columns + "Nguồn"), one row per table row; frozen header,
-  wrapped text, widths per column; cells cleared by the source check are
-  filled yellow with a comment saying why;
-* sheet "Nguồn": the numbered source list the "Nguồn" column refers to.
+The workbook has a "Bảng" sheet (one row per table row; cells cleared by the
+source check are filled yellow with a comment) and a "Nguồn" sheet listing the
+numbered sources the "Nguồn" column refers to.
 """
 
 from __future__ import annotations
@@ -20,7 +16,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from app.services.documents.render import _source_line
+from app.services.documents.rendering.report import source_line
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 _CLEARED_FILL = PatternFill("solid", fgColor="FFF2CC")
@@ -66,7 +62,7 @@ def render_table_markdown(
         )
     if citations:
         parts.extend(["", "## Nguồn", ""])
-        parts.extend(f"[{c['number']}] {_source_line(c)}" for c in citations)
+        parts.extend(f"[{c['number']}] {source_line(c)}" for c in citations)
     return "\n".join(parts).strip() + "\n"
 
 
@@ -159,7 +155,7 @@ def render_table_xlsx(
         cell.fill = _HEADER_FILL
     for i, citation in enumerate(citations, 2):
         src_ws.cell(row=i, column=1, value=f"[{citation['number']}]")
-        src_ws.cell(row=i, column=2, value=_source_line(citation)).alignment = _WRAP_TOP
+        src_ws.cell(row=i, column=2, value=source_line(citation)).alignment = _WRAP_TOP
     src_ws.column_dimensions["A"].width = 8
     src_ws.column_dimensions["B"].width = 90
 

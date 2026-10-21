@@ -86,7 +86,9 @@ class GoogleOAuthService:
     ) -> GoogleIntegrationStatus:
         """Consume OAuth state, exchange the code, validate scopes, and persist encrypted tokens."""
         record = await self.state_store.consume(state, user_id)
-        effective_user_id = record.user_id if record.user_id and record.user_id != "default-user" else user_id
+        effective_user_id = (
+            record.user_id if record.user_id and record.user_id != "default-user" else user_id
+        )
         if error:
             raise AuthenticationError("Google authorization was denied.")
         if not code or not code.strip():

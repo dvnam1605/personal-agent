@@ -17,18 +17,18 @@ from app.infrastructure.db.models import (
     DocumentProfile,
     GeneratedDocument,
 )
-from app.services.documents.formulas import Formula, collect_formulas, insert_formulas
-from app.services.documents.generation import (
+from app.services.documents.rendering.report import render_docx, render_markdown
+from app.services.documents.rendering.table import render_table_markdown, render_table_xlsx
+from app.services.documents.tables.writer import META_SOURCES, TableWriter, normalize_columns
+from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
+from app.services.documents.writing.formulas import Formula, collect_formulas, insert_formulas
+from app.services.documents.writing.generation import (
     DocumentOutline,
     DocumentPlanner,
     OutlineSection,
     SectionWriter,
 )
-from app.services.documents.render import render_docx, render_markdown
-from app.services.documents.review import SectionReviewer
-from app.services.documents.table import META_SOURCES, TableWriter, normalize_columns
-from app.services.documents.table_render import render_table_markdown, render_table_xlsx
-from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
+from app.services.documents.writing.review import SectionReviewer
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,9 @@ class DocumentGenerationService:
         review: bool = True,
     ) -> None:
         self._planner = DocumentPlanner(metadata_service, pipeline, use_llm=use_llm)
-        # Every written section is checked against its evidence and fixed.
         reviewer = SectionReviewer() if use_llm and review else None
         self._writer = SectionWriter(pipeline, reviewer=reviewer)
         self._table_writer = TableWriter(pipeline, review=use_llm and review)
-
-    # ------------------------------------------------------------ queries
 
     @staticmethod
     async def source_titles(session: AsyncSession, ids: list[str]) -> list[str]:
@@ -105,7 +102,6 @@ class DocumentGenerationService:
                 "issuer": (profile.issuer if profile is not None else None) or "",
                 "doc_type": (profile.doc_subtype if profile is not None else None) or "",
                 "signer": signer,
-                # Rows are listed by date, then number.
                 "sort_key": f"{doc_date.isoformat() if doc_date else '9999-12-31'}|{number}",
             }
         return out
@@ -145,7 +141,7 @@ class DocumentGenerationService:
     @staticmethod
     async def source_outline(session: AsyncSession, ids: list[str]) -> list[str]:
         """Table of contents of the source documents (section headings, in order)."""
-        from app.services.documents.generation import MAX_OUTLINE_LINES
+        from app.services.documents.writing.generation import MAX_OUTLINE_LINES
 
         if not ids:
             return []
@@ -214,8 +210,6 @@ class DocumentGenerationService:
             .limit(1)
         )
         return (await session.execute(stmt)).scalar_one_or_none()
-
-    # ---------------------------------------------------------- lifecycle
 
     async def create_outline(
         self,

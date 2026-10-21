@@ -1,11 +1,8 @@
-"""DocumentParser Protocol and the parse_source orchestration entry point.
+"""DocumentParser Protocol and the parse_source entry point.
 
-The flow implements spec P9B-4: normal parse -> useful text sufficient?
--> yes: continue / no: typed NEEDS_OCR (inline OCR is config-gated OFF in
-runtime V1; scanned PDFs are queued for the offline OCR path, P9E).
-
-Adapter modules are imported lazily inside functions so this module stays
-import-light and free of engine dependencies.
+Detect -> parse -> quality gate; documents without enough useful text come back
+as typed NEEDS_OCR for the offline OCR path. Adapters are imported lazily so
+this module stays free of engine dependencies.
 """
 
 from __future__ import annotations
@@ -39,11 +36,7 @@ class ParserUnavailableError(RuntimeError):
 
 
 class DocumentParseError(RuntimeError):
-    """Raised when an engine fails to convert one document.
-
-    The orchestrator converts this into a typed CORRUPT ParseResult so one
-    broken file never aborts a batch.
-    """
+    """Raised when an engine fails to convert one document (becomes a CORRUPT result)."""
 
 
 @runtime_checkable
@@ -95,11 +88,7 @@ def build_parser_for_type(
 def parser_identity(
     source: SourceDocument, content: bytes, *, settings: ParsingSettings | None = None
 ) -> tuple[str, str]:
-    """(parser name, version) that ``parse_source`` will use for this source.
-
-    Known before parsing so it can enter the version fingerprint: switching
-    a document's engine re-ingests it.
-    """
+    """(parser name, version) that ``parse_source`` will use; part of the fingerprint."""
     if source.source_type == "preparsed_markdown":
         from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 
@@ -135,8 +124,7 @@ async def parse_source(
     settings = settings or app_settings.parsing
 
     if source.source_type == "preparsed_markdown":
-        # Preparsed sources (P9E output shape) skip type detection entirely;
-        # their content contract is Markdown by definition.
+        # Preparsed sources are Markdown by definition; skip type detection.
         parser = build_parser_for_type(None, source_type=source.source_type)
         document_type = None
     else:

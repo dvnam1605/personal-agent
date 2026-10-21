@@ -1,11 +1,8 @@
 """Deterministic Vietnamese answers for relation lookups (no LLM).
 
-Each matching document is one numbered line (and one document citation),
-named the way people cite it ("Quyết định số 627/QĐ-TNVN ngày 18/03/2026 về
-việc …"); the relations that answer the question follow as short sentences
-("bổ nhiệm bà Đinh Thị Thu Trang giữ chức …") with the stated details kept
-verbatim. This text is also the fact draft the orchestrator may have an LLM
-reword (retrieval/verbalize.py).
+Each matching document becomes one numbered, cited line named the way people
+cite it, followed by its matching relations as short clauses with details kept
+verbatim. The text doubles as the fact draft an LLM may reword (verbalize.py).
 """
 
 from __future__ import annotations
