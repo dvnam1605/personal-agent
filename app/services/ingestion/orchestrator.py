@@ -80,11 +80,16 @@ class IngestionOrchestrator:
         chunking_settings: ChunkingSettings | None = None,
         profiler: Any | None = None,
         profile_store: Any | None = None,
+        relation_extractor: Any | None = None,
+        relation_store: Any | None = None,
     ) -> None:
         # Profiling is optional so lightweight test wiring needs neither an LLM
-        # nor the profiles table; production wiring passes both.
+        # nor the profiles table; production wiring passes both. Relations
+        # build on the profile (category, signer), so they need it as well.
         self._profiler = profiler
         self._profiles = profile_store
+        self._relation_extractor = relation_extractor
+        self._relations = relation_store
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
@@ -211,6 +216,21 @@ class IngestionOrchestrator:
             )
             obs.durations["parents"] = stage_elapsed()
 
+            # Like profiling, relation extraction may call an LLM, so it runs
+            # before the persist transaction.
+            relation_drafts = None
+            if (
+                profile_draft is not None
+                and self._relation_extractor is not None
+                and self._relations is not None
+            ):
+                relation_drafts = await self._relation_extractor.aextract(
+                    "\n".join(p.raw_text for p in parents),
+                    category=profile_draft.doc_category.value,
+                    entities=profile_draft.entities,
+                )
+                obs.durations["relations"] = stage_elapsed()
+
             await mark(IngestionStatus.BUILDING_CHILDREN)
             child_chunker = SentenceChildChunker(chunk_context, self._chunking_settings)
             children = [
@@ -276,6 +296,13 @@ class IngestionOrchestrator:
                         logical_document_id=logical_id,
                         draft=profile_draft,
                         overrides=profile_overrides,
+                    )
+                if relation_drafts is not None:
+                    await self._relations.replace(
+                        session,
+                        document_id=persisted_id,
+                        logical_document_id=logical_id,
+                        drafts=relation_drafts,
                     )
             obs.durations["persist"] = stage_elapsed()
 

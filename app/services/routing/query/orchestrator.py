@@ -184,9 +184,11 @@ class QueryOrchestrator:
         new_run_id: RunIdFn | None = None,
         summarize_emails_fn: SummarizeEmailsFn | None = None,
         metadata_service: Any | None = None,
+        relation_service: Any | None = None,
         pipeline: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
+        self._relation_service = relation_service
         self._document_service: Any | None = None
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
@@ -1182,11 +1184,20 @@ class QueryOrchestrator:
             self._metadata_service = MetadataLookupService()
         return self._metadata_service
 
-    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
-        """Pick SQL-over-profiles, profile-scoped RAG, or corpus RAG for a question.
+    def _relations(self) -> Any:
+        if self._relation_service is None:
+            from app.services.retrieval.relations import RelationLookupService
 
-        Numbers and lists come from ``document_profiles`` (never paraphrased by
-        an LLM); a hard selector (number / person / date / "mới nhất") next to a
+            self._relation_service = RelationLookupService()
+        return self._relation_service
+
+    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
+        """Pick SQL-over-relations, SQL-over-profiles, profile-scoped RAG, or corpus RAG.
+
+        Relation questions ("văn bản nào căn cứ …", "ai ký …", "… được khen theo
+        quyết định nào") are answered from ``document_relations`` when stored
+        facts match. Otherwise numbers and lists come from ``document_profiles``
+        (never paraphrased by an LLM); a hard selector (number / person / date / "mới nhất") next to a
         content question scopes RAG to the selected documents. Any failure here
         degrades to plain corpus RAG.
         """
@@ -1198,6 +1209,19 @@ class QueryOrchestrator:
 
         base_query = self._live_retrieval_query(query, user_id)
         requester = retrieval_requester_id(user_id)
+        try:
+            relation = await self._relations().answer(query, requester)
+            if relation is not None:
+                logger.info(
+                    "knowledge_route_planned", extra={"intent": "relation", **relation.trace}
+                )
+                return _KnowledgeRoute(
+                    answer=relation.answer,
+                    citations=relation.citations,
+                    status=SufficiencyStatus.SUFFICIENT,
+                )
+        except Exception:  # noqa: BLE001 - the relation route must never break answering
+            logger.exception("knowledge_relation_route_failed")
         try:
             service = self._metadata()
             plan = await service.plan(query, requester)

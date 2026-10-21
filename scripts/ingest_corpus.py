@@ -35,6 +35,7 @@ from app.infrastructure.db.ingestion_repository import (  # noqa: E402
     SqlAlchemyUnitOfWork,
 )
 from app.infrastructure.db.profile_repository import SqlAlchemyProfileRepository  # noqa: E402
+from app.infrastructure.db.relation_repository import SqlAlchemyRelationRepository  # noqa: E402
 from app.infrastructure.db.session import get_engine, get_session_factory  # noqa: E402
 from app.services.ingestion.embedding import (  # noqa: E402
     EmbeddingContract,
@@ -44,6 +45,7 @@ from app.services.ingestion.embedding import (  # noqa: E402
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
 from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
+from app.services.ingestion.relations import DocumentRelationExtractor  # noqa: E402
 from app.services.ingestion.source import build_local_source_document  # noqa: E402
 
 logging.basicConfig(
@@ -143,6 +145,8 @@ async def main() -> None:
         heartbeat_callback=job_service.heartbeat,
         profiler=DocumentProfiler(use_llm=not args.no_llm_profile),
         profile_store=SqlAlchemyProfileRepository(session_factory),
+        relation_extractor=DocumentRelationExtractor(use_llm=not args.no_llm_profile),
+        relation_store=SqlAlchemyRelationRepository(session_factory),
     )
 
     # 4. Ingest each file
