@@ -56,7 +56,7 @@ logging.basicConfig(
 logger = logging.getLogger("ingest_corpus")
 
 
-SUPPORTED_SUFFIXES = {".md", ".pdf", ".docx"}
+SUPPORTED_SUFFIXES = {".md", ".pdf", ".docx", ".xlsx"}
 DATA_ROOT = REPO_ROOT / "data"
 LEGACY_ROOT = DATA_ROOT / "QuyetDinh"
 

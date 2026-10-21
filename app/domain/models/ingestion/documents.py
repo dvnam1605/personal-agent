@@ -22,6 +22,7 @@ class DetectedDocumentType(StrEnum):
     PDF = "pdf"
     DOCX = "docx"
     MARKDOWN = "markdown"
+    XLSX = "xlsx"
 
 
 class DetectionStatus(StrEnum):

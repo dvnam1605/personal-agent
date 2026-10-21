@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.services.ingestion.parsing.docling_parser import DoclingDocumentParser
     from app.services.ingestion.parsing.markdown_parser import MarkdownDocumentParser
     from app.services.ingestion.parsing.pymupdf_parser import PyMuPDFDocumentParser
+    from app.services.ingestion.parsing.xlsx_parser import XlsxDocumentParser
 
 
 class ParserUnavailableError(RuntimeError):
@@ -62,7 +63,7 @@ def build_parser_for_type(
     source_type: str,
     content: bytes | None = None,
     settings: ParsingSettings | None = None,
-) -> DoclingDocumentParser | MarkdownDocumentParser | PyMuPDFDocumentParser:
+) -> DoclingDocumentParser | MarkdownDocumentParser | PyMuPDFDocumentParser | XlsxDocumentParser:
     """Pick the adapter for a detected type; preparsed_markdown always MD.
 
     PDFs with a text layer may go to PyMuPDF (see ``ParsingSettings.pdf_engine``);
@@ -73,6 +74,10 @@ def build_parser_for_type(
 
     if document_type is DetectedDocumentType.MARKDOWN or source_type == "preparsed_markdown":
         return MarkdownDocumentParser()
+    if document_type is DetectedDocumentType.XLSX:
+        from app.services.ingestion.parsing.xlsx_parser import XlsxDocumentParser
+
+        return XlsxDocumentParser()
     if document_type is DetectedDocumentType.PDF and content is not None:
         from app.services.ingestion.parsing.pymupdf_parser import (
             PyMuPDFDocumentParser,
@@ -106,6 +111,10 @@ def parser_identity(
         content=content,
         settings=settings,
     )
+    if type(parser).__name__ == "XlsxDocumentParser":
+        from app.services.ingestion.parsing.xlsx_parser import openpyxl_version
+
+        return "openpyxl", openpyxl_version()
     if type(parser).__name__ == "PyMuPDFDocumentParser":
         from app.services.ingestion.parsing.pymupdf_parser import pymupdf_version
 

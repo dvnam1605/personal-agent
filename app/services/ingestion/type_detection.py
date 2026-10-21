@@ -22,6 +22,7 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _PDF_EXTENSIONS = {".pdf"}
 _DOCX_EXTENSIONS = {".docx"}
 _MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+_XLSX_EXTENSIONS = {".xlsx", ".xlsm"}
 
 _PDF_MIME_TYPES = {"application/pdf"}
 _DOCX_MIME_TYPES = {
@@ -31,6 +32,10 @@ _DOCX_MIME_TYPES = {
 _MARKDOWN_MIME_TYPES = {
     "text/markdown",
     "text/x-markdown",
+}
+_XLSX_MIME_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroenabled.12",
 }
 
 
@@ -81,6 +86,8 @@ def _vote(
         ext_type = DetectedDocumentType.DOCX
     elif extension in _MARKDOWN_EXTENSIONS:
         ext_type = DetectedDocumentType.MARKDOWN
+    elif extension in _XLSX_EXTENSIONS:
+        ext_type = DetectedDocumentType.XLSX
 
     mime_type_normalized = (mime_type or "").split(";")[0].strip().lower()
     mime_doc: DetectedDocumentType | None = None
@@ -90,6 +97,12 @@ def _vote(
         mime_doc = DetectedDocumentType.DOCX
     elif mime_type_normalized in _MARKDOWN_MIME_TYPES:
         mime_doc = DetectedDocumentType.MARKDOWN
+    elif mime_type_normalized in _XLSX_MIME_TYPES:
+        mime_doc = DetectedDocumentType.XLSX
+
+    # A ZIP container is a workbook when its name or MIME says so.
+    if sniffed is DetectedDocumentType.DOCX and DetectedDocumentType.XLSX in (ext_type, mime_doc):
+        sniffed = DetectedDocumentType.XLSX
 
     if sniffed in (DetectedDocumentType.DOCX, DetectedDocumentType.MARKDOWN):
         agrees = sniffed in (ext_type, mime_doc)
@@ -119,7 +132,7 @@ def detect_document_type(
     mime_type: str | None = None,
     content_head: bytes | str | None = None,
 ) -> TypeDetectionResult:
-    """Classify one file as PDF/DOCX/Markdown or typed-UNSUPPORTED."""
+    """Classify one file as PDF/DOCX/Markdown/XLSX or typed-UNSUPPORTED."""
     sniffed = _sniff(content_head)
     winner, warnings = _vote(filename, mime_type, sniffed)
     if winner is None:

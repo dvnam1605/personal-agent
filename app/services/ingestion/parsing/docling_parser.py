@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import io
+import re
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.domain.models.ingestion.documents import SourceDocument
 from app.domain.models.ingestion.parsed_document import (
@@ -69,6 +70,48 @@ def docling_version() -> str:
         return "unknown"
 
 
+class _FormulaTextReader:
+    """Text of an equation box from the PDF text layer (PyMuPDF), lazily opened.
+
+    The box is widened to the page margins on the same rows so the equation
+    number printed at the right ("(3.6)") comes with it. Empty for non-PDF
+    sources, scanned pages, or when PyMuPDF is unavailable.
+    """
+
+    def __init__(self, content: bytes, filename: str) -> None:
+        self._content = content
+        self._is_pdf = filename.lower().endswith(".pdf") or content[:5] == b"%PDF-"
+        self._doc: Any = None
+        self._failed = False
+
+    def _open(self) -> Any:
+        if self._doc is None and not self._failed and self._is_pdf:
+            try:
+                import pymupdf
+
+                self._doc = pymupdf.open(stream=self._content, filetype="pdf")
+            except Exception:  # noqa: BLE001 - formulas are a best-effort extra
+                self._failed = True
+        return self._doc
+
+    def text(self, item: object, document: object) -> str:
+        doc = self._open()
+        prov = (getattr(item, "prov", None) or [None])[0]
+        if doc is None or prov is None or not getattr(prov, "page_no", None):
+            return ""
+        try:
+            page = doc[prov.page_no - 1]
+            size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
+            height = float(getattr(size, "height", 0) or page.rect.height)
+            box = prov.bbox.to_top_left_origin(page_height=height)
+            # Same rows, full width: picks up "(3.6)" and the "nếu …" branches.
+            clip = (page.rect.x0, box.t - 2, page.rect.x1, box.b + 2)
+            raw = page.get_text("text", clip=clip)
+        except Exception:  # noqa: BLE001
+            return ""
+        return re.sub(r"\s+", " ", raw).strip()
+
+
 def _page_range(item: object) -> tuple[int | None, int | None]:
     prov = getattr(item, "prov", None) or []
     page_numbers = [entry.page_no for entry in prov if getattr(entry, "page_no", None)]
@@ -104,6 +147,7 @@ class DoclingDocumentParser:
             raise DocumentParseError(f"docling failed on {source.filename}: {exc}") from exc
 
         document = result.document
+        formula_reader = _FormulaTextReader(content, source.filename)
         nodes: list[HeadingNode | ListNode | ParagraphNode | TableNode] = []
         heading_stack: list[tuple[int, str]] = []
         warnings: list[str] = []
@@ -203,9 +247,26 @@ class DoclingDocumentParser:
                 )
             elif isinstance(node_item, TextItem):
                 text = (node_item.text or "").strip()
+                item_label = str(getattr(node_item.label, "value", node_item.label) or "")
+                if item_label == "formula":
+                    # Without formula enrichment Docling keeps only the box of an
+                    # equation; its text is read from the PDF text layer there.
+                    formula = text or formula_reader.text(node_item, document)
+                    if formula:
+                        nodes.append(
+                            ParagraphNode(
+                                node_id=f"n{len(nodes):04d}",
+                                order=block_index,
+                                text=f"Công thức: {formula}",
+                                heading_path=heading_path(),
+                                anchor=anchor,
+                            )
+                        )
+                    elif "formulas without a text layer were skipped" not in warnings:
+                        warnings.append("formulas without a text layer were skipped")
+                    continue
                 if not text:
                     continue
-                item_label = str(getattr(node_item.label, "value", node_item.label) or "")
                 if item_label == "title":
                     nodes.append(
                         HeadingNode(
