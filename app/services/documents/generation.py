@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.documents.formulas import Formula, formula_hint
 from app.services.documents.llm import llm_json
 from app.services.documents.quality import (
     DOCUMENT_WRITER_SYSTEM_PROMPT,
@@ -499,7 +500,12 @@ class SectionWriter:
         self._reviewer = reviewer
 
     async def write(
-        self, outline: DocumentOutline, request: str, requester_id: str | None
+        self,
+        outline: DocumentOutline,
+        request: str,
+        requester_id: str | None,
+        *,
+        formulas: dict[str, Formula] | None = None,
     ) -> WrittenDocument:
         template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(request)
         global_citations: list[dict[str, Any]] = []
@@ -516,7 +522,13 @@ class SectionWriter:
                 if w.status != "missing"
             )
             draft = await self._write_one(
-                section, outline, template, request, requester_id, context=earlier
+                section,
+                outline,
+                template,
+                request,
+                requester_id,
+                context=earlier,
+                formula_hint=formula_hint(formulas or {}, section.sources),
             )
             removed_meta += draft.removed_meta
             removed_unverified += draft.removed_unverified
@@ -543,6 +555,7 @@ class SectionWriter:
         feedback: str,
         sections: list[dict[str, Any]],
         citations: list[dict[str, Any]],
+        formulas: dict[str, Formula] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Rewrite one section following the user's feedback; the rest is kept.
 
@@ -572,6 +585,7 @@ class SectionWriter:
             request,
             requester_id,
             context=others,
+            formula_hint=formula_hint(formulas or {}, target.sources),
             feedback=feedback,
             previous=previous,
         )
@@ -595,6 +609,7 @@ class SectionWriter:
         context: str = "",
         feedback: str | None = None,
         previous: str = "",
+        formula_hint: str = "",
     ) -> _Draft:
         all_headings = "; ".join(s.heading for s in outline.sections)
         question = (
@@ -608,6 +623,14 @@ class SectionWriter:
                 else ""
             )
             + (f"Bản trước của mục này:\n{previous}\n" if previous else "")
+            + (
+                "CÔNG THỨC TRONG CÁC MỤC NGUỒN CỦA MỤC NÀY (khi trình bày kỹ thuật tương ứng, "
+                "viết một câu dẫn có số hiệu, ví dụ 'điểm hợp nhất được tính theo Công thức "
+                "(3.3)', rồi giải thích ý nghĩa; KHÔNG chép nội dung công thức, hệ thống tự "
+                f"chèn):\n{formula_hint}\n"
+                if formula_hint
+                else ""
+            )
             + (
                 "GÓP Ý CỦA NGƯỜI DÙNG cho mục này (ưu tiên thực hiện, nhưng vẫn chỉ dùng "
                 f"thông tin có trong bằng chứng): {feedback}\n"

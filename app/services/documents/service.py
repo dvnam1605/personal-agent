@@ -17,6 +17,7 @@ from app.infrastructure.db.models import (
     DocumentProfile,
     GeneratedDocument,
 )
+from app.services.documents.formulas import Formula, collect_formulas, insert_formulas
 from app.services.documents.generation import (
     DocumentOutline,
     DocumentPlanner,
@@ -172,6 +173,24 @@ class DocumentGenerationService:
         return lines
 
     @staticmethod
+    async def formula_map(session: AsyncSession, ids: list[str]) -> dict[str, Formula]:
+        """Numbered equations of the sources, with the section each belongs to."""
+        if not ids:
+            return {}
+        rows = (
+            await session.execute(
+                select(DocumentChunk.heading_path, DocumentChunk.content_raw).where(
+                    DocumentChunk.document_id.in_(ids),
+                    DocumentChunk.hierarchy_level == 0,
+                    DocumentChunk.content_raw.contains("Công thức:"),
+                )
+            )
+        ).all()
+        return collect_formulas(
+            [(" > ".join(h for h in (path or []) if h), text) for path, text in rows]
+        )
+
+    @staticmethod
     async def get_owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedDocument:
         row = await session.get(GeneratedDocument, doc_id)
         if row is None or row.user_id != user_id:
@@ -287,9 +306,15 @@ class DocumentGenerationService:
                 )
                 self._store_table(row, outline, rows, citations)
             else:
-                written = await self._writer.write(outline, row.request, requester_id)
+                formulas = await self.formula_map(session, outline.source_document_ids)
+                written = await self._writer.write(
+                    outline, row.request, requester_id, formulas=formulas
+                )
                 self._store(
-                    row, outline, [s.model_dump() for s in written.sections], written.citations
+                    row,
+                    outline,
+                    _with_formulas([s.model_dump() for s in written.sections], formulas, outline),
+                    written.citations,
                 )
             row.status = "done"
             row.error = None
@@ -319,6 +344,7 @@ class DocumentGenerationService:
         if not 0 <= index < len(row.sections):
             raise IndexError(index)
         outline = DocumentOutline.model_validate(row.outline)
+        formulas = await self.formula_map(session, outline.source_document_ids)
         sections, citations = await self._writer.rewrite_section(
             outline,
             row.request,
@@ -327,8 +353,9 @@ class DocumentGenerationService:
             feedback=feedback,
             sections=list(row.sections),
             citations=list(row.citations or []),
+            formulas=formulas,
         )
-        self._store(row, outline, sections, citations)
+        self._store(row, outline, _with_formulas(sections, formulas, outline), citations)
         await session.flush()
         return row
 
@@ -450,3 +477,26 @@ def table_review_note(rows: list[dict[str, Any]]) -> str:
     if cleared:
         base += f" {cleared} ô chưa xác minh được đã để trống (tô vàng trong file Excel)."
     return base
+
+
+def _with_formulas(
+    sections: list[dict[str, Any]], formulas: dict[str, Formula], outline: DocumentOutline
+) -> list[dict[str, Any]]:
+    """Each section shows the source equations it mentions or was planned from."""
+    if not formulas:
+        return sections
+    planned = {s.heading: s.sources for s in outline.sections}
+    shown: set[str] = set()  # a formula appears once in the whole document
+    out: list[dict[str, Any]] = []
+    for section in sections:
+        if section.get("status") == "missing":
+            out.append(section)
+            continue
+        text = insert_formulas(
+            section.get("text") or "",
+            formulas,
+            sources=planned.get(section.get("heading") or "", []),
+            already_shown=shown,
+        )
+        out.append({**section, "text": text})
+    return out
