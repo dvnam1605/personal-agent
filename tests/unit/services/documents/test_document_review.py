@@ -134,3 +134,24 @@ async def test_second_rewrite_can_fix_the_section() -> None:
     script = Script([{"issues": [ISSUE]}, flag, {"issues": []}], rewrites=[v2, fixed])
     text, review = await _run(script)
     assert text == fixed and review.verdict == "revised" and review.rounds == 3
+
+
+def test_dangling_opening_is_detected() -> None:
+    from app.services.documents.review import structural_issues
+
+    issues = structural_issues(
+        "Thực trạng này đòi hỏi người mua phải có hiểu biết [1]. Câu sau [2]."
+    )
+    assert [i.problem for i in issues] == ["dangling_reference"]
+    assert structural_issues("Thị trường thiết bị công nghệ đa dạng [1].") == []
+
+
+async def test_dangling_opening_is_rewritten_never_removed() -> None:
+    text = "Thực trạng này đòi hỏi người mua phải có hiểu biết [1]."
+    fixed = "Thị trường điện thoại đa dạng khiến người mua cần hiểu biết [1]."
+    script = Script([{"issues": []}, {"issues": []}], rewrites=[fixed])
+    out, review = await _run(script, text)
+    assert out == fixed and review.verdict == "revised"
+    stuck = Script([{"issues": []}, {"issues": []}, {"issues": []}], rewrites=[text, text])
+    out, review = await _run(stuck, text)
+    assert out == text and review.removed_sentences == []  # kept, not deleted

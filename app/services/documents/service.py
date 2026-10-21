@@ -142,6 +142,36 @@ class DocumentGenerationService:
         return out
 
     @staticmethod
+    async def source_outline(session: AsyncSession, ids: list[str]) -> list[str]:
+        """Table of contents of the source documents (section headings, in order)."""
+        from app.services.documents.generation import MAX_OUTLINE_LINES
+
+        if not ids:
+            return []
+        rows = (
+            await session.execute(
+                select(DocumentChunk.document_id, DocumentChunk.heading_path)
+                .where(DocumentChunk.document_id.in_(ids), DocumentChunk.hierarchy_level == 0)
+                .order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
+            )
+        ).all()
+        titles = dict(
+            zip(ids, await DocumentGenerationService.source_titles(session, ids), strict=False)
+        )
+        lines: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for doc_id, path in rows:
+            heading = " > ".join(h for h in (path or []) if h)
+            if not heading or (doc_id, heading) in seen:
+                continue
+            seen.add((doc_id, heading))
+            prefix = f"[{titles.get(doc_id, doc_id)}] " if len(ids) > 1 else ""
+            lines.append(f"{prefix}{heading}")
+            if len(lines) >= MAX_OUTLINE_LINES:
+                break
+        return lines
+
+    @staticmethod
     async def get_owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedDocument:
         row = await session.get(GeneratedDocument, doc_id)
         if row is None or row.user_id != user_id:
@@ -181,6 +211,7 @@ class DocumentGenerationService:
             request,
             requester_id,
             source_titles_for=lambda ids: self.source_titles(session, ids),
+            source_outline_for=lambda ids: self.source_outline(session, ids),
         )
         row = GeneratedDocument(
             id=str(uuid.uuid4()),
@@ -215,8 +246,18 @@ class DocumentGenerationService:
             return row
         outline = DocumentOutline.model_validate(row.outline)
         if sections and outline.kind != "table":
+            # Edited sections keep the source headings the planner mapped to them.
+            mapped = {s.heading: s.sources for s in outline.sections}
+            edited = [OutlineSection.model_validate(s) for s in sections][:8]
             outline = outline.model_copy(
-                update={"sections": [OutlineSection.model_validate(s) for s in sections][:8]}
+                update={
+                    "sections": [
+                        e
+                        if e.sources
+                        else e.model_copy(update={"sources": mapped.get(e.heading, [])})
+                        for e in edited
+                    ]
+                }
             )
         if columns and outline.kind == "table":
             edited = normalize_columns(columns)

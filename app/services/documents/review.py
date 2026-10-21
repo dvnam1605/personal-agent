@@ -37,7 +37,35 @@ REVIEW_TIMEOUT_SECONDS = 60.0
 # Reviews per section; a section can be rewritten MAX_REVIEW_ROUNDS - 1 times.
 MAX_REVIEW_ROUNDS = 3
 MAX_EVIDENCE_CHARS = 1800  # per cited evidence unit shown to the reviewer
-PROBLEMS = ("unsupported", "contradiction", "wrong_citation", "off_topic")
+PROBLEMS = ("unsupported", "contradiction", "wrong_citation", "off_topic", "dangling_reference")
+# Found without the LLM: the section opens with a demonstrative that refers to
+# nothing before it ("Thực trạng này…"). Fixed by the rewrite, never removed.
+_DANGLING_OPENING = re.compile(
+    r"^\W*(?:(?:thực trạng|tình trạng|vấn đề|điều|việc|kết quả|nội dung|giải pháp|nhu cầu|"
+    r"hạn chế|khó khăn|xu hướng|tình hình|bối cảnh|đặc điểm|hệ thống|mô hình|cách tiếp cận)\s+"
+    r"(?:này|đó|trên|ấy|nói trên)|điều này|điều đó|những điều trên)\b",
+    re.IGNORECASE,
+)
+
+
+def structural_issues(text: str) -> list[ReviewIssue]:
+    """Deterministic issues: an opening sentence that cannot stand on its own."""
+    first = (
+        next((s for s in _sentences(text.strip().splitlines()[0]) if s.strip()), "")
+        if text.strip()
+        else ""
+    )
+    if first and _DANGLING_OPENING.match(first):
+        return [
+            ReviewIssue(
+                sentence=first.strip(),
+                problem="dangling_reference",
+                explanation="Câu mở đầu mục dùng đại từ chỉ định nhưng chưa nêu đó là gì; "
+                "phải nêu rõ chủ thể (lấy từ bằng chứng) để mục tự đứng được.",
+            )
+        ]
+    return []
+
 
 REVIEWER_SYSTEM_PROMPT = (
     "Bạn là chuyên viên thẩm định văn bản. Kiểm tra TỪNG CÂU của một mục tài liệu so với các "
@@ -62,7 +90,9 @@ REVISER_SYSTEM_PROMPT = (
     "2. Mọi số liệu, ngày tháng, số hiệu, tên người, tên đơn vị chép nguyên văn từ bằng chứng.\n"
     "3. Mỗi câu có thông tin cụ thể gắn nhãn trích dẫn đúng số của bằng chứng, dạng [2] hoặc "
     "[1][3]; chỉ dùng các số bằng chứng được cung cấp.\n"
-    "4. Giữ nguyên các phần đúng, giữ văn phong và độ dài tương đương; văn xuôi, không tiêu đề "
+    "4. Câu mở đầu bị báo 'dangling_reference' thì viết lại để nêu rõ chủ thể (ví dụ thay "
+    "'Thực trạng này…' bằng câu nói rõ thực trạng gì), dựa trên bằng chứng.\n"
+    "5. Giữ nguyên các phần đúng, giữ văn phong và độ dài tương đương; văn xuôi, không tiêu đề "
     "con, không in đậm, không lời dẫn kiểu 'Dưới đây là…', không nhận xét về việc sửa.\n"
     "Chỉ trả về nội dung mục đã viết lại."
 )
@@ -220,6 +250,7 @@ class SectionReviewer:
                 if rounds == 0:
                     return text, SectionReview(verdict="skipped")
                 break  # reviewer failed after a rewrite: trim what was flagged last
+            issues = structural_issues(current) + issues
             rounds += 1
             if not issues:
                 verdict = "revised" if all_issues else "ok"
@@ -233,7 +264,9 @@ class SectionReviewer:
             if not revised or not re.search(r"\[\d+\]", revised):
                 break
             current = revised
-        cleaned, removed = remove_flagged_sentences(current, [i.sentence for i in last])
+        # A wrong statement is removed; an opening that merely lacks its subject stays.
+        flagged = [i.sentence for i in last if i.problem != "dangling_reference"]
+        cleaned, removed = remove_flagged_sentences(current, flagged)
         return cleaned, SectionReview(
             verdict="trimmed", issues=all_issues, removed_sentences=removed, rounds=rounds
         )

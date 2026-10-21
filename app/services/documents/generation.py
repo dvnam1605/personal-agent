@@ -46,9 +46,12 @@ logger = logging.getLogger(__name__)
 MAX_SECTIONS = 8
 MAX_SOURCES = 8
 MAX_CANDIDATES = 50
-MAX_OUTLINE_SNIPPETS = 14
+MAX_OUTLINE_SNIPPETS = 16
+MAX_FULL_OUTLINE_SOURCES = 3
+MAX_OUTLINE_LINES = 90
+MAX_OUTLINE_HEADINGS = 30
 OUTLINE_TIMEOUT_SECONDS = 45.0
-SECTION_CONTEXT_TOKENS = 6000
+SECTION_CONTEXT_TOKENS = 10000
 
 MISSING_SECTION_NOTE = (
     "_(Chưa đủ thông tin trong các tài liệu nguồn để viết mục này — cần bổ sung.)_"
@@ -58,6 +61,9 @@ MISSING_SECTION_NOTE = (
 class OutlineSection(BaseModel):
     heading: str = Field(min_length=1, max_length=200)
     purpose: str = Field(default="", max_length=400)
+    # Headings of the source document(s) this section draws on ("3.2 Hệ
+    # thống tìm kiếm lai"); they steer the section's retrieval.
+    sources: list[str] = Field(default_factory=list, max_length=8)
 
 
 class DocumentOutline(BaseModel):
@@ -190,6 +196,7 @@ class DocumentPlanner:
         requester_id: str | None,
         *,
         source_titles_for: Any = None,
+        source_outline_for: Any = None,
     ) -> DocumentOutline:
         template = select_template(request)
         is_table = template.key == TABLE_TEMPLATE_KEY
@@ -209,14 +216,25 @@ class DocumentPlanner:
         title = default_title[:300]
 
         if self._use_llm:
-            snippets = await self._source_snippets(request, requester_id, sources)
-            proposed = await self._llm_outline(template, request, titles, snippets)
+            snippets, headings = await self._source_snippets(request, requester_id, sources)
+            if source_outline_for and 0 < len(sources) <= MAX_FULL_OUTLINE_SOURCES:
+                # Few sources: their whole table of contents, not only the
+                # headings of the passages a broad request happened to hit.
+                outline_lines = list(await source_outline_for(sources))
+                if outline_lines:
+                    headings = outline_lines
+            proposed = await self._llm_outline(template, request, titles, snippets, headings)
             if proposed:
                 title = str(proposed.get("title") or title)[:300]
                 llm_sections = [
                     OutlineSection(
                         heading=str(s.get("heading", "")).strip()[:200],
                         purpose=str(s.get("purpose", "")).strip()[:400],
+                        sources=[
+                            str(x).strip()[:160]
+                            for x in (s.get("sources") or [])
+                            if isinstance(x, str) and x.strip()
+                        ][:8],
                     )
                     for s in proposed.get("sections") or []
                     if isinstance(s, dict) and str(s.get("heading", "")).strip()
@@ -244,7 +262,7 @@ class DocumentPlanner:
         columns = list(DEFAULT_COLUMNS)
         row_unit, multi_rows = "văn bản", False
         if self._use_llm:
-            snippets = await self._source_snippets(request, requester_id, sources)
+            snippets, _headings = await self._source_snippets(request, requester_id, sources)
             proposed = await propose_table(request, titles, snippets)
             if proposed:
                 title = str(proposed.get("title") or title)
@@ -264,10 +282,16 @@ class DocumentPlanner:
 
     async def _source_snippets(
         self, request: str, requester_id: str | None, sources: list[str]
-    ) -> list[str]:
-        """Short excerpts of what the sources actually say, for naming sections."""
+    ) -> tuple[list[str], list[str]]:
+        """Excerpts of what the sources say, and the section headings they sit under.
+
+        The headings ("Nền tảng lý thuyết và công nghệ > Hệ thống tìm kiếm
+        lai") let the outline follow the source's own structure and cover all
+        of its relevant sub-sections instead of a few topics guessed from
+        scattered excerpts.
+        """
         if not sources:
-            return []
+            return [], []
         subject = _subject(request)
         try:
             bundle = await self._pipeline.run(
@@ -275,21 +299,26 @@ class DocumentPlanner:
                     original_query=subject,
                     search_query=subject,
                     requester_id=requester_id,
-                    top_k_dense=30,
-                    top_k_sparse=30,
+                    top_k_dense=40,
+                    top_k_sparse=40,
                     mode=RetrievalMode.DOCUMENT_SEARCH,
                     document_ids=sources,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - outline still works from titles
             logger.warning("document_outline_snippets_failed error=%s", exc)
-            return []
+            return [], []
         snippets: list[str] = []
-        for item in bundle.items[:MAX_OUTLINE_SNIPPETS]:
-            text = _plain_summary(str(getattr(item, "content_raw", "") or ""), 280)
-            if text and text not in snippets:
-                snippets.append(text)
-        return snippets
+        headings: list[str] = []
+        for item in bundle.items:
+            path = " > ".join(h.strip() for h in getattr(item, "heading_path", None) or [] if h)
+            if path and path not in headings and len(headings) < MAX_OUTLINE_HEADINGS:
+                headings.append(path)
+            if len(snippets) < MAX_OUTLINE_SNIPPETS:
+                text = _plain_summary(str(getattr(item, "content_raw", "") or ""), 280)
+                if text and text not in snippets:
+                    snippets.append(text)
+        return snippets, headings
 
     async def _llm_outline(
         self,
@@ -297,11 +326,13 @@ class DocumentPlanner:
         request: str,
         titles: list[str],
         snippets: list[str] | None = None,
+        headings: list[str] | None = None,
     ) -> dict[str, Any] | None:
         skeleton = "\n".join(
             f"- {s.heading}: {s.purpose}"
             + (
-                "  ← MỤC NỘI DUNG: thay bằng 2–4 mục đặt tên theo đúng chủ đề/công việc/sự kiện "
+                "  ← MỤC NỘI DUNG: thay bằng 2–6 mục (càng nhiều chủ đề có tư liệu càng tách nhiều) "
+                "đặt tên theo đúng chủ đề/công việc/sự kiện "
                 "cụ thể trong tài liệu nguồn"
                 if s.topical
                 else ""
@@ -310,6 +341,7 @@ class DocumentPlanner:
         )
         sources = "\n".join(f"- {t}" for t in titles[:MAX_SOURCES]) or "(chưa xác định)"
         excerpts = "\n".join(f"- {t}" for t in (snippets or [])) or "(không có)"
+        structure = "\n".join(f"- {h}" for h in (headings or [])) or "(không có)"
         system = (
             "Bạn là chuyên viên lập dàn ý văn bản hành chính, báo cáo tiếng Việt.\n"
             "1. Giữ bố cục thông thường của loại văn bản theo cấu trúc mẫu (các phần mở đầu, "
@@ -317,6 +349,9 @@ class DocumentPlanner:
             "2. Mục được đánh dấu MỤC NỘI DUNG phải tách thành các mục có tên cụ thể rút ra từ "
             "nội dung tài liệu nguồn (ví dụ 'II. Công tác khen thưởng thành tích tại Liên hoan "
             "Phát thanh toàn quốc'), mỗi mục một chủ đề có đủ tư liệu.\n"
+            "2a. Khi tài liệu nguồn có các mục tương ứng với yêu cầu (xem 'Cấu trúc mục liên "
+            "quan'), các mục nội dung phải BÁM THEO và PHỦ ĐỦ các tiểu mục đó (gộp tiểu mục nhỏ "
+            "cùng chủ đề nếu cần), không bỏ sót chủ đề nào có trong cấu trúc.\n"
             "3. TUYỆT ĐỐI KHÔNG đặt tiêu đề chung chung như 'Nội dung tổng hợp', 'Tổng hợp nội "
             "dung', 'Các nội dung chính'. Không tạo mục cho chủ đề không có trong tài liệu nguồn.\n"
             f"4. Tối đa {MAX_SECTIONS} mục, đánh số theo kiểu của cấu trúc mẫu, liên tục.\n"
@@ -325,8 +360,10 @@ class DocumentPlanner:
         user = (
             f"Loại tài liệu: {template.label}\nYêu cầu: {request}\n\n"
             f"Cấu trúc mẫu:\n{skeleton}\n\nTài liệu nguồn sẽ dùng:\n{sources}\n\n"
+            f"Cấu trúc mục liên quan trong tài liệu nguồn:\n{structure}\n\n"
             f"Trích đoạn nội dung từ tài liệu nguồn:\n{excerpts}\n\n"
-            'Trả về: {"title": "...", "sections": [{"heading": "...", "purpose": "..."}]}'
+            'Trả về: {"title": "...", "sections": [{"heading": "...", "purpose": "...", '
+            '"sources": ["tên mục trong tài liệu nguồn mà mục này dựa vào", "..."]}]}'
         )
         return await llm_json(system, user, timeout=OUTLINE_TIMEOUT_SECONDS)
 
@@ -371,7 +408,11 @@ def normalize_outline_sections(
             continue
         n = len(out) + 1
         prefix = {"roman": f"{_ROMAN[n - 1]}. ", "arabic": f"{n}. "}.get(style, "")
-        out.append(OutlineSection(heading=(prefix + bare)[:200], purpose=section.purpose))
+        out.append(
+            OutlineSection(
+                heading=(prefix + bare)[:200], purpose=section.purpose, sources=section.sources
+            )
+        )
     return out or [OutlineSection(heading=s.heading, purpose=s.purpose) for s in template.sections]
 
 
@@ -470,7 +511,9 @@ class SectionWriter:
             # Each section sees only its own evidence, so it should know what
             # earlier sections already said (sections used to contradict each other).
             earlier = "\n".join(
-                f"- {w.heading}: {_plain_summary(w.text)}" for w in written if w.status != "missing"
+                f"- {w.heading}: {_plain_summary(w.text, 600)}"
+                for w in written
+                if w.status != "missing"
             )
             draft = await self._write_one(
                 section, outline, template, request, requester_id, context=earlier
@@ -513,7 +556,7 @@ class SectionWriter:
             OutlineSection(heading=str(current.get("heading") or ""), purpose=""),
         )
         others = "\n".join(
-            f"- {s['heading']}: {_plain_summary(s.get('text') or '')}"
+            f"- {s['heading']}: {_plain_summary(s.get('text') or '', 600)}"
             for i, s in enumerate(sections)
             if i != index and s.get("status") != "missing"
         )
@@ -576,7 +619,9 @@ class SectionWriter:
             "Không nhận xét rằng tài liệu nguồn thiếu nội dung và không nhắc tới mã tài liệu; "
             "nếu bằng chứng của mục này chưa đủ thì chỉ viết phần có căn cứ."
         )
-        search = f"{section.heading} {section.purpose} {_topic(request)}"
+        search = (
+            f"{section.heading} {section.purpose} {' '.join(section.sources)} {_topic(request)}"
+        )
         if feedback:
             search = f"{search} {feedback}"
         query = RetrievalQuery(
@@ -587,8 +632,8 @@ class SectionWriter:
             else RetrievalMode.CORPUS_SEARCH,
             document_ids=list(outline.source_document_ids),
             requester_id=requester_id,
-            top_k_dense=30,
-            top_k_sparse=30,
+            top_k_dense=40,
+            top_k_sparse=40,
             context_token_budget=SECTION_CONTEXT_TOKENS,
             require_source_diversity=len(outline.source_document_ids) > 1,
         )
