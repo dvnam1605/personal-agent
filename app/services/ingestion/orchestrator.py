@@ -267,6 +267,7 @@ class IngestionOrchestrator:
                     fingerprint=fingerprint,
                     parser_name=obs.parser_name,
                     parser_version=obs.parser_version,
+                    force_new_version=force_reindex,
                     parents=parents,
                     children=[
                         (child, vector)

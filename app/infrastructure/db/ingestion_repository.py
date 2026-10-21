@@ -126,6 +126,7 @@ class SqlAlchemyIngestionRepository:
         parser_version: str,
         parents: list[ParentChunkDraft],
         children: Sequence[tuple[ChildChunkDraft, list[float] | None]],
+        force_new_version: bool = False,
     ) -> PersistCandidateResult:
         typed = self._session(session)
 
@@ -140,8 +141,11 @@ class SqlAlchemyIngestionRepository:
         if is_postgres:
             select_latest = select_latest.with_for_update()
         latest_row = (await typed.execute(select_latest)).scalar_one_or_none()
+        # A forced re-index (parser fixed, same file) must write a new version
+        # even though the source fingerprint is unchanged.
         if (
-            latest_row is not None
+            not force_new_version
+            and latest_row is not None
             and latest_row.fingerprint == fingerprint
             and latest_row.is_active
         ):
