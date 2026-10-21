@@ -51,10 +51,7 @@ KNOWLEDGE_RESEARCH_AGENT = AgentDefinition(
         "files, and external web sources with citations and injection immunity."
     ),
     domain=Domain.KNOWLEDGE_RESEARCH,
-    # NOTE: "drive.list_folder" shares the drive.read label and is therefore
-    # visible too; it is read-only and harmless (spec P13 §4.1). Drive mutation
-    # tools share NO label with the patterns below, so they are invisible even
-    # in the full (non-read-only) view — the gate strips what little remains.
+    # Drive mutation tools match none of these labels, so this agent only reads Drive.
     capabilities=[
         "retrieval.*",
         "drive.read",
