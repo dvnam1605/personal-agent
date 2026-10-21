@@ -96,6 +96,17 @@ _APPROVAL_RE = re.compile(
 _RAG_MAX_SCOPED_DOCUMENTS = 8
 
 
+def _mentions(text: str, target: str) -> bool:
+    """Whether ``text`` names ``target`` (accent/punctuation-insensitive prefix)."""
+    from app.core.text import unaccent_vietnamese
+
+    def norm(s: str) -> str:
+        return re.sub(r"[\W_]+", "", unaccent_vietnamese(s).lower())
+
+    key = norm(target)[:24]
+    return not key or key in norm(text)
+
+
 @dataclass
 class _KnowledgeRoute:
     """Either a finished structured answer or the RAG query to run."""
@@ -105,6 +116,8 @@ class _KnowledgeRoute:
     status: Any = None
     rag_query: Any = None
     prefix: str = ""
+    # Relation facts from SQL whose documents are read before answering.
+    relation: Any = None
 
 
 FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
@@ -185,10 +198,13 @@ class QueryOrchestrator:
         summarize_emails_fn: SummarizeEmailsFn | None = None,
         metadata_service: Any | None = None,
         relation_service: Any | None = None,
+        phrase_structured: bool = True,
         pipeline: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
+        # SQL answers are reworded by one short LLM call (facts verified).
+        self._phrase_structured = phrase_structured
         self._document_service: Any | None = None
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
@@ -1215,8 +1231,12 @@ class QueryOrchestrator:
                 logger.info(
                     "knowledge_route_planned", extra={"intent": "relation", **relation.trace}
                 )
+                if 0 < relation.total <= _RAG_MAX_SCOPED_DOCUMENTS:
+                    # The facts say which documents and who; their text says the
+                    # rest (position, effective date, reason) — read it.
+                    return _KnowledgeRoute(rag_query=base_query, relation=relation)
                 return _KnowledgeRoute(
-                    answer=relation.answer,
+                    answer=await self._phrase(query, relation.answer),
                     citations=relation.citations,
                     status=SufficiencyStatus.SUFFICIENT,
                 )
@@ -1232,6 +1252,7 @@ class QueryOrchestrator:
             if plan.intent is KnowledgeIntent.METADATA:
                 result = await service.run(plan.spec, requester)
                 answer, citations = render_metadata_answer(plan.spec, result)
+                answer = await self._phrase(query, answer)
                 status = (
                     SufficiencyStatus.SUFFICIENT if result.total else SufficiencyStatus.INSUFFICIENT
                 )
@@ -1268,6 +1289,106 @@ class QueryOrchestrator:
             logger.exception("knowledge_metadata_route_failed")
         return _KnowledgeRoute(rag_query=base_query)
 
+    async def _phrase(self, question: str, draft: str) -> str:
+        """Natural wording for a SQL-backed answer (facts unchanged; draft on doubt)."""
+        if not self._phrase_structured:
+            return draft
+        from app.services.retrieval.verbalize import phrase_structured_answer
+
+        try:
+            return await phrase_structured_answer(question, draft)
+        except Exception:  # noqa: BLE001 - wording must never break answering
+            logger.exception("structured_phrasing_failed")
+            return draft
+
+    async def _answer_relation(
+        self,
+        query: str,
+        route: _KnowledgeRoute,
+        conversation_history: list[dict[str, str]] | None,
+    ) -> Any:
+        """Relation facts from SQL + the text of those documents → one LLM answer.
+
+        SQL guarantees completeness (every rewarded unit, every signer); the
+        document text adds what the facts table does not keep. The facts go
+        into the system prompt, not the question, so the identifier and
+        grounding checks still judge the user's own question. Any target the
+        answer leaves out is appended; on failure the phrased fact list is used.
+        """
+        from app.domain.models.retrieval import RetrievalMode
+        from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+        from app.services.retrieval.prompts import SYNTHESIS_SYSTEM_PROMPT
+        from app.services.retrieval.synthesis import SynthesisResult
+
+        relation = route.relation
+        # "Ai ký các quyết định tặng Bằng khen": the awards only select the
+        # documents; the signers are what was asked (and must all be named).
+        types = {str(f["relation_type"]) for f in relation.facts}
+        asked = {"signed_by"} if "signed_by" in types and len(types) > 1 else types
+        targets = list(
+            dict.fromkeys(
+                str(f["target_text"]) for f in relation.facts if f["relation_type"] in asked
+            )
+        )
+        facts_text = re.sub(r"\s*\[\d+\]", "", relation.answer)
+        scoped = route.rag_query.model_copy(
+            update={
+                "mode": RetrievalMode.DOCUMENT_SEARCH,
+                "document_ids": [c.document_id for c in relation.citations],
+                "require_source_diversity": len(relation.citations) > 1,
+                "search_query": f"{query} {' '.join(targets)}"[:500],
+            }
+        )
+        system_prompt = (
+            f"{SYNTHESIS_SYSTEM_PROMPT}\n"
+            "DỮ KIỆN ĐÃ TRA CHÍNH XÁC TỪ CƠ SỞ DỮ LIỆU (đầy đủ cho câu hỏi này):\n"
+            f"{facts_text}\n\n"
+            "Yêu cầu thêm:\n"
+            "- Dữ kiện trên đã được xác minh từ văn bản gốc: NÊU TRỰC TIẾP kể cả khi đoạn "
+            "bằng chứng E# không chứa thông tin đó (khi ấy không cần nhãn [E#] cho câu đó). "
+            "Tuyệt đối không nói dữ kiện nào đó 'không có' hay 'chưa thể hiện'.\n"
+            "- Nêu ĐỦ mọi văn bản và mọi đối tượng trong dữ kiện trên, không bỏ sót.\n"
+            "- Trả lời đúng trọng tâm câu hỏi: chỉ thêm chi tiết từ bằng chứng E# (chức vụ, đơn "
+            "vị, ngày hiệu lực, lý do…) khi nó trực tiếp trả lời câu hỏi, gắn trích dẫn [E#].\n"
+            "- Văn phong tự nhiên như người trả lời đồng nghiệp: mở đầu bằng câu trả lời thẳng; "
+            "1–3 văn bản viết thành đoạn văn ngắn, nhiều hơn thì danh sách gạch đầu dòng gọn, "
+            "mỗi văn bản một dòng. Không dùng tiêu đề (#), không kẻ ngang (---), hạn chế in đậm; "
+            "không mở đầu kiểu 'Dựa trên các tài liệu được cung cấp', 'Dưới đây là'.\n"
+            "- Không nêu điều bằng chứng không có, không viết câu kiểu 'chưa có thông tin…'; "
+            "không nhắc tới 'dữ kiện' hay 'cơ sở dữ liệu'."
+        )
+        try:
+            result = await self._live_pipeline().run_with_synthesis(
+                scoped,
+                internal_only=True,
+                conversation_history=conversation_history,
+                system_prompt=system_prompt,
+            )
+        except Exception:  # noqa: BLE001 - fall back to the fact list
+            logger.exception("relation_content_answer_failed")
+            result = None
+        if result is None or not result.citations:
+            return SynthesisResult(
+                answer=await self._phrase(query, relation.answer),
+                citations=relation.citations,
+                status=SufficiencyStatus.SUFFICIENT,
+            )
+        missing = [t for t in targets if not _mentions(result.answer, t)]
+        if missing:
+            logger.info("relation_answer_missing_targets count=%d", len(missing))
+            result = result.model_copy(
+                update={
+                    "answer": result.answer.rstrip()
+                    + "\n\nNgoài ra, theo các văn bản trên còn có: "
+                    + "; ".join(missing)
+                    + "."
+                }
+            )
+        if result.status is not SufficiencyStatus.SUFFICIENT:
+            # The facts themselves are exact; missing detail is not missing answer.
+            result = result.model_copy(update={"status": SufficiencyStatus.SUFFICIENT})
+        return result
+
     async def _run_retrieval(
         self,
         query: str,
@@ -1279,6 +1400,8 @@ class QueryOrchestrator:
         from app.services.retrieval.synthesis import SynthesisResult
 
         route = await self._route_knowledge(query, user_id)
+        if route.relation is not None:
+            return await self._answer_relation(query, route, conversation_history)
         if route.answer is not None:
             return SynthesisResult(
                 answer=route.answer, citations=route.citations, status=route.status
@@ -1299,6 +1422,17 @@ class QueryOrchestrator:
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         route = await self._route_knowledge(query, user_id)
+        if route.relation is not None:
+            # Not streamed token by token: the answer is checked for missing
+            # facts before it is shown.
+            result = await self._answer_relation(query, route, conversation_history)
+            yield {"type": "token", "delta": result.answer}
+            yield {
+                "type": "citations",
+                "citations": [c.model_dump(mode="json") for c in result.citations],
+                "status": result.status.value,
+            }
+            return
         if route.answer is not None:
             yield {"type": "token", "delta": route.answer}
             yield {

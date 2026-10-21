@@ -9,7 +9,7 @@ relation miss can never hide an answer that lives in the text.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -30,10 +30,13 @@ MAX_DOCUMENTS = 30
 
 @dataclass(frozen=True)
 class RelationAnswer:
-    answer: str
+    answer: str  # deterministic fact draft (also the fallback answer)
     citations: list[Citation]
     total: int
     trace: dict[str, Any]
+    # The matched facts ({document_id, relation_type, target_text, attributes}):
+    # the orchestrator requires every target to appear in an LLM answer.
+    facts: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _number_condition(column: Any, raw: str) -> Any:
@@ -235,6 +238,7 @@ class RelationLookupService:
             answer=answer,
             citations=citations,
             total=len(docs),
+            facts=facts,
             trace={
                 "types": types,
                 "source_numbers": source_numbers,

@@ -204,7 +204,8 @@ async def test_who_signed_award_decisions_in_a_year(
     result = await svc.answer("Ai ký các quyết định tặng Bằng khen năm 2026?", None, today=TODAY)
     assert result is not None
     assert {c.document_id for c in result.citations} == {"doc-1", "doc-2"}
-    assert "người ký" in result.answer
+    assert "do Đỗ Tiến Sỹ ký" in result.answer
+    assert {f["relation_type"] for f in result.facts} >= {"signed_by"}
 
 
 async def test_no_matching_fact_falls_through(sessions: async_sessionmaker[AsyncSession]) -> None:
