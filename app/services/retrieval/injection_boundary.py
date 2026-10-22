@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import re
 
+from app.core.images import for_prompt
 from app.domain.models.retrieval import Evidence
 
 BOUNDARY_INSTRUCTIONS = (
@@ -76,7 +77,8 @@ def sanitize_evidence_for_prompt(
     attrs = " ".join(header_parts)
 
     # Defang boundary tags so content cannot close its block or forge a new one.
-    sanitized_content = _neutralize_tag(evidence.content_raw, "retrieved_document")
+    # Images appear to the model as their descriptions only (see app.core.images).
+    sanitized_content = _neutralize_tag(for_prompt(evidence.content_raw), "retrieved_document")
 
     return f"<retrieved_document {attrs}>\n{sanitized_content}\n</retrieved_document>"
 

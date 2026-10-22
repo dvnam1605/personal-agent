@@ -607,6 +607,7 @@ class QueryOrchestrator:
                                 "citations": event.get("citations", []),
                                 "sufficiency": event.get("status"),
                                 "unsupported_claims": event.get("unsupported_claims", []),
+                                **({"answer": event["answer"]} if event.get("answer") else {}),
                             },
                         )
                 yield _emit_done("completed")

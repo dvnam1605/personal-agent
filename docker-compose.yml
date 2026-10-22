@@ -72,6 +72,7 @@ services:
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh
       - ./.secrets:/app/.secrets
       - ./models:/app/models
+      - ./storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy

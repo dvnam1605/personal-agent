@@ -206,7 +206,8 @@ def insert_formulas(
         shown.add(formula.number)
         topic = _words(f"{formula.section} {formula.context}")
         scores = [
-            0 if p.startswith(("Công thức (", "$$")) else len(_words(p) & topic) for p in paragraphs
+            0 if p.startswith(("Công thức (", "$$", "![")) else len(_words(p) & topic)
+            for p in paragraphs
         ]
         best = max(range(len(paragraphs)), key=lambda i: scores[i])
         if scores[best] >= MIN_CONTEXT_OVERLAP:

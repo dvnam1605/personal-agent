@@ -1,11 +1,47 @@
 import React from 'react'
 import temml from 'temml'
 import 'temml/dist/Temml-Local.css'
+import { apiClient } from '../../api/client'
 import './MarkdownContent.css'
 
 interface MarkdownContentProps {
   content: string
   className?: string
+}
+
+// An image of a source document on its own line: "![Hình 4 — mô tả tự động: …](image:<key>)".
+const IMAGE_LINE = /^!\[([^\]\n]*)\]\(image:([0-9a-f]{24})\)$/
+
+const DocumentImage: React.FC<{ imageKey: string; alt: string }> = ({ imageKey, alt }) => {
+  const [url, setUrl] = React.useState<string | null>(null)
+  const [failed, setFailed] = React.useState(false)
+  React.useEffect(() => {
+    let objectUrl: string | null = null
+    let cancelled = false
+    apiClient
+      .fetchDocumentImage(imageKey)
+      .then((u) => {
+        objectUrl = u
+        if (cancelled) URL.revokeObjectURL(u)
+        else setUrl(u)
+      })
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [imageKey])
+  const label = alt.split(' — ')[0]
+  return (
+    <figure className="md-figure">
+      {url ? (
+        <img src={url} alt={alt} title={alt} className="md-figure-img" />
+      ) : (
+        <div className="md-figure-placeholder">{failed ? 'Không tải được hình' : 'Đang tải hình…'}</div>
+      )}
+      <figcaption className="md-figure-caption">{label}</figcaption>
+    </figure>
+  )
 }
 
 // A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)".
@@ -128,12 +164,14 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
 
   let listItems: React.ReactNode[] = []
   let isNumberedList = false
+  // An image or equation between steps splits the list; keep counting from its number.
+  let listStart = 1
 
   const flushList = () => {
     if (listItems.length > 0) {
       if (isNumberedList) {
         elements.push(
-          <ol key={`ol-${elements.length}`} className="md-ol">
+          <ol key={`ol-${elements.length}`} className="md-ol" start={listStart}>
             {listItems.map((item, idx) => (
               <li key={idx}>{item}</li>
             ))}
@@ -210,6 +248,16 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
 
     if (inCodeBlock) {
       codeBlockLines.push(line)
+      continue
+    }
+
+    const picture = line.trim().match(IMAGE_LINE)
+    if (picture) {
+      flushList()
+      flushTable()
+      elements.push(
+        <DocumentImage key={`img-${elements.length}`} imageKey={picture[2]} alt={picture[1]} />,
+      )
       continue
     }
 
@@ -334,11 +382,12 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
     }
 
     // Check Ordered List
-    const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/)
+    const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/)
     if (olMatch) {
       if (!isNumberedList) flushList()
+      if (listItems.length === 0) listStart = Number(olMatch[2]) || 1
       isNumberedList = true
-      listItems.push(renderInline(olMatch[2]))
+      listItems.push(renderInline(olMatch[3]))
       continue
     }
 

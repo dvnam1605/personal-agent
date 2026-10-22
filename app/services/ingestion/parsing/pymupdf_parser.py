@@ -28,6 +28,7 @@ from app.domain.models.ingestion.parsed_document import (
     TableNode,
 )
 from app.services.ingestion.parsing.base import DocumentParseError, ParserUnavailableError
+from app.services.ingestion.parsing.images import ImageCollector
 
 PYMUPDF_PARSER_NAME = "pymupdf"
 _PYMUPDF_DISTRIBUTION = "pymupdf"
@@ -154,6 +155,7 @@ class _Line:
 class _Block:
     lines: list[_Line]
     bbox: tuple[float, float, float, float]
+    image: dict[str, Any] | None = None  # an image block of page.get_text("dict")
 
     @property
     def text(self) -> str:
@@ -270,6 +272,9 @@ def _join_lines(lines: list[str]) -> str:
 def _blocks_of(page: Any) -> list[_Block]:
     blocks: list[_Block] = []
     for raw in page.get_text("dict", sort=True)["blocks"]:
+        if raw.get("type") == 1 and raw.get("image"):
+            blocks.append(_Block(lines=[], bbox=tuple(raw["bbox"]), image=raw))
+            continue
         if raw.get("type") != 0:
             continue
         lines: list[_Line] = []
@@ -360,12 +365,9 @@ class PyMuPDFDocumentParser:
         warnings: list[str] = []
         pages: list[tuple[float, list[_Block]]] = []
         tables: list[list[tuple[tuple[float, ...], str, int, int]]] = []
-        image_pages = 0
         for page in doc:
             blocks = _blocks_of(page)
             pages.append((float(page.rect.height), blocks))
-            if page.get_images(full=False):
-                image_pages += 1
             tables.append(self._tables_of(page) if self._detect_tables else [])
 
         toc = [
@@ -377,6 +379,7 @@ class PyMuPDFDocumentParser:
         running = _running_lines(pages)
         body, levels = _font_levels(pages)
         builder = _Builder()
+        images = ImageCollector()
         empty_pages = 0
 
         for pno, (_height, blocks) in enumerate(pages):
@@ -387,6 +390,19 @@ class PyMuPDFDocumentParser:
             consumed_suffix = ""
             number_lines: list[_Line] = []  # a section number set apart from its title
             for block in blocks:
+                if block.image is not None:
+                    if not any(_inside(block.bbox, t[0]) for t in tables[pno]):
+                        raw = block.image
+                        ref = images.add(
+                            raw["image"],
+                            raw.get("ext", "png"),
+                            raw["width"],
+                            raw["height"],
+                            pno + 1,
+                        )
+                        if ref:
+                            builder.paragraph(ref, anchor)
+                    continue
                 block_lines = [
                     ln
                     for ln in block.lines
@@ -454,8 +470,6 @@ class PyMuPDFDocumentParser:
             if len(builder.nodes) == page_start:
                 empty_pages += 1
 
-        if image_pages:
-            warnings.append(f"{image_pages} page(s) contain images not represented in the tree")
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
@@ -475,6 +489,7 @@ class PyMuPDFDocumentParser:
                 parse_warnings=tuple(warnings),
             ),
             nodes=tuple(nodes),
+            images=images.images,
         )
 
     @staticmethod

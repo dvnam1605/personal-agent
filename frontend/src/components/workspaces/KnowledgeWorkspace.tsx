@@ -531,6 +531,7 @@ export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelect
           if (data.citations && Array.isArray(data.citations)) {
             setCitations(data.citations as RAGCitation[])
           }
+          if (data.answer) setAnswer(data.answer)
         },
         onError: (err) => {
           setError(err?.message || 'Không thể tra cứu kho tri thức nội bộ.')

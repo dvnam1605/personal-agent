@@ -39,6 +39,7 @@ from app.services.documents.writing.quality import (
     polish_style,
 )
 from app.services.documents.writing.review import SectionReviewer
+from app.services.retrieval.images import interleave, split_images
 
 logger = logging.getLogger(__name__)
 
@@ -657,7 +658,9 @@ class SectionWriter:
             return missing
 
         evidence_text = "\n".join(str(row.get("prompt_text") or "") for row in evidence_rows)
-        answer, gate = apply_quality_gates(result.answer, evidence_text)
+        # Gates and review work on the prose; the evidence images go back afterwards.
+        prose, images = split_images(result.answer)
+        answer, gate = apply_quality_gates(prose, evidence_text)
         answer = polish_style(answer)
         removed_meta = list(gate.removed_meta)
         removed_unverified = list(gate.removed_unverified)
@@ -693,6 +696,8 @@ class SectionWriter:
                 len(outcome.removed_sentences),
             )
         used = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+        if answer and images:
+            answer = interleave(answer, lambda n: images.get(n, []))
         if not answer or not used:
             return missing.model_copy(
                 update={"removed_meta": removed_meta, "removed_unverified": removed_unverified}

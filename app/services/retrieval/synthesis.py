@@ -36,6 +36,7 @@ from app.services.retrieval.citations import (
     strip_orphan_ids,
 )
 from app.services.retrieval.grounding import GroundingReport, check_answer
+from app.services.retrieval.images import ImageRefs, interleave, refs_in
 from app.services.retrieval.prompts import (
     SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -454,9 +455,10 @@ class PromptAnswerSynthesizer:
         # Only what the model actually cited — never a stand-in "top 3".
         citations = build_citations_from_bundle(numberer.cited_ids, bundle)
         status = _uncited_status(cleaned_answer, citations, verdict_status)
+        images_for = _images_lookup(bundle, numberer)
         if interrupted:
             return SynthesisResult(
-                answer=cleaned_answer + _INTERRUPTED_NOTE,
+                answer=interleave(cleaned_answer, images_for) + _INTERRUPTED_NOTE,
                 citations=citations,
                 status=SufficiencyStatus.PARTIAL,
                 retrieval_trace_id=bundle.retrieval_trace_id,
@@ -466,7 +468,7 @@ class PromptAnswerSynthesizer:
             cleaned_answer += _UNCITED_NOTE
         grounding = check_answer(cleaned_answer)
         return SynthesisResult(
-            answer=cleaned_answer,
+            answer=interleave(cleaned_answer, images_for),
             citations=citations,
             status=_grounded_status(status, grounding),
             unsupported_claims=grounding.unsupported,
@@ -612,14 +614,27 @@ class PromptAnswerSynthesizer:
                 yield {"type": "token", "delta": _UNCITED_NOTE}
             status = _grounded_status(status, grounding)
 
+        # Images need the whole answer to find their steps: the client swaps
+        # the streamed text for this version when it differs.
+        text = "".join(streamed)
+        with_images = interleave(text, _images_lookup(bundle, numberer))
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
+            **({"answer": with_images} if with_images != text else {}),
             "status": status.value,
             "unsupported_claims": grounding.unsupported,
             "retrieval_trace_id": bundle.retrieval_trace_id,
             "evidence": evidence_snapshot(bundle, numberer),
         }
+
+
+def _images_lookup(
+    bundle: EvidenceBundle, numberer: CitationNumberer
+) -> Callable[[int], ImageRefs]:
+    """Images of the evidence behind citation number ``n``, in source order."""
+    by_eid = {item.evidence_id: refs_in(item.content_raw or "") for item in bundle.items}
+    return lambda n: by_eid.get(numberer.evidence_id_of(n) or "", [])
 
 
 _UNCITED_NOTE = (

@@ -25,6 +25,7 @@ from app.domain.models.ingestion.parsed_document import (
     TableNode,
 )
 from app.services.ingestion.parsing.base import DocumentParseError, ParserUnavailableError
+from app.services.ingestion.parsing.images import ImageCollector
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from docling.document_converter import DocumentConverter
@@ -70,7 +71,7 @@ def docling_version() -> str:
 
 
 class _FormulaTextReader:
-    """Text of an equation box read from the PDF text layer (PyMuPDF), lazily opened.
+    """Equation text and picture images read from the PDF itself (PyMuPDF), lazily opened.
 
     Empty for non-PDF sources, scanned pages, or when PyMuPDF is unavailable.
     """
@@ -107,6 +108,23 @@ class _FormulaTextReader:
         except Exception:  # noqa: BLE001
             return ""
         return re.sub(r"\s+", " ", raw).strip()
+
+    def image(
+        self, item: object, document: object, collector: ImageCollector, caption: str
+    ) -> str | None:
+        """Reference to the picture's image, kept by ``collector``."""
+        doc = self._open()
+        prov = (getattr(item, "prov", None) or [None])[0]
+        if doc is None or prov is None or not getattr(prov, "page_no", None):
+            return None
+        try:
+            page = doc[prov.page_no - 1]
+            size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
+            height = float(getattr(size, "height", 0) or page.rect.height)
+            box = prov.bbox.to_top_left_origin(page_height=height)
+        except Exception:  # noqa: BLE001
+            return None
+        return collector.add_region(doc, prov.page_no, (box.l, box.t, box.r, box.b), caption)
 
 
 def _page_range(item: object) -> tuple[int | None, int | None]:
@@ -145,6 +163,7 @@ class DoclingDocumentParser:
 
         document = result.document
         formula_reader = _FormulaTextReader(content, source.filename)
+        images = ImageCollector()
         nodes: list[HeadingNode | ListNode | ParagraphNode | TableNode] = []
         heading_stack: list[tuple[int, str]] = []
         warnings: list[str] = []
@@ -309,12 +328,13 @@ class DoclingDocumentParser:
                     ).strip()
                 parts = [p for p in (pic_caption, pic_text) if p]
                 pic_description = " - ".join(parts)
-                if pic_description:
+                ref = formula_reader.image(node_item, document, images, pic_description)
+                if ref or pic_description:
                     nodes.append(
                         ParagraphNode(
                             node_id=f"n{len(nodes):04d}",
                             order=block_index,
-                            text=f"[Hình ảnh: {pic_description}]",
+                            text=ref or f"[Hình ảnh: {pic_description}]",
                             heading_path=heading_path(),
                             anchor=anchor,
                         )
@@ -352,4 +372,5 @@ class DoclingDocumentParser:
                 parse_warnings=tuple(warnings),
             ),
             nodes=tuple(nodes),
+            images=images.images,
         )

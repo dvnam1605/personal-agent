@@ -42,6 +42,7 @@ from app.services.ingestion.embedding import (  # noqa: E402
     TransformersPoolingBackend,
 )
 from app.services.ingestion.formulas import FormulaLatexRebuilder  # noqa: E402
+from app.services.ingestion.images import ImageDescriber  # noqa: E402
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
 from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
@@ -145,6 +146,7 @@ async def main() -> None:
         relation_extractor=DocumentRelationExtractor(use_llm=not args.no_llm_profile),
         relation_store=SqlAlchemyRelationRepository(session_factory),
         formula_rebuilder=None if args.no_llm_profile else FormulaLatexRebuilder(),
+        image_describer=None if args.no_llm_profile else ImageDescriber(),
     )
 
     total_start = time.perf_counter()

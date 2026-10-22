@@ -18,12 +18,14 @@ import mathml2omml
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import parse_xml
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 
+from app.core.images import IMAGE_REF, image_file
 from app.services.documents.templates import DocTemplate
 from app.services.documents.writing.formulas import EQUATION_LINE
 
 _MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_PICTURE_WIDTH_INCHES = 5.5
 _TEXT_ARG = re.compile(r"\\text\{[^{}]*\}")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 # Underscores inside identifiers (insufficient_columns, MAX_EDIT_TIME) are not italics.
@@ -129,6 +131,22 @@ def _add_equation(doc: Any, latex: str, number: str | None) -> None:
         paragraph.add_run(f"    ({number})")
 
 
+def _add_picture(doc: Any, key: str, alt: str) -> None:
+    """The source image, page-wide at most, with its label as the caption."""
+    path = image_file(key)
+    if path is None:
+        return
+    try:
+        doc.add_picture(str(path), width=Inches(_PICTURE_WIDTH_INCHES))
+    except Exception:  # noqa: BLE001 - an unreadable image is left out
+        return
+    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption = doc.add_paragraph()
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = caption.add_run(alt.split(" — ", 1)[0])
+    run.italic = True
+
+
 def _add_block(doc: Any, block: str) -> None:
     for raw in block.splitlines():
         line = raw.rstrip()
@@ -137,6 +155,8 @@ def _add_block(doc: Any, block: str) -> None:
         stripped = line.lstrip()
         if equation := EQUATION_LINE.match(stripped):
             _add_equation(doc, equation.group("latex").strip(), equation.group("num"))
+        elif (picture := IMAGE_REF.fullmatch(stripped)) is not None:
+            _add_picture(doc, picture.group("key"), picture.group("alt"))
         elif stripped.startswith("### "):
             doc.add_heading(stripped[4:], level=3)
         elif stripped.startswith(("- ", "* ", "• ")):

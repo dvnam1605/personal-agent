@@ -166,7 +166,14 @@ class ApiClient {
     callbacks: {
       onMetadata?: (data: { run_id: string; status: string; route: any }) => void
       onToken?: (delta: string) => void
-      onCitations?: (data: { citations?: any[]; sufficiency?: string; data?: any; approval_id?: string }) => void
+      // `answer`: the final text with the cited images placed, replacing the streamed text.
+      onCitations?: (data: {
+        citations?: any[]
+        sufficiency?: string
+        data?: any
+        approval_id?: string
+        answer?: string
+      }) => void
       onError?: (err: Error) => void
       onDone?: (data: {
         run_id: string
@@ -327,6 +334,17 @@ class ApiClient {
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
+  }
+
+  /* Document images need the auth header too: fetched as an object URL (caller revokes it) */
+  async fetchDocumentImage(key: string): Promise<string> {
+    const response = await fetch(`/documents/images/${encodeURIComponent(key)}`, {
+      headers: this.getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
+    }
+    return URL.createObjectURL(await response.blob())
   }
 
   /* 2. Approvals (Human-in-the-Loop) */

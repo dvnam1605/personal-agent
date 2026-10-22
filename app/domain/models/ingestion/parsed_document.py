@@ -96,6 +96,19 @@ class ParsedDocumentMetadata(BaseModel):
     administrative_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ParsedImage(BaseModel):
+    """An image referenced from node text as ``![…](image:<key>)``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str = Field(pattern=r"^[0-9a-f]{24}$")
+    data: bytes
+    ext: str = Field(pattern=r"^(png|jpg|jpeg|gif|webp)$")
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    page: int | None = Field(default=None, ge=1)
+
+
 class ParsedDocument(BaseModel):
     """Root of the provider-independent normalized document tree."""
 
@@ -103,6 +116,7 @@ class ParsedDocument(BaseModel):
 
     metadata: ParsedDocumentMetadata
     nodes: tuple[DocumentNode, ...] = ()
+    images: tuple[ParsedImage, ...] = ()
 
 
 class ParseStatus(StrEnum):
