@@ -164,3 +164,23 @@ def test_equation_lines_become_word_equations(tmp_path) -> None:
     # No placeholder boxes for the missing upper limit and root degree.
     assert '<m:supHide m:val="1"/>' in xml and '<m:degHide m:val="1"/>' in xml
     assert "cos_sim" in xml and "cos\\_sim" not in xml
+
+
+def test_identifiers_with_underscores_are_not_italicised(tmp_path) -> None:
+    from docx import Document
+
+    from app.services.documents.rendering.report import render_docx
+    from app.services.documents.templates import TEMPLATE_BY_KEY
+
+    text = "Lỗi insufficient_columns, giới hạn STRUCTURED_QA_MAX_EDIT_TIME = 3 và _nhấn mạnh_ [1]."
+    path = render_docx(
+        tmp_path / "u.docx",
+        "Báo cáo",
+        [{"heading": "I. Kỹ thuật", "text": text}],
+        [],
+        template=TEMPLATE_BY_KEY["summary_report"],
+    )
+    paragraph = next(p for p in Document(str(path)).paragraphs if "insufficient" in p.text)
+    assert "insufficient_columns" in paragraph.text
+    assert "STRUCTURED_QA_MAX_EDIT_TIME" in paragraph.text
+    assert [r.text for r in paragraph.runs if r.italic] == ["nhấn mạnh"]

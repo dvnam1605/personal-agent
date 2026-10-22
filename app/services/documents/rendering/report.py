@@ -26,7 +26,8 @@ from app.services.documents.writing.formulas import EQUATION_LINE
 _MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _TEXT_ARG = re.compile(r"\\text\{[^{}]*\}")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
-_ITALIC = re.compile(r"(?<!\*)_(.+?)_(?!\*)")
+# Underscores inside identifiers (insufficient_columns, MAX_EDIT_TIME) are not italics.
+_ITALIC = re.compile(r"(?<![\w*])_(?=\S)(.+?)(?<=\S)_(?![\w*])")
 
 
 def source_line(c: dict[str, Any]) -> str:
