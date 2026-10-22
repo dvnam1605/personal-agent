@@ -52,6 +52,13 @@ _COMMON_RULES = (
     "6. FOLLOW-UPS (HỎI TIẾP): khi có ngữ cảnh hội thoại, giữ nguyên chủ thể của câu trước "
     "(cùng người, cùng tài liệu, cùng chủ đề) và bổ sung phần chưa được nêu; không chuyển sang "
     "nội dung không liên quan.\n"
+    "6b. HÌNH ẢNH: bằng chứng có thể chứa hình dưới dạng (Hình N — mô tả tự động: …). Khi "
+    "trả lời theo từng bước thao tác hoặc cần chỉ ra giao diện, viết [Hình N] trên một dòng "
+    "riêng ngay sau bước mà hình đó minh họa; chỉ dùng số hình có trong bằng chứng, mỗi hình "
+    "một lần, không tả lại hình bằng lời. Câu trả lời không phải hướng dẫn thao tác (khẳng "
+    "định, phủ định, định nghĩa, số liệu) thì không chèn hình.\n"
+    "6c. CÔNG THỨC: ký hiệu toán trong câu viết dạng LaTeX giữa hai dấu $ (ví dụ $P_s$); "
+    "công thức đứng riêng viết trên một dòng: $$<LaTeX>$$ (số hiệu), chép từ bằng chứng.\n"
 )
 
 SYNTHESIS_SYSTEM_PROMPT = (

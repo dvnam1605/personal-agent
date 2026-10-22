@@ -44,6 +44,14 @@ const DocumentImage: React.FC<{ imageKey: string; alt: string }> = ({ imageKey, 
   )
 }
 
+const InlineMath: React.FC<{ latex: string }> = ({ latex }) => {
+  const html = React.useMemo(
+    () => temml.renderToString(latex, { displayMode: false, throwOnError: false }),
+    [latex],
+  )
+  return <span className="md-inline-math" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
 // A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)".
 const EQUATION_LINE = /^\$\$(.+?)\$\$\s*(?:\((\d+(?:\.\d+)+)\))?\s*$/
 
@@ -65,7 +73,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
   // Helper to render inline formatting: bold, italic, code, links
   const renderInline = (text: string): React.ReactNode[] => {
     // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] or [1, 2] citation badges, or raw hex hashes
-    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
+    const tokenRegex = /(\$(?=\S)[^$\n]+?(?<=\S)\$|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
     const parts = text.split(tokenRegex)
 
     return parts.map((part, index) => {
@@ -87,6 +95,11 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
             ))}
           </React.Fragment>
         )
+      }
+
+      // Inline math: $P_s$, $\mathbb{R}$
+      if (/^\$[^$\n]+\$$/.test(part)) {
+        return <InlineMath key={index} latex={part.slice(1, -1)} />
       }
 
       // Hide any raw evidence hash brackets that may have escaped backend replacement

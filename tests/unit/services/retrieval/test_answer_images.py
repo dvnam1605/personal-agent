@@ -6,7 +6,7 @@ import uuid
 
 from app.core.images import for_prompt, image_ref
 from app.domain.models.retrieval import Evidence, EvidenceBundle
-from app.services.retrieval.images import interleave, restore_images, split_images
+from app.services.retrieval.images import interleave, refs_in, restore_images, split_images
 from app.services.retrieval.synthesis import PromptAnswerSynthesizer
 
 KEY_A = "a" * 24
@@ -54,8 +54,23 @@ def test_screenshots_go_under_their_steps_not_under_the_intro() -> None:
         "3. Nếu hiện thông báo cập nhật, bấm Cancel [1].",
         ref(2),
     ]
-    # Matched no step: stays next to its neighbour.
-    assert lines[7:] == [ref(3), "4. Chọn OK để kết thúc [1]."]
+    # Hình 4 matched no step and comes after the last match: left out.
+    assert lines[7:] == ["4. Chọn OK để kết thúc [1]."]
+    assert KEY_D not in "\n".join(lines)
+
+
+def test_an_unmatched_step_between_two_matches_is_kept() -> None:
+    answer = "1. Mở Dism++x64 [1].\n2. Bước giữa [1].\n3. Bấm Cancel trên hộp thoại Tips [1]."
+    out = interleave(answer, guide)
+    assert out.index(KEY_A) < out.index(KEY_B) < out.index(KEY_C)  # Hình 2 rides with Hình 3
+
+
+def test_sharing_the_topic_words_is_not_enough() -> None:
+    # "sao lưu" is the guide's topic: two words of a source sentence decide nothing.
+    source = "1: Sao lưu bản quyền. Mở Dism++ trên máy 64bit.\n\n" + image_ref("Hình 1", KEY_A)
+    images = {1: refs_in(source)}
+    answer = "Dism++ không sao lưu được bản quyền Photoshop [1]."
+    assert interleave(answer, lambda n: images.get(n, [])) == answer
 
 
 def test_an_answer_about_none_of_the_images_shows_none() -> None:
@@ -80,7 +95,7 @@ def test_images_survive_a_rewrite_of_the_prose() -> None:
 
 
 def test_images_of_a_removed_line_stay_in_order() -> None:
-    written = interleave("1. Mở Dism++x64 [1].\n2. Bấm Accept [1].", guide)
+    written = interleave("1. Mở Dism++x64 [1].\n2. Bấm Accept ở User Agreement [1].", guide)
     prose, images = split_images(written)
     again = restore_images(prose.replace("1. Mở Dism++x64 [1].\n", ""), images)
     assert again.index(KEY_A) < again.index(KEY_B)
@@ -110,7 +125,7 @@ def _bundle() -> EvidenceBundle:
     )
 
 
-ANSWER = "Mở Dism++ rồi chọn Toolkit [E2].\n\nSau đó chọn Activation Backup."
+ANSWER = "Mở Dism++ rồi chọn Toolkit [E2].\n[Hình 4]\n[Hình 9]\n\nSau đó chọn Activation Backup."
 EXPECTED = (
     "Mở Dism++ rồi chọn Toolkit [1].\n"
     f"![Hình 4 — mô tả tự động: mục Toolkit](image:{KEY_A})\n\n"
@@ -118,7 +133,7 @@ EXPECTED = (
 )
 
 
-async def test_synthesized_answer_shows_the_cited_screenshot() -> None:
+async def test_the_model_places_the_screenshot_and_invented_ones_vanish() -> None:
     prompts: list[str] = []
 
     async def gen(system: str, user: str) -> str:
@@ -127,17 +142,45 @@ async def test_synthesized_answer_shows_the_cited_screenshot() -> None:
 
     result = await PromptAnswerSynthesizer(generate=gen).synthesize("Làm sao?", _bundle())
     assert "image:" not in prompts[0] and "(Hình 4 — mô tả tự động: mục Toolkit)" in prompts[0]
-    assert result.answer == EXPECTED
+    assert result.answer == EXPECTED  # [Hình 9] is in no evidence
 
 
-async def test_streamed_answer_ends_with_the_version_with_images() -> None:
+async def test_streamed_markers_become_images_as_they_arrive() -> None:
     async def stream(system: str, user: str):
-        for piece in (ANSWER[:20], ANSWER[20:]):
+        for piece in (ANSWER[:38], ANSWER[38:]):  # the marker is split across chunks
             yield piece
 
     synthesizer = PromptAnswerSynthesizer(generate=None, stream_generate=stream)
     events = [e async for e in synthesizer.synthesize_stream("Làm sao?", _bundle())]
     tokens = "".join(e["delta"] for e in events if e["type"] == "token")
     final = next(e for e in events if e["type"] == "citations")
-    assert "image:" not in tokens
-    assert final["answer"] == EXPECTED
+    assert f"![Hình 4 — mô tả tự động: mục Toolkit](image:{KEY_A})" in tokens
+    assert "\n[Hình" not in tokens and "answer" not in final  # no bare marker left
+
+
+async def test_an_answer_that_is_not_a_procedure_gets_no_images() -> None:
+    async def gen(system: str, user: str) -> str:
+        return "Dism++ không sao lưu được bản quyền Photoshop, chỉ hỗ trợ Toolkit [E2]."
+
+    result = await PromptAnswerSynthesizer(generate=gen).synthesize("Có không?", _bundle())
+    assert "image:" not in result.answer
+
+
+async def test_steps_left_without_markers_still_get_their_screenshots() -> None:
+    async def gen(system: str, user: str) -> str:
+        return "1. Mở Dism++ [E2].\n2. Chọn mục Toolkit [E2].\n3. Chọn Activation Backup [E2]."
+
+    result = await PromptAnswerSynthesizer(generate=gen).synthesize("Làm sao?", _bundle())
+    assert f"2. Chọn mục Toolkit [1].\n![Hình 4 — mô tả tự động: mục Toolkit](image:{KEY_A})" in (
+        result.answer
+    )
+
+
+def test_an_uncited_step_inside_the_list_can_host_its_screenshot() -> None:
+    answer = (
+        "1. Tại cửa sổ User Agreement, bấm Accept [1].\n"
+        "2. Nếu hiện hộp thoại Tips, bấm Cancel.\n"
+        "3. Kết thúc [1]."
+    )
+    lines = interleave(answer, guide).split("\n")
+    assert lines[3] == ref(2)  # under step 2, which cites nothing

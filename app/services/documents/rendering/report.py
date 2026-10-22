@@ -30,6 +30,8 @@ _TEXT_ARG = re.compile(r"\\text\{[^{}]*\}")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 # Underscores inside identifiers (insufficient_columns, MAX_EDIT_TIME) are not italics.
 _ITALIC = re.compile(r"(?<![\w*])_(?=\S)(.+?)(?<=\S)_(?![\w*])")
+# Inline LaTeX the writer uses for symbols in a sentence: "tập $P_s$".
+_INLINE_MATH = re.compile(r"(?<!\$)\$(?=\S)([^$\n]+?)(?<=\S)\$(?!\$)")
 
 
 def source_line(c: dict[str, Any]) -> str:
@@ -62,19 +64,27 @@ def render_markdown(
 
 
 def _add_runs(paragraph: Any, text: str) -> None:
-    """Minimal inline Markdown: **bold** and _italic_."""
+    """Minimal inline Markdown: **bold**, _italic_ and $math$ (a Word equation)."""
     pos = 0
-    tokens: list[tuple[int, int, str, str]] = []
-    for m in _BOLD.finditer(text):
-        tokens.append((m.start(), m.end(), "b", m.group(1)))
-    for m in _ITALIC.finditer(text):
-        if not any(s <= m.start() < e for s, e, _, _ in tokens):
-            tokens.append((m.start(), m.end(), "i", m.group(1)))
+    tokens: list[tuple[int, int, str, str]] = [
+        (m.start(), m.end(), "m", m.group(1)) for m in _INLINE_MATH.finditer(text)
+    ]
+    for pattern, kind in ((_BOLD, "b"), (_ITALIC, "i")):
+        for m in pattern.finditer(text):
+            if not any(s <= m.start() < e for s, e, _, _ in tokens):
+                tokens.append((m.start(), m.end(), kind, m.group(1)))
     for start, end, kind, inner in sorted(tokens):
         if start < pos:
             continue
         if start > pos:
             paragraph.add_run(text[pos:start])
+        pos = end
+        if kind == "m":
+            if (math := _omml(inner)) is not None:
+                paragraph._p.append(math)
+            else:
+                paragraph.add_run(inner)
+            continue
         run = paragraph.add_run(inner)
         run.bold = kind == "b"
         run.italic = kind == "i"

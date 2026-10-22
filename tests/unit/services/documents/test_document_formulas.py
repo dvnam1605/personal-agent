@@ -184,3 +184,23 @@ def test_identifiers_with_underscores_are_not_italicised(tmp_path) -> None:
     assert "insufficient_columns" in paragraph.text
     assert "STRUCTURED_QA_MAX_EDIT_TIME" in paragraph.text
     assert [r.text for r in paragraph.runs if r.italic] == ["nhấn mạnh"]
+
+
+def test_inline_math_in_a_sentence_becomes_a_word_equation(tmp_path) -> None:
+    from docx import Document
+
+    from app.services.documents.rendering.report import render_docx
+    from app.services.documents.templates import TEMPLATE_BY_KEY
+
+    text = r"Trong đó, tập $P_s$ gồm các sản phẩm thuộc $\mathbb{R}$ [1]."
+    path = render_docx(
+        tmp_path / "m.docx",
+        "Báo cáo",
+        [{"heading": "I. Kỹ thuật", "text": text}],
+        [],
+        template=TEMPLATE_BY_KEY["summary_report"],
+    )
+    paragraph = next(p for p in Document(str(path)).paragraphs if "Trong đó" in p.text)
+    xml = paragraph._p.xml
+    assert xml.count("<m:oMath") == 2 and "$" not in paragraph.text
+    assert paragraph.text.startswith("Trong đó, tập ") and paragraph.text.endswith("[1].")

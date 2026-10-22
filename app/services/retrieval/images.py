@@ -1,14 +1,14 @@
-"""Put the images of cited evidence back into a finished answer.
+"""Put the images of the evidence into an answer.
 
-The model reads an image only as its description, so it never writes image
-references itself. For each cited evidence ``[n]``, its images are aligned,
-in source order, to the answer lines citing ``[n]``: an image goes under the
-line sharing the most distinctive words with its description and with the
-source sentence before it (words rare among that evidence's images, so
-"Dism++" or "cửa sổ" decide nothing). A step-by-step answer then shows each
-screenshot under its step; an image matching no line stays next to its
-neighbours, or follows the last line citing its evidence. Every image is
-shown once; images of uncited evidence are not shown.
+The model sees each image as its label and description, "(Hình 4 — mô tả tự
+động: …)", and writes ``[Hình 4]`` under the step the image illustrates —
+it knows which step that is and when an answer needs no picture at all.
+:class:`ImageMarkers` turns each marker into the image, only for images of
+the evidence given (cited evidence first), each once; invented labels vanish.
+
+:func:`interleave` is the fallback for a step-by-step answer the model left
+without markers: images are aligned, in source order, to the lines sharing
+the most distinctive features with their description.
 """
 
 from __future__ import annotations
@@ -22,33 +22,162 @@ from app.core.text import unaccent_vietnamese
 MAX_IMAGES = 12
 CONTEXT_CHARS = 200
 ALT_WEIGHT = 3
-# A match needs a description word, or two words of the source sentence.
-MIN_SCORE = 2
+# The sentence laid out before an image may describe the next step: it counts at most
+# as much as one description feature.
+CONTEXT_CAP = 3
+# A match needs a description feature, or three of the source sentence.
+MIN_SCORE = 3
 # Word overlap with its old line for an image group to go back under a line.
 RESTORE_MIN_SIMILARITY = 0.3
 _BADGE = re.compile(r"\[(\d+)\]")
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 _WORD = re.compile(r"\w+", re.UNICODE)
+# Vietnamese syllables say little alone ("ung", "hop", "theo"), so features are
+# words written without diacritics (Toolkit, Accept, x86, ActiveBackup) and
+# syllable pairs ("hop thoai", "google drive"), minus the vocabulary every
+# screenshot description shares.
 _STOP = frozenset(
-    "cac cua cho voi trong tren duoi nay day duoc nguoi dung hinh chup mo ta tu dong "
-    "dang la va de khi thi neu tiep tuc chon nhan bam".split()
+    "cac cua cho voi trong tren duoi nay day duoc la va de khi thi neu o tai mot nhung "
+    "nhu theo sau hay roi ma cung da se dang ra vao len lai thay co hoac bang dism".split()
+)
+_ASCII_SYLLABLES = frozenset(
+    "theo sau cho hay tin nhu van can con lam xem tim cai noi ban ten vao the khi nao sao "
+    "mai thi neu nen roi hinh anh mau khung nut chon nhan bam tiep tuc mot hai ba".split()
+)
+_GENERIC_PAIRS = frozenset(
+    {
+        "ung dung",
+        "phan mem",
+        "cua so",
+        "giao dien",
+        "hop thoai",
+        "danh sach",
+        "thu muc",
+        "hien thi",
+        "mau do",
+        "mui ten",
+        "khoanh vien",
+        "vien mau",
+        "khung mau",
+        "ben phai",
+        "ben trai",
+        "goc duoi",
+        "tep tin",
+        "hinh anh",
+        "hinh chup",
+        "nguoi dung",
+        "thong bao",
+        "noi dung",
+        "tu dong",
+        "mo ta",
+        "nhan chon",
+        "bam chon",
+        "tiep tuc",
+        "bam vao",
+        "nhan vao",
+        "dang duoc",
+        "duoc khoanh",
+        "duoc chon",
+        "may tinh",
+        "he thong",
+        "huong dan",
+        "su dung",
+        "sao luu",
+        "ban quyen",
+        "tai lieu",
+        "thuc hien",
+        "cong cu",
+        "thoai thong",
+    }
 )
 
 # (alt, key, source text just before the image) in source order.
 ImageRefs = list[tuple[str, str, str]]
 
 
+MARKER = re.compile(r"\[\s*(Hình\s*\d+)\s*\]", re.IGNORECASE)
+_LABEL = re.compile(r"^\s*(Hình\s*\d+)", re.IGNORECASE)
+_STEP_LINE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")
+MIN_STEPS_FOR_FALLBACK = 3
+
+
+def _label_key(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip().lower())
+
+
+class ImageMarkers:
+    """Resolves the model's ``[Hình N]`` markers against the evidence images."""
+
+    def __init__(self, evidence: list[tuple[str, str]]) -> None:
+        """``evidence``: (evidence_id, content) in bundle order."""
+        self._by_label: dict[str, list[tuple[str, str, str]]] = {}
+        for evidence_id, content in evidence:
+            for alt, key, _ in refs_in(content):
+                if m := _LABEL.match(alt):
+                    self._by_label.setdefault(_label_key(m.group(1)), []).append(
+                        (evidence_id, alt, key)
+                    )
+        self.shown: set[str] = set()
+
+    def resolve(self, label: str, cited_ids: list[str]) -> str:
+        """The image line for a marker, or "" when unknown or already shown."""
+        options = self._by_label.get(_label_key(label), [])
+        rank = {eid: i for i, eid in enumerate(reversed(cited_ids))}
+        for _, alt, key in sorted(options, key=lambda o: rank.get(o[0], len(rank))):
+            if key not in self.shown and len(self.shown) < MAX_IMAGES:
+                self.shown.add(key)
+                return image_ref(alt, key)
+        return ""
+
+    def replace(self, text: str, cited_ids: list[str]) -> str:
+        """``text`` with every marker turned into its image line (or removed)."""
+
+        def swap(m: re.Match[str]) -> str:
+            line = self.resolve(m.group(1), cited_ids)
+            if not line:
+                return ""
+            before = "" if m.start() == 0 or text[m.start() - 1] == "\n" else "\n"
+            after = "" if text[m.end() : m.end() + 1] in ("\n", "") else "\n"
+            return f"{before}{line}{after}"
+
+        out = MARKER.sub(swap, text)
+        out = re.sub(r"[ \t]+\n", "\n", out)
+        return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def is_step_by_step(text: str) -> bool:
+    return sum(1 for line in text.split("\n") if _STEP_LINE.match(line)) >= MIN_STEPS_FOR_FALLBACK
+
+
+def _last_sentence(text: str) -> str:
+    """The sentence right before an image ("Tiếp tục chọn Cancel."), not the intro above it."""
+    sentences = [s for s in _SENTENCE.split(text.strip()) if s.strip()]
+    return sentences[-1][-CONTEXT_CHARS:] if sentences else ""
+
+
 def refs_in(text: str) -> ImageRefs:
     refs: ImageRefs = []
     last = 0
     for m in IMAGE_REF.finditer(text):
-        refs.append((m.group("alt"), m.group("key"), text[last : m.start()][-CONTEXT_CHARS:]))
+        refs.append((m.group("alt"), m.group("key"), _last_sentence(text[last : m.start()])))
         last = m.end()
     return refs
 
 
 def _words(text: str) -> set[str]:
-    words = _WORD.findall(unaccent_vietnamese(IMAGE_REF.sub("", text)).lower())
-    return {w for w in words if len(w) > 2 and not w.isdigit()} - _STOP
+    tokens = _WORD.findall(IMAGE_REF.sub("", text).lower())
+    plain = [unaccent_vietnamese(t) for t in tokens]
+    features = {
+        p
+        for t, p in zip(tokens, plain, strict=True)
+        if t == p and len(p) > 2 and not p.isdigit() and p not in _ASCII_SYLLABLES | _STOP
+    }
+    features.update(
+        f"{a} {b}"
+        for a, b in zip(plain, plain[1:], strict=False)
+        if a not in _STOP and b not in _STOP and f"{a} {b}" not in _GENERIC_PAIRS
+    )
+    return features
 
 
 def _align(scores: list[list[int]]) -> list[int | None]:
@@ -85,9 +214,15 @@ def interleave(text: str, images_for: Callable[[int], ImageRefs]) -> str:
     shown: set[str] = set()
     for number in cited:
         images = [ref for ref in images_for(number) if ref[1] not in shown]
-        candidates = [j for j, line in enumerate(lines) if f"[{number}]" in line]
-        if not images or not candidates:
+        citing = [j for j, line in enumerate(lines) if f"[{number}]" in line]
+        if not images or not citing:
             continue
+        # Steps the model left uncited still belong to the evidence around them:
+        # every line from the first citing one to the end of the last one's block.
+        end = citing[-1]
+        while end + 1 < len(lines) and lines[end + 1].strip():
+            end += 1
+        candidates = [j for j in range(citing[0], end + 1) if lines[j].strip()]
         described = [(_words(alt), _words(context)) for alt, _, context in images]
         counts: dict[str, int] = {}
         for alt_words, context_words in described:
@@ -99,21 +234,23 @@ def interleave(text: str, images_for: Callable[[int], ImageRefs]) -> str:
         # What the image shows outweighs the text laid out next to it.
         assigned = _align(
             [
-                [ALT_WEIGHT * len(lw & alt_words) + len(lw & context_words) for lw in line_words]
+                [
+                    ALT_WEIGHT * len(lw & alt_words) + min(len(lw & context_words), CONTEXT_CAP)
+                    for lw in line_words
+                ]
                 for alt_words, context_words in described
             ]
         )
-        # No line is about any of these images (a refusal citing the guide, an
-        # aside): show none. Otherwise unmatched images stay with the next
-        # matched one, else the previous one.
-        if all(slot is None for slot in assigned):
+        # An unmatched image between matches on two different lines is a step
+        # in between and goes with the next one; anywhere else it is about
+        # something the answer does not cover, and is left out.
+        matched = [i for i, slot in enumerate(assigned) if slot is not None]
+        if not matched:
             continue
-        fallback = max(slot for slot in assigned if slot is not None)
-        for i in range(len(assigned) - 1, -1, -1):
-            if assigned[i] is None:
-                assigned[i] = fallback
-            else:
-                fallback = assigned[i]
+        for i in range(matched[-1] - 1, matched[0], -1):
+            before = next(assigned[k] for k in range(i - 1, -1, -1) if assigned[k] is not None)
+            if assigned[i] is None and before != assigned[i + 1]:
+                assigned[i] = assigned[i + 1]
         for (alt, key, _), slot in zip(images, assigned, strict=True):
             if key in shown or len(shown) >= MAX_IMAGES or slot is None:
                 continue
