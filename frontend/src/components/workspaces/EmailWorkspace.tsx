@@ -29,31 +29,40 @@ export const EmailWorkspace: React.FC<EmailWorkspaceProps> = ({
   onDraftEmail,
 }) => {
   const [messages, setMessages] = useState<GmailMessage[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeMode, setActiveMode] = useState<OmnibarMode>('search')
   const [inputValue, setInputValue] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
-  const fetchEmails = async () => {
+  const fetchEmails = () => {
     setIsLoading(true)
     setError(null)
-    try {
-      const res = await apiClient.submitQuery('Đọc các email mới nhất trong hộp thư đến')
-      if (res.data?.messages && Array.isArray(res.data.messages)) {
-        setMessages(res.data.messages as GmailMessage[])
-      } else {
-        setMessages([])
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Không thể đồng bộ hộp thư Gmail.')
-    } finally {
-      setIsLoading(false)
-    }
+    setReloadKey((key) => key + 1)
   }
 
   useEffect(() => {
-    fetchEmails()
-  }, [])
+    let active = true
+    const load = async () => {
+      try {
+        const res = await apiClient.submitQuery('Đọc các email mới nhất trong hộp thư đến')
+        if (!active) return
+        if (res.data?.messages && Array.isArray(res.data.messages)) {
+          setMessages(res.data.messages as GmailMessage[])
+        } else {
+          setMessages([])
+        }
+      } catch (err: any) {
+        if (active) setError(err?.message || 'Không thể đồng bộ hộp thư Gmail.')
+      } finally {
+        if (active) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [reloadKey])
 
   // Filter messages locally in real-time when in search mode
   const filteredMessages = useMemo(() => {

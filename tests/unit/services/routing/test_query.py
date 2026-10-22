@@ -24,7 +24,7 @@ from app.domain.models import (
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import ApprovalRequest, AssistantRun
-from app.services.retrieval.synthesis import SynthesisResult
+from app.services.retrieval.answer.synthesis import SynthesisResult
 from app.services.routing.query import (
     QueryOrchestrator,
     build_gmail_search_query,

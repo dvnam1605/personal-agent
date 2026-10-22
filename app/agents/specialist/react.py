@@ -49,7 +49,7 @@ from app.services.approvals import (
     verify_approval_token_sync,
 )
 from app.services.context.compaction import ContextCompactor
-from app.services.retrieval.injection_boundary import wrap_untrusted_tool_result
+from app.services.retrieval.answer.injection_boundary import wrap_untrusted_tool_result
 from app.tools.registry import ToolRegistryView
 
 logger = logging.getLogger(__name__)

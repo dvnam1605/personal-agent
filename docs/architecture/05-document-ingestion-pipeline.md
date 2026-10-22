@@ -62,9 +62,9 @@ flowchart TD
 * **Parser Selection**:
   * Tập tin Markdown (`.md`) $\rightarrow$ Chạy `MarkdownDocumentParser`.
   * Tập tin PDF/DOCX $\rightarrow$ Chạy `DoclingParser`.
-* **Evaluation & Offline OCR Path (`scripts/ocr_batch.py`)**:
+* **Evaluation & Offline OCR Path (`scripts/ingestion/ocr_batch.py`)**:
   * Hàm `evaluate_parse_quality()` kiểm tra mật độ từ vựng và tỷ lệ ký tự rác.
-  * Nếu phát hiện file PDF là **trang scan dạng hình ảnh không có text layer** $\rightarrow$ Hệ thống gán trạng thái `NEEDS_OCR` và đẩy file vào hàng đợi offline batch `scripts/ocr_batch.py`.
+  * Nếu phát hiện file PDF là **trang scan dạng hình ảnh không có text layer** $\rightarrow$ Hệ thống gán trạng thái `NEEDS_OCR` và đẩy file vào hàng đợi offline batch `scripts/ingestion/ocr_batch.py`.
   * Tiến trình batch chạy mô hình **PaddleOCR-VL-1.6 GGUF** trích xuất chữ và bảng biểu thành file sidecar `*.ocr.json`, sau đó tái hòa nhập vào cây `NormalizedDocumentTree`.
 
 ---

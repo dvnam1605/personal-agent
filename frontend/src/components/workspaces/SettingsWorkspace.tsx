@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { GoogleIntegrationStatus, ReadinessResponse } from '../../types/api'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toastContext'
 import './Workspaces.css'
 
 export const SettingsWorkspace: React.FC = () => {
@@ -19,27 +19,33 @@ export const SettingsWorkspace: React.FC = () => {
   const [displayName, setDisplayName] = useState(apiClient.getDisplayName())
   const [userId, setUserId] = useState(apiClient.getUserId())
   const [apiKey, setApiKey] = useState(apiClient.getApiKey())
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const { showToast } = useToast()
 
-  const loadStatus = async () => {
+  const loadStatus = () => {
     setIsLoading(true)
-    try {
+    setReloadKey((key) => key + 1)
+  }
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
       const [gStatus, ready] = await Promise.allSettled([
         apiClient.getGoogleStatus(),
         apiClient.getReadiness(),
       ])
+      if (!active) return
       if (gStatus.status === 'fulfilled') setGoogleStatus(gStatus.value)
       if (ready.status === 'fulfilled') setReadiness(ready.value)
-    } finally {
       setIsLoading(false)
     }
-  }
-
-  useEffect(() => {
-    loadStatus()
-  }, [])
+    load()
+    return () => {
+      active = false
+    }
+  }, [reloadKey])
 
   const handleSaveAuth = (e: React.FormEvent) => {
     e.preventDefault()

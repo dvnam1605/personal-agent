@@ -1,7 +1,7 @@
 # TẬP 6: PIPELINE TÌM KIẾM & TỔNG HỢP CÂU TRẢ LỜI (RAG RETRIEVAL & SYNTHESIS - P10)
 
 > **Cấp độ tài liệu**: Sách tham khảo kỹ thuật chuyên sâu - Tập 6/6 (Technical Architecture Manual - Volume 6).
-> **Thành phần liên quan**: [`app/services/retrieval/pipeline.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/pipeline.py), [`dense.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/dense.py), [`sparse.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/sparse.py), [`hybrid.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/hybrid.py), [`rerank.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/rerank.py), [`expansion.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/expansion.py), [`packing.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/packing.py), [`sufficiency.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/sufficiency.py), [`retry.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/retry.py), [`injection_boundary.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/injection_boundary.py), [`synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/synthesis.py).
+> **Thành phần liên quan**: [`app/services/retrieval/pipeline.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/pipeline.py), [`dense.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/dense.py), [`sparse.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/sparse.py), [`hybrid.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/hybrid.py), [`rerank.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/rerank.py), [`expansion.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/expansion.py), [`packing.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/packing.py), [`sufficiency.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/sufficiency.py), [`retry.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/retry.py), [`injection_boundary.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/answer/injection_boundary.py), [`synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/answer/synthesis.py).
 
 ---
 
@@ -55,7 +55,7 @@ flowchart TD
 
 Thực thi đồng thời luồng tìm kiếm ngữ nghĩa và luồng tìm kiếm từ khóa thông qua `asyncio.gather`:
 
-1. **Dense Retrieval Leg ([`dense.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/dense.py))**:
+1. **Dense Retrieval Leg ([`dense.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/dense.py))**:
    * Nhúng `query.search_query` thành vector 1024d bằng `AITeamVN/Vietnamese_Embedding`.
    * Thực thi SQL tìm kiếm vector theo khoảng cách Cosine Distance (`<=>`):
      ```sql
@@ -66,7 +66,7 @@ Thực thi đồng thời luồng tìm kiếm ngữ nghĩa và luồng tìm ki�
      ORDER BY c.embedding <=> ':vector'::vector ASC LIMIT :top_k_dense;
      ```
 
-2. **Sparse Retrieval Leg ([`sparse.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/sparse.py))**:
+2. **Sparse Retrieval Leg ([`sparse.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/sparse.py))**:
    * Đưa chuỗi truy vấn qua `websearch_to_tsquery` của PostgreSQL để biến câu nói tự nhiên thành tsquery an toàn (loại bỏ nguy cơ lỗi cú pháp và SQL Injection).
    * Thực thi SQL tìm kiếm từ khóa Full-Text Search:
      ```sql
@@ -85,10 +85,10 @@ Thực thi đồng thời luồng tìm kiếm ngữ nghĩa và luồng tìm ki�
    Kết hợp kết quả từ Dense và Sparse Leg theo công thức thứ hạng:
    $$\text{fusion\_score}(c) = \sum_{s \in \{\text{dense}, \text{sparse}\}} \frac{1}{k + \text{rank}_s(c)}, \quad k = 60$$
 
-2. **Diversity Cap ([`diversity.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/diversity.py))**:
+2. **Diversity Cap ([`diversity.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/diversity.py))**:
    Áp dụng `per_document_cap` giới hạn số chunk tối đa cho từng file (vd: tối đa 3-4 chunks/tài liệu).
 
-3. **ViRanker Cross-Encoder Reranking ([`rerank.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/rerank.py))**:
+3. **ViRanker Cross-Encoder Reranking ([`rerank.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/rerank.py))**:
    * Đưa các candidate đã fuse qua mô hình local `namdp-ptit/ViRanker`.
    * Đánh giá mối tương quan trực tiếp trên thang điểm Sigmoid $[0.0, 1.0]$.
    * **Score Threshold Filter**: Lọc bỏ tất cả các candidate có $\text{rerank\_score} < 0.3$.
@@ -97,12 +97,12 @@ Thực thi đồng thời luồng tìm kiếm ngữ nghĩa và luồng tìm ki�
 
 ### 2.4. Bước 4: Context Expansion & Token Packing
 
-1. **Expansion Policy ([`expansion.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/expansion.py))**:
+1. **Expansion Policy ([`expansion.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/search/expansion.py))**:
    * `NONE`: Chỉ lấy văn bản của CHILD chunk.
    * `NEIGHBORS`: Lấy thêm các CHILD chunk anh em lân cận cùng `parent_id`.
    * `PARENT`: SQL query kéo trọn vẹn văn bản thô của PARENT chunk (Level 0 - 1600 tokens).
 
-2. **Greedy Token Packing ([`packing.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/packing.py))**:
+2. **Greedy Token Packing ([`packing.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/packing.py))**:
    Lần lượt nhồi các candidate vào `EvidenceBundle` cho đến khi vừa khít `context_token_budget` (vd: 3000 tokens), giữ nguyên vẹn cấu trúc câu.
 
 ---
@@ -125,11 +125,11 @@ flowchart TD
     Sufficient --> Pass[Cho phép tổng hợp câu trả lời]
 ```
 
-* **Deterministic SufficiencyChecker ([`sufficiency.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/sufficiency.py))**:
+* **Deterministic SufficiencyChecker ([`sufficiency.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/sufficiency.py))**:
   Đánh giá độ đủ dữ liệu qua quy tắc deterministic **(0% tốn LLM judge)**:
   * Không có item nào $\rightarrow$ `INSUFFICIENT`.
   * Tất cả các item đều có `rerank_score < 0.3` $\rightarrow$ `INSUFFICIENT`.
-* **Bounded Retry Strategy ([`retry.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/retry.py))**:
+* **Bounded Retry Strategy ([`retry.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/evidence/retry.py))**:
   * Nếu `INSUFFICIENT` hoặc `PARTIAL`, tự động thực hiện Query Reformulation (tăng K từ 20 lên 40, chuyển sang policy `PARENT`) và retry **tối đa 2 lần**.
   * Nếu sau 2 lượt thử vẫn không đủ dữ liệu $\rightarrow$ Trả về câu từ chối chuẩn tiếng Việt, triệt tiêu ảo giác (Hallucination).
 
@@ -137,7 +137,7 @@ flowchart TD
 
 ### 2.6. Bước 6: Prompt Injection Defense & Answer Synthesis
 
-1. **Injection Boundary ([`injection_boundary.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/injection_boundary.py))**:
+1. **Injection Boundary ([`injection_boundary.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/answer/injection_boundary.py))**:
    Bọc toàn bộ văn bản trích xuất trong thẻ XML cấu trúc:
    ```xml
    <retrieved_document id="doc-123" evidence_id="ev-456">
@@ -146,7 +146,7 @@ flowchart TD
    ```
    System Prompt chỉ thị nghiêm ngặt: Dữ liệu trong thẻ này là **Untrusted Input**, cấm không được ghi đè chỉ dẫn hệ thống.
 
-2. **PromptAnswerSynthesizer ([`synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/synthesis.py))**:
+2. **PromptAnswerSynthesizer ([`synthesis.py`](file:///d:/Code/personal_ai_assistant/app/services/retrieval/answer/synthesis.py))**:
    Bộ tổng hợp câu trả lời dựa trên LLM và ngữ cảnh tài liệu xác thực, tuân thủ nghiêm ngặt các nguyên tắc thiết kế:
    * **Clean PEP 8 Architecture & Top-Level Imports**: Toàn bộ các thư viện hỗ trợ (`json`, `httpx`, `get_settings`, prompts) được nạp ở mức top-level chuẩn mực, loại bỏ các inline/delayed import trong hàm, bảo đảm hiệu năng nạp mô-đun và vượt qua 100% kiểm tra linter `ruff` & `pyright`.
    * **Cơ Chế Footnote Citation Mapping**:

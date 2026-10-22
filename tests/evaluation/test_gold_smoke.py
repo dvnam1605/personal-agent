@@ -1,6 +1,6 @@
 """Fast, offline checks of the RAG gold set (runs in CI: no DB, no LLM).
 
-The live run (scripts/eval_rag.py) needs the backend; here we only check
+The live run (scripts/benchmarks/eval_rag.py) needs the backend; here we only check
 that the gold file is well-formed, that the deterministic planner routes
 each question the way the gold set expects, and that scoring is sound.
 """

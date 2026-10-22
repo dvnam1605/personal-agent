@@ -53,19 +53,23 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [googleStatus, setGoogleStatus] = useState<GoogleIntegrationStatus | null>(null)
 
-  const fetchStatus = async () => {
-    try {
-      const status = await apiClient.getGoogleStatus()
-      setGoogleStatus(status)
-    } catch {
-      setGoogleStatus(null)
-    }
-  }
-
   useEffect(() => {
+    // No state update after unmount; the poll keeps the badge current.
+    let active = true
+    const fetchStatus = async () => {
+      try {
+        const status = await apiClient.getGoogleStatus()
+        if (active) setGoogleStatus(status)
+      } catch {
+        if (active) setGoogleStatus(null)
+      }
+    }
     fetchStatus()
     const interval = setInterval(fetchStatus, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
   }, [])
 
   const handleConnectGoogle = () => {

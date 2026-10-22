@@ -238,7 +238,7 @@ async def test_markers_resolve_against_the_offered_figures() -> None:
 
     from app.core.images import image_ref
     from app.domain.models.retrieval import Evidence, EvidenceBundle
-    from app.services.retrieval.synthesis import PromptAnswerSynthesizer
+    from app.services.retrieval.answer.synthesis import PromptAnswerSynthesizer
 
     bundle = EvidenceBundle(
         items=[

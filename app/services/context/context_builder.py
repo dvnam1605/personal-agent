@@ -15,7 +15,7 @@ from app.services.context.entity_resolver import EntityResolver
 from app.services.context.episodic_service import EpisodicMemoryService
 from app.services.context.memory_gate import MemoryGate
 from app.services.context.preference_service import PreferenceService
-from app.services.retrieval.injection_boundary import wrap_untrusted_memory
+from app.services.retrieval.answer.injection_boundary import wrap_untrusted_memory
 
 
 class ContextBuilder:

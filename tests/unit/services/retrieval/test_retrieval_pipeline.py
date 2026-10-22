@@ -16,20 +16,20 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.services.ingestion.chunking.tokens import estimate_tokens
-from app.services.retrieval.diversity import (
+from app.services.retrieval.evidence.diversity import (
     apply_diversity,
     apply_per_document_caps,
     dedup_candidates,
     suppress_near_duplicates,
 )
-from app.services.retrieval.expansion import (
+from app.services.retrieval.evidence.packing import build_bundle
+from app.services.retrieval.pipeline import RetrievalPipeline
+from app.services.retrieval.search.expansion import (
     ExpansionService,
     is_table_child,
     resolve_expansion_policy,
 )
-from app.services.retrieval.packing import build_bundle
-from app.services.retrieval.pipeline import RetrievalPipeline
-from app.services.retrieval.rerank import IdentityReranker
+from app.services.retrieval.search.rerank import IdentityReranker
 
 
 def make_query(**overrides: Any) -> RetrievalQuery:
@@ -135,7 +135,7 @@ class TestDiversity:
 
 class TestSQLTemplates:
     def test_parent_fetch_sql_syntax_not_nested_in(self) -> None:
-        from app.services.retrieval.sql import (
+        from app.services.retrieval.search.sql import (
             PARENT_FETCH_TEMPLATE,
             SIBLING_FETCH_TEMPLATE,
             owner_scope_sql,

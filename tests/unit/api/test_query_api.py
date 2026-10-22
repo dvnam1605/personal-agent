@@ -26,7 +26,7 @@ from app.domain.models import (
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.session import get_db_session
-from app.services.retrieval.synthesis import SynthesisResult
+from app.services.retrieval.answer.synthesis import SynthesisResult
 from app.services.routing.query import QueryOrchestrator
 
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))

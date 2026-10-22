@@ -14,7 +14,9 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from app.core.text import unaccent_vietnamese
-from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
+from app.services.ingestion.profiling.administrative_extractor import (
+    AdministrativeMetadataExtractor,
+)
 
 _LABEL_VALUE = re.compile(r"^(?P<label>[^:：]{2,45})[:：]\s*(?P<value>\S.{0,200})$")
 

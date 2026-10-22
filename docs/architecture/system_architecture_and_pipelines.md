@@ -105,7 +105,7 @@ flowchart TD
     end
 
     subgraph OfflineOCR["Đường dẫn Offline OCR (P9E Sidecar)"]
-        NeedsOCR -.-> OCRBatch[scripts/ocr_batch.py\nPaddleOCR-VL-1.6 GGUF]
+        NeedsOCR -.-> OCRBatch[scripts/ingestion/ocr_batch.py\nPaddleOCR-VL-1.6 GGUF]
         OCRBatch -.-> SidecarJSON[*.ocr.json Sidecar]
         SidecarJSON -.-> NormTree
     end

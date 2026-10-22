@@ -19,8 +19,10 @@ from app.domain.models.ingestion.parsed_document import (
     SourceAnchor,
     TableNode,
 )
-from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 from app.services.ingestion.parsing.base import DocumentParseError
+from app.services.ingestion.profiling.administrative_extractor import (
+    AdministrativeMetadataExtractor,
+)
 
 MARKDOWN_PARSER_NAME = "markdown"
 MARKDOWN_PARSER_VERSION = "1.0.0"

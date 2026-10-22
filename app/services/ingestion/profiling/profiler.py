@@ -19,7 +19,9 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.text import unaccent_vietnamese
 from app.domain.models.ingestion.parsed_document import ParsedDocument
-from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
+from app.services.ingestion.profiling.administrative_extractor import (
+    AdministrativeMetadataExtractor,
+)
 from app.services.ingestion.profiling.categories import DocCategory, required_fields_for
 from app.services.ingestion.profiling.classifier import Classification, RuleClassifier
 from app.services.ingestion.profiling.extras import validate_extras

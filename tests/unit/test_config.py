@@ -35,10 +35,13 @@ def test_budget_settings():
     assert settings.llm_budget.supervisor_dag.max_tokens == 16000
 
 
-def test_timeouts_settings():
-    settings = Settings()
+def test_timeouts_settings(monkeypatch):
+    # Defaults, independent of the developer's .env and shell.
+    monkeypatch.delenv("TIMEOUTS__GOOGLE_API_SECONDS", raising=False)
+    monkeypatch.delenv("TIMEOUTS__LLM_REQUEST_SECONDS", raising=False)
+    settings = Settings(_env_file=None)
     assert settings.timeouts.google_api_seconds == 10.0
-    assert settings.timeouts.llm_request_seconds == 30.0
+    assert settings.timeouts.llm_request_seconds == 90.0
 
 
 def test_parse_debug_various_inputs():

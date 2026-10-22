@@ -6,8 +6,8 @@ import uuid
 
 from app.core.images import for_prompt, image_ref
 from app.domain.models.retrieval import Evidence, EvidenceBundle
-from app.services.retrieval.images import interleave, refs_in, restore_images, split_images
-from app.services.retrieval.synthesis import PromptAnswerSynthesizer
+from app.services.retrieval.answer.images import interleave, refs_in, restore_images, split_images
+from app.services.retrieval.answer.synthesis import PromptAnswerSynthesizer
 
 KEY_A = "a" * 24
 KEY_B = "b" * 24
@@ -187,7 +187,7 @@ def test_an_uncited_step_inside_the_list_can_host_its_screenshot() -> None:
 
 
 def test_markers_use_the_source_figure_numbers() -> None:
-    from app.services.retrieval.images import ImageMarkers
+    from app.services.retrieval.answer.images import ImageMarkers
 
     content = "Kiến trúc.\n\n" + image_ref("Hình 4.3: Kiến trúc tổng thể", KEY_A)
     markers = ImageMarkers([("e1", content)])

@@ -7,7 +7,7 @@ Phase 3 (P3) establishes the persistence layer, a durable database-backed audit 
 
 ## 2. Implemented Architecture & Invariant Specifications
 
-### 2.1. PostgreSQL Schema & Core Models (`app/infrastructure/db/models.py`)
+### 2.1. PostgreSQL Schema & Core Models (`app/infrastructure/db/models/`)
 - Created the 14 required core models plus the P3-owned `audit_outbox` support model, with UUIDv4 primary keys and UTC-aware `TIMESTAMPTZ` timestamps:
   1. `users`: User identity and account state with case-normalized email uniqueness.
   2. `assistant_runs`: Complete execution run lifecycle, triage route, iteration counts, latency, and budget summary. Features mandatory internal `correlation_id` and optional `langsmith_trace_id`.

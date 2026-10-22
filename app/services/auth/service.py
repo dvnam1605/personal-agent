@@ -60,7 +60,7 @@ def verify_password(password: str, hashed: str) -> bool:
             iterations,
         )
         return secrets.compare_digest(computed.hex(), expected_hex)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail closed: a malformed hash never verifies
         return False
 
 
@@ -110,7 +110,7 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
             return None
 
         return payload_data
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail closed: a malformed token is no token
         return None
 
 

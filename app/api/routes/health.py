@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 from app.infrastructure.db.session import get_session_factory
 from app.infrastructure.redis.client import redis_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Health"])
 
@@ -45,6 +48,9 @@ async def check_database() -> bool:
         return True
     except (TimeoutError, OSError, RuntimeError, SQLAlchemyError):
         return False
+    except Exception:  # noqa: BLE001 - a probe reports a verdict, it never raises
+        logger.warning("health_database_probe_failed", exc_info=True)
+        return False
 
 
 async def check_redis() -> bool:
@@ -52,6 +58,9 @@ async def check_redis() -> bool:
     try:
         return await asyncio.wait_for(redis_manager.health_check(), timeout=PROBE_TIMEOUT_SECONDS)
     except (TimeoutError, OSError, RuntimeError):
+        return False
+    except Exception:  # noqa: BLE001 - a probe reports a verdict, it never raises
+        logger.warning("health_redis_probe_failed", exc_info=True)
         return False
 
 

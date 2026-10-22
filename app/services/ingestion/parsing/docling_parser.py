@@ -357,7 +357,9 @@ class DoclingDocumentParser:
 
         # Newline-joined: the header/tail layout rules are line-based.
         full_text = "\n".join(n.text for n in nodes)
-        from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
+        from app.services.ingestion.profiling.administrative_extractor import (
+            AdministrativeMetadataExtractor,
+        )
 
         admin_meta = AdministrativeMetadataExtractor.extract(full_text, filename=source.filename)
 

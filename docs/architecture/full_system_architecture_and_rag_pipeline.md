@@ -316,7 +316,7 @@ Nếu mã fingerprint đã tồn tại trong bảng `documents` $\rightarrow$ Tr
 
 #### 2. Parsing & Parse Quality Gating (`parsing/`)
 * Chạy `MarkdownDocumentParser` cho file `.md` và `DoclingParser` cho PDF/DOCX để dựng cây tài liệu `NormalizedDocumentTree`.
-* Hàm `evaluate_parse_quality()` kiểm tra mật độ text. Nếu file PDF là ảnh scan $\rightarrow$ Gán trạng thái `NEEDS_OCR` đẩy vào hàng đợi offline batch `scripts/ocr_batch.py` chạy mô hình **PaddleOCR-VL-1.6 GGUF** để tạo file sidecar `*.ocr.json`.
+* Hàm `evaluate_parse_quality()` kiểm tra mật độ text. Nếu file PDF là ảnh scan $\rightarrow$ Gán trạng thái `NEEDS_OCR` đẩy vào hàng đợi offline batch `scripts/ingestion/ocr_batch.py` chạy mô hình **PaddleOCR-VL-1.6 GGUF** để tạo file sidecar `*.ocr.json`.
 
 #### 3. Structure-aware Hierarchical Chunking (`chunking/`)
 * **Level 0 (PARENT Chunk - `parents.py`)**: Target **1600 tokens**, Hard Max **2400 tokens**. Lưu trọn vẹn chương/mục lớn. **Chỉ chứa text thô, không nhúng vector**.

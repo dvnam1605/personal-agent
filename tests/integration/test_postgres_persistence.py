@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -67,7 +68,11 @@ async def pg_session() -> AsyncIterator[AsyncSession]:
 async def test_postgres_migration_contract(pg_session: AsyncSession) -> None:
     """Run the real Alembic path and validate P3 contracts plus P5 Google storage."""
     assert await pg_session.scalar(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")) == 1
-    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+    # Migrated to the newest revision, whichever that is.
+    head = ScriptDirectory.from_config(
+        Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    ).get_current_head()
+    assert await pg_session.scalar(text("SELECT version_num FROM alembic_version")) == head
     assert (
         await pg_session.scalar(
             text(

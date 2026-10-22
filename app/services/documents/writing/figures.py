@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from app.core.images import image_ref
 from app.services.documents.writing.formulas import covers
-from app.services.retrieval.images import refs_in
+from app.services.retrieval.answer.images import refs_in
 
 MAX_FIGURES_PER_SECTION = 8
 HINT_DESCRIPTION_CHARS = 160
