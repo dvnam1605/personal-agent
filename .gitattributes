@@ -1,0 +1,7 @@
+# Files executed or parsed inside Linux containers must keep LF endings,
+# whatever the editor or core.autocrlf on the machine that touched them.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+docker-compose*.yml text eol=lf
+nginx.conf      text eol=lf

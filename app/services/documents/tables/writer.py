@@ -239,7 +239,9 @@ class TableWriter:
         columns = [TableColumn.model_validate(c) for c in outline.columns]
         semaphore = asyncio.Semaphore(CONCURRENCY)
 
-        async def one(doc_id: str) -> tuple[str, list[dict[str, Any]], list[_Evidence], dict]:
+        async def one(
+            doc_id: str,
+        ) -> tuple[str, list[list[dict[str, Any]]], list[_Evidence], dict[str, Any]]:
             async with semaphore:
                 try:
                     return await self._document_rows(

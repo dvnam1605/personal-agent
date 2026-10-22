@@ -267,7 +267,9 @@ async def main() -> None:
 
     # Initialize models
     model_name = settings.embedding.model
-    model_path = snapshot_download(model_name, local_files_only=True)
+    model_path = snapshot_download(
+        model_name, revision=settings.embedding.revision, local_files_only=True
+    )
     backend = TransformersPoolingBackend(model_path, max_length=512)
     backend._ensure_loaded()
     contract = EmbeddingContract(model_name=model_name, dimensions=settings.embedding.dimensions)

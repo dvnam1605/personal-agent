@@ -69,7 +69,7 @@ async def test_outline_headings_footer_removal_and_lists() -> None:
     parsed = await PyMuPDFDocumentParser(detect_tables=False).parse(_source(), _pdf(6))
     headings = [n for n in parsed.nodes if isinstance(n, HeadingNode)]
     assert [h.text for h in headings] == ["1.1 Topic", "2.1 Topic", "3.1 Topic"]
-    assert [h.anchor.page_start for h in headings] == [1, 3, 5]
+    assert [h.anchor.page_start if h.anchor else None for h in headings] == [1, 3, 5]
     texts = " ".join(n.text for n in parsed.nodes)
     assert "Designing Agents" not in texts  # running footer dropped
     lists = [n for n in parsed.nodes if isinstance(n, ListNode)]

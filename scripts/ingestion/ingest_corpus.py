@@ -108,7 +108,9 @@ async def main() -> None:
         logger.info("Embedding model from local snapshot: %s", model_path)
     else:
         try:
-            model_path = snapshot_download(model_name, local_files_only=False)
+            model_path = snapshot_download(
+                model_name, revision=settings.embedding.revision, local_files_only=False
+            )
             logger.info("Embedding model loaded from snapshot: %s", model_path)
         except Exception as exc:  # noqa: BLE001 - any download failure stops the run
             logger.error("Failed to prepare embedding model: %s", exc)

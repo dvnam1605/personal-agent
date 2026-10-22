@@ -14,8 +14,10 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# --- Stage 2: High-Performance Nginx Web Server ---
-FROM nginx:1.27-alpine AS runner
+# --- Stage 2: Nginx (unprivileged image: runs as user nginx, listens on 8080) ---
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runner
+
+USER root
 
 # Remove default Nginx website
 RUN rm -rf /usr/share/nginx/html/*
@@ -25,10 +27,11 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy custom Nginx configuration with SPA fallback and API proxy
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+USER nginx
 
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-  CMD wget -q --spider http://localhost:80/ || exit 1
+  CMD wget -q --spider http://localhost:8080/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

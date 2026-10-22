@@ -89,6 +89,7 @@ class ViRankerReranker:
         threshold: float = 0.0,
         model_name: str | None = None,
         allow_network_download: bool = False,
+        revision: str | None = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -97,6 +98,7 @@ class ViRankerReranker:
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("threshold must be within [0.0, 1.0]")
         self._model_path_or_name = model_path_or_name
+        self._revision = revision
         self._model_name = model_name or "namdp-ptit/ViRanker"
         self._display_name = model_path_or_name
         self._batch_size = batch_size
@@ -138,6 +140,7 @@ class ViRankerReranker:
             "model_name": model_name,
             "threshold": settings_to_use.threshold,
             "allow_network_download": getattr(settings_to_use, "allow_network_download", False),
+            "revision": None if local_dir else settings_to_use.revision,
             **overrides,
         }
         return cls(**kwargs)
@@ -157,7 +160,9 @@ class ViRankerReranker:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
             try:
-                path = snapshot_download(self._model_path_or_name, local_files_only=True)
+                path = snapshot_download(
+                    self._model_path_or_name, revision=self._revision, local_files_only=True
+                )
             except Exception as exc:  # noqa: BLE001 - huggingface_hub raises a wide error set
                 if not self._allow_network_download:
                     raise RuntimeError(
@@ -171,10 +176,13 @@ class ViRankerReranker:
                     "reranker_local_snapshot_miss_falling_back_to_download",
                     extra={"model": self._model_path_or_name, "error": str(exc)},
                 )
-                path = snapshot_download(self._model_path_or_name, local_files_only=False)
+                path = snapshot_download(
+                    self._model_path_or_name, revision=self._revision, local_files_only=False
+                )
 
-            self._tokenizer = AutoTokenizer.from_pretrained(path)
-            self._model = AutoModelForSequenceClassification.from_pretrained(path)
+            # ``path`` is the pinned local snapshot directory; nothing is fetched here.
+            self._tokenizer = AutoTokenizer.from_pretrained(path)  # nosec B615
+            self._model = AutoModelForSequenceClassification.from_pretrained(path)  # nosec B615
             self._model.to(self._device)
             self._model.eval()
 

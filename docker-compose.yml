@@ -94,13 +94,13 @@ services:
     container_name: assistant_frontend
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "5173:8080"
     depends_on:
       - backend
     networks:
       - assistant_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -293,7 +293,7 @@ def _event_when(event: Any) -> str:
             val = payload.get("dateTime") or payload.get("date")
             if val:
                 return str(val)
-    if hasattr(start, "value"):
+    if start is not None and hasattr(start, "value"):
         return str(start.value)
     return str(start or "")
 

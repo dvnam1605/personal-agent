@@ -3,17 +3,14 @@
 FastTriage still chooses the route. Execution here uses live Calendar / Gmail /
 retrieval services instead of the unwired default harness dispatcher.
 Mutations never hit Google directly: they become approval requests.
-The class composes per-concern mixins: follow-ups, knowledge, specialists, streaming.
+The class is the last link of a mixin chain (see base.py): follow-ups,
+knowledge, specialists, streaming.
 """
 
 from __future__ import annotations
 
 import time
-import uuid
-from datetime import UTC, datetime
-from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.declarations import (
@@ -29,9 +26,7 @@ from app.domain.errors import (
     ValidationError,
 )
 from app.domain.models.routing.route import RouteDecision
-from app.infrastructure.db.models import User
 from app.services.platform.run_persistence import RunPersistenceService
-from app.services.routing.triage import FastTriage
 
 from .email_synthesis import (
     compose_email_draft,
@@ -40,23 +35,15 @@ from .email_synthesis import (
 )
 from .followup import (
     FOLLOWUP_PATTERNS,
-    FollowupMixin,
     answer_anchor,
     condense_query_with_history,
     is_followup_query,
     standalone_followup,
 )
-from .knowledge import KnowledgeMixin
 from .models import (
     GOOGLE_CONNECT_HINT,
-    CalendarFactory,
-    ClockFn,
-    CommunicationFactory,
     QueryResult,
     QueryRouteInfo,
-    RetrieveFn,
-    RunIdFn,
-    SummarizeEmailsFn,
     route_info,
 )
 from .parsing import (
@@ -71,43 +58,11 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
-from .specialists import SpecialistMixin
 from .streaming import StreamMixin
 
 
-class QueryOrchestrator(FollowupMixin, KnowledgeMixin, SpecialistMixin, StreamMixin):
+class QueryOrchestrator(StreamMixin):
     """Triage a natural-language query and execute the matching live specialist."""
-
-    def __init__(
-        self,
-        *,
-        triage: FastTriage | None = None,
-        calendar_for_user: CalendarFactory | None = None,
-        communication_for_user: CommunicationFactory | None = None,
-        retrieve: RetrieveFn | None = None,
-        oauth_service: Any | None = None,
-        clock: ClockFn | None = None,
-        new_run_id: RunIdFn | None = None,
-        summarize_emails_fn: SummarizeEmailsFn | None = None,
-        metadata_service: Any | None = None,
-        relation_service: Any | None = None,
-        phrase_structured: bool = True,
-        pipeline: Any | None = None,
-    ) -> None:
-        self._metadata_service = metadata_service
-        self._relation_service = relation_service
-        # SQL answers are reworded by one short LLM call (facts verified).
-        self._phrase_structured = phrase_structured
-        self._document_service: Any | None = None
-        self._triage = triage or FastTriage()
-        self._calendar_for_user = calendar_for_user
-        self._communication_for_user = communication_for_user
-        self._retrieve = retrieve
-        self._oauth_service = oauth_service
-        self._clock = clock or (lambda: datetime.now(UTC))
-        self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
-        self._summarize_emails_fn = summarize_emails_fn
-        self._pipeline: Any | None = pipeline
 
     async def handle(
         self,
@@ -252,35 +207,6 @@ class QueryOrchestrator(FollowupMixin, KnowledgeMixin, SpecialistMixin, StreamMi
                 "chưa thực thi agent này."
             ),
             route=route,
-        )
-
-    @staticmethod
-    async def _ensure_user(session: AsyncSession, user_id: str) -> None:
-        if await session.get(User, user_id) is not None:
-            return
-        collision = await session.scalar(
-            select(User.id).where(User.email == f"{user_id}@users.local")
-        )
-        email = (
-            f"{user_id}@users.local"
-            if collision is None
-            else f"{user_id}-{uuid.uuid4().hex[:8]}@users.local"
-        )
-        session.add(User(id=user_id, email=email))
-        await session.flush()
-
-    @staticmethod
-    async def _complete(
-        session: AsyncSession,
-        run_id: str,
-        started: float,
-        *,
-        status: RunStatus,
-        error_summary: str | None = None,
-    ) -> None:
-        latency_ms = (time.perf_counter() - started) * 1000.0
-        await RunPersistenceService.complete_run(
-            session, run_id, status, latency_ms, error_summary=error_summary
         )
 
 

@@ -143,4 +143,4 @@ def test_user_id_length_bound_enforced(monkeypatch):
 def asyncio_run(coro):  # noqa: ANN001
     import asyncio
 
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)

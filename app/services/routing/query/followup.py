@@ -17,12 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.enums import RouteType
 from app.domain.models.routing.route import RouteDecision
 
+from .base import OrchestratorBase
+
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
 
 # Profile-selected documents read together in one scoped RAG pass.
 _RAG_MAX_SCOPED_DOCUMENTS = 8
-
 
 # Per-request follow-up scope: (documents the previous answer cited, the line pointed at).
 _FOLLOWUP_SCOPE: ContextVar[tuple[list[str], str] | None] = ContextVar(
@@ -190,7 +191,7 @@ _PERSON_MENTION = re.compile(
 _PERSON_PRONOUN = re.compile(r"\b(?:ông|bà|anh|chị|người)\s+(?:ấy|đó|này)\b", re.IGNORECASE)
 
 
-class FollowupMixin:
+class FollowupMixin(OrchestratorBase):
     """Conversation history and follow-up handling for ``QueryOrchestrator``."""
 
     @staticmethod

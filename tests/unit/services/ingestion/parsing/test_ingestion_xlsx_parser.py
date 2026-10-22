@@ -15,6 +15,7 @@ from app.services.ingestion.type_detection import detect_document_type
 def _workbook() -> bytes:
     wb = Workbook()
     log = wb.active
+    assert log is not None
     log.title = "Quầy line"
     log.append(["ĐÁNH GIÁ KẾT QUẢ NHẬN DIỆN — QUẦY LINE"])
     log.append(["Từ 09/10/2026 đến 21/10/2026"])
@@ -48,6 +49,7 @@ def test_xlsx_is_detected_from_zip_and_extension() -> None:
 
 async def test_sheets_become_titled_tables() -> None:
     result = await parse_source(_source(), _workbook())
+    assert result.document is not None
     nodes = result.document.nodes
     headings = [n.text for n in nodes if isinstance(n, HeadingNode)]
     assert headings == ["Quầy line", "Kết quả chung"]  # empty sheet skipped

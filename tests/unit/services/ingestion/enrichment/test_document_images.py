@@ -123,6 +123,8 @@ def test_images_take_the_source_figure_label() -> None:
         collector, "Kiến trúc gồm ba tầng.", ref, "Hình 4.3: Kiến trúc tổng thể của hệ thống"
     )
     out = adopt_captions(doc)
-    alt = IMAGE_REF.fullmatch(out.nodes[1].text).group("alt")
+    match = IMAGE_REF.fullmatch(out.nodes[1].text)
+    assert match is not None
+    alt = match.group("alt")
     assert alt == "Hình 4.3: Kiến trúc tổng thể của hệ thống"
     assert out.nodes[2].text.startswith("Hình 4.3")  # the caption text stays

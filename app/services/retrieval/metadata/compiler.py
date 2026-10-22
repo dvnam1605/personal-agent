@@ -7,7 +7,7 @@ always enforced through ``documents``: active version + owner scope
 
 from __future__ import annotations
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval.metadata_filter import MetadataFilterSpec, MetadataOperation
@@ -30,8 +30,8 @@ def _like_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _conditions(spec: MetadataFilterSpec, requester_id: str | None) -> list:
-    conds = [Document.is_active.is_(True)]
+def _conditions(spec: MetadataFilterSpec, requester_id: str | None) -> list[ColumnElement[bool]]:
+    conds: list[ColumnElement[bool]] = [Document.is_active.is_(True)]
     if requester_id is None:
         conds.append(Document.user_id.is_(None))
     else:

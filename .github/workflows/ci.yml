@@ -5,9 +5,19 @@ on:
     branches: [main, master]
   pull_request:
 
+# Read-only token by default; jobs that need more ask for it explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  backend:
+    name: Backend — lint, types, migrations, tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -15,21 +25,16 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install dependencies
-        run: uv sync --extra dev
+      - name: Install dependencies (locked)
+        run: uv sync --extra dev --frozen
 
       - name: Ruff
         run: |
-          uv run ruff check app tests
-          uv run ruff format --check app tests
+          uv run ruff check app tests scripts
+          uv run ruff format --check app tests scripts
 
       - name: Pyright
         run: uv run pyright
-
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Alembic upgrade head (sqlite)
         run: |
@@ -48,3 +53,70 @@ jobs:
 
       - name: Pytest with coverage gate
         run: uv run pytest --tb=short --cov --cov-report=term-missing
+
+  frontend:
+    name: Frontend — types, lint, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (locked)
+        run: npm ci
+
+      - name: TypeScript
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+      - name: Oxlint
+        run: npx oxlint src
+
+      - name: Build
+        run: npm run build
+
+  security:
+    name: Security — secrets, dependencies, code, containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      # PYSEC-2026-3804 (accelerate ≤1.14, path traversal when loading an untrusted
+      # sharded checkpoint): no fixed release yet; the app only loads its own
+      # revision-pinned model snapshots. Drop the ignore once a fix ships.
+      - name: Python dependency audit (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip \
+            --progress-spinner off --ignore-vuln PYSEC-2026-3804
+
+      - name: Python security lint (bandit)
+        run: uvx bandit -r app scripts -q --severity-level medium --confidence-level medium
+
+      - name: npm dependency audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      - name: Container config scan (Trivy)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" aquasec/trivy:0.65.0 \
+            config --severity HIGH,CRITICAL --exit-code 1 /repo

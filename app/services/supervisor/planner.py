@@ -150,7 +150,7 @@ class SupervisorPlanner:
         import hashlib as _hashlib
 
         def _sig(t: ExecutionTask) -> tuple[str, str, str, tuple[str, ...]]:
-            desc_hash = _hashlib.md5(t.description.encode()).hexdigest()[:8]
+            desc_hash = _hashlib.md5(t.description.encode(), usedforsecurity=False).hexdigest()[:8]
             return (
                 t.assigned_agent,
                 t.name.strip().lower(),

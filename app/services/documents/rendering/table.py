@@ -89,6 +89,7 @@ def render_table_xlsx(
     path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
     ws = wb.active
+    assert ws is not None
     ws.title = "Bảng"
     n_cols = len(columns) + 2  # STT + columns + Nguồn
 
@@ -133,7 +134,7 @@ def render_table_xlsx(
     for j, column in enumerate(columns, 2):
         ws.column_dimensions[get_column_letter(j)].width = _width(column)
     ws.column_dimensions[get_column_letter(n_cols)].width = 12
-    ws.freeze_panes = ws.cell(row=header_row + 1, column=2)
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=2).coordinate
     if rows:
         ws.auto_filter.ref = f"A{header_row}:{get_column_letter(n_cols)}{header_row + len(rows)}"
 

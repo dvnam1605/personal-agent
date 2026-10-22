@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import latex2mathml.converter
 import mathml2omml
@@ -19,6 +19,7 @@ from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import parse_xml
 from docx.shared import Inches, Pt
+from docx.styles.style import ParagraphStyle
 
 from app.core.images import IMAGE_REF, image_file
 from app.services.documents.templates import DocTemplate
@@ -195,7 +196,7 @@ def render_docx(
 ) -> Path:
     created = created or date.today()
     doc = DocxDocument()
-    normal = doc.styles["Normal"]
+    normal = cast(ParagraphStyle, doc.styles["Normal"])
     normal.font.name = "Times New Roman"
     normal.font.size = Pt(13)
 

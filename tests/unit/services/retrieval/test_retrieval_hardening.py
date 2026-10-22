@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 import pytest
@@ -171,7 +171,11 @@ class TestDenseHnswSettings:
     async def test_ef_search_covers_limit_and_iterative_scan(self) -> None:
         provider = _SettingsProvider()
         service = DenseRetrievalService(_Embedding(), provider)  # type: ignore[arg-type]
-        await service.retrieve(RetrievalQuery(original_query="quy chế chi tiêu", top_k_dense=80))
+        await service.retrieve(
+            RetrievalQuery(
+                original_query="quy chế chi tiêu", search_query="quy chế chi tiêu", top_k_dense=80
+            )
+        )
         _, settings, optional = provider.calls[0]
         assert int(settings["hnsw.ef_search"]) >= 160
         assert "enable_indexscan" not in settings
@@ -183,6 +187,7 @@ class TestDenseHnswSettings:
         await service.retrieve(
             RetrievalQuery(
                 original_query="quy chế chi tiêu",
+                search_query="quy chế chi tiêu",
                 mode=RetrievalMode.DOCUMENT_SEARCH,
                 document_ids=["doc-1"],
             )
@@ -245,7 +250,7 @@ class TestSynthesisInterruption:
         assert result.status is SufficiencyStatus.PARTIAL
 
     async def test_stream_failure_after_tokens_marks_partial(self) -> None:
-        async def flaky_stream(system: str, user: str) -> Any:
+        async def flaky_stream(system: str, user: str) -> AsyncGenerator[str, None]:
             yield "Một phần "
             yield "câu trả lời"
             raise RuntimeError("upstream reset")
@@ -293,7 +298,7 @@ class TestCitationLabels:
         async def gen(system: str, user: str) -> str:
             return text
 
-        async def stream(system: str, user: str) -> Any:
+        async def stream(system: str, user: str) -> AsyncGenerator[str, None]:
             for i in range(0, len(text), 4):  # split brackets across chunks
                 yield text[i : i + 4]
 

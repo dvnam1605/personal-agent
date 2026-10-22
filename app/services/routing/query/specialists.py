@@ -21,6 +21,7 @@ from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
 from .email_synthesis import compose_email_draft, summarize_emails
+from .knowledge import KnowledgeMixin
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
     _iso,
@@ -48,7 +49,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin:
+class SpecialistMixin(KnowledgeMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(

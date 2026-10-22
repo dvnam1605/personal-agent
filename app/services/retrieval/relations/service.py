@@ -110,7 +110,7 @@ class RelationLookupService:
         )
         async with self._sessions()() as session:
             names = list((await session.execute(names_stmt)).scalars())
-            numbers = list((await session.execute(numbers_stmt)).scalars())
+            numbers = [n for n in (await session.execute(numbers_stmt)).scalars() if n is not None]
         self._catalog[requester_id] = (time.monotonic() + CATALOG_TTL_SECONDS, names, numbers)
         return names, numbers
 
