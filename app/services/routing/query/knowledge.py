@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.retrieval.answer.numbering import renumber
 
-from .followup import _FOLLOWUP_SCOPE, _RAG_MAX_SCOPED_DOCUMENTS
+from .followup import _FOLLOWUP_SCOPE, _RAG_MAX_SCOPED_DOCUMENTS, FollowupMixin
 from .models import QueryResult, QueryRouteInfo
 from .parsing import retrieval_requester_id
 
@@ -56,7 +56,7 @@ class _KnowledgeRoute:
     relation: Any = None
 
 
-class KnowledgeMixin:
+class KnowledgeMixin(FollowupMixin):
     """Knowledge / RAG / relation answering for ``QueryOrchestrator``."""
 
     async def _handle_knowledge(

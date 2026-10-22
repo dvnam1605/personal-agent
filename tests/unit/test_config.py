@@ -39,7 +39,7 @@ def test_timeouts_settings(monkeypatch):
     # Defaults, independent of the developer's .env and shell.
     monkeypatch.delenv("TIMEOUTS__GOOGLE_API_SECONDS", raising=False)
     monkeypatch.delenv("TIMEOUTS__LLM_REQUEST_SECONDS", raising=False)
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     assert settings.timeouts.google_api_seconds == 10.0
     assert settings.timeouts.llm_request_seconds == 90.0
 

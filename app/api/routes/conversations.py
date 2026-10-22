@@ -236,14 +236,15 @@ async def update_conversation(
             detail="Không tìm thấy cuộc trò chuyện.",
         )
 
-    conv.title = body.title.strip()
+    title = body.title.strip()
+    conv.title = title
     conv.updated_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(conv)
 
     return ConversationSummary(
         id=conv.id,
-        title=conv.title,
+        title=title,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
     )

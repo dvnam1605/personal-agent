@@ -4,8 +4,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.session import get_db_session
@@ -21,7 +20,7 @@ async def override_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     async with session_maker() as session:
         yield session
 
@@ -57,6 +56,7 @@ async def test_rate_limiter_direct_logic() -> None:
     # 3. Check now locked
     allowed, msg, ttl = await auth_rate_limiter.check_login_allowed(email, ip)
     assert allowed is False
+    assert msg is not None
     assert "tạm khóa" in msg.lower()
     assert ttl > 0
 

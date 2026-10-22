@@ -95,6 +95,7 @@ async def test_snapshot_records_every_unit_and_marks_cited(session: AsyncSession
         (bundle.items[0].evidence_id, 2),
     ]
     run = await session.get(AssistantRun, "run-1")
+    assert run is not None
     assert (run.retrieval_trace_id, run.answer_status) == ("trace-1", "SUFFICIENT")
 
 

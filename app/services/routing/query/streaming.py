@@ -40,6 +40,7 @@ from .parsing import (
     is_communication_draft,
     is_communication_mutation,
 )
+from .specialists import SpecialistMixin
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -55,7 +56,7 @@ def _final_answer(streamed: str, placed: str | None) -> dict[str, str]:
     return {"answer": final} if final != streamed else {}
 
 
-class StreamMixin:
+class StreamMixin(SpecialistMixin):
     """The SSE path (``handle_stream``) of ``QueryOrchestrator``."""
 
     async def handle_stream(
@@ -145,7 +146,7 @@ class StreamMixin:
             tok_per_sec = (total_tokens / max(0.001, stream_duration)) if total_tokens > 0 else 0.0
 
             route_name = getattr(route, "route_type", None)
-            if hasattr(route_name, "value"):
+            if route_name is not None and hasattr(route_name, "value"):
                 route_name = route_name.value
 
             logger.info(

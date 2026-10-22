@@ -299,6 +299,7 @@ async def test_outline_then_approve_writes_files(
 
     done = await service.approve_and_write(session, user_id="u1", requester_id=None, doc_id=row.id)
     assert done.status == "done"
+    assert done.docx_path is not None
     assert Path(done.docx_path).exists()
     assert done.markdown and "## Tài liệu tham khảo" in done.markdown
     assert [s["status"] for s in done.sections] == ["ok", "ok", "missing", "missing"]

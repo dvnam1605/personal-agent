@@ -288,7 +288,7 @@ class IngestionOrchestrator:
                 await self._repository.activate_candidate(
                     session, logical_document_id=logical_id, document_id=persisted_id
                 )
-                if profile_draft is not None:
+                if profile_draft is not None and self._profiles is not None:
                     await self._profiles.save(
                         session,
                         document_id=persisted_id,
@@ -296,7 +296,7 @@ class IngestionOrchestrator:
                         draft=profile_draft,
                         overrides=profile_overrides,
                     )
-                if relation_drafts is not None:
+                if relation_drafts is not None and self._relations is not None:
                     await self._relations.replace(
                         session,
                         document_id=persisted_id,
