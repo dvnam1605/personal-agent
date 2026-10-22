@@ -28,17 +28,24 @@ _FORMULA_MENTION = re.compile(
 _FIGURE_MENTION = re.compile(rf"(?P<word>Hình\s*)(?P<num>{_NUM})(?![\d.]\d)")
 
 
-def renumber(text: str, prefix: str | None = None) -> str:
-    """``text`` with its figures and equations numbered prefix.1, prefix.2, … (or 1, 2, …)."""
-    lines = text.split("\n")
-    figures: dict[str, str] = {}
-    formulas: dict[str, str] = {}
+Numbers = dict[str, str]  # source number → new number
+
+
+def _renumber(
+    text: str,
+    prefix: str | None,
+    elsewhere: tuple[Numbers, Numbers] = ({}, {}),
+) -> tuple[str, Numbers, Numbers]:
+    """(text, its formulas' numbers, its figures' numbers); ``elsewhere`` numbers
+    references to formulas and figures shown in other sections."""
+    figures: Numbers = {}
+    formulas: Numbers = {}
 
     def new_number(count: int) -> str:
         return f"{prefix}.{count}" if prefix else str(count)
 
     out: list[str] = []
-    for line in lines:
+    for line in text.split("\n"):
         if (picture := IMAGE_REF.fullmatch(line.strip())) is not None:
             label = _IMAGE_LABEL.match(picture.group("alt"))
             old = label.group("num") if label else None
@@ -59,25 +66,50 @@ def renumber(text: str, prefix: str | None = None) -> str:
             continue
         out.append(line)
 
+    other_formulas, other_figures = elsewhere
+
     def formula_mention(m: re.Match[str]) -> str:
-        new = formulas.get(m.group("num"))
+        new = formulas.get(m.group("num")) or other_formulas.get(m.group("num"))
         return f"{m.group('word')}({new})" if new else m.group(0)
 
     def figure_mention(m: re.Match[str]) -> str:
-        new = figures.get(m.group("num"))
+        new = figures.get(m.group("num")) or other_figures.get(m.group("num"))
         return f"{m.group('word')}{new}" if new else m.group(0)
 
     result: list[str] = []
     for line in out:
-        if IMAGE_REF.fullmatch(line.strip()) or _EQUATION_LINE.match(line):
+        # Display lines already carry their new number.
+        if (
+            IMAGE_REF.fullmatch(line.strip())
+            or _EQUATION_LINE.match(line)
+            or _FORMULA_LINE.match(line)
+        ):
             result.append(line)
             continue
-        if _FORMULA_LINE.match(line):  # its own number is already the new one
-            result.append(line)
-            continue
-        if formulas:
-            line = _FORMULA_MENTION.sub(formula_mention, line)
-        if figures:
-            line = _FIGURE_MENTION.sub(figure_mention, line)
+        line = _FORMULA_MENTION.sub(formula_mention, line)
+        line = _FIGURE_MENTION.sub(figure_mention, line)
         result.append(line)
-    return "\n".join(result)
+    return "\n".join(result), formulas, figures
+
+
+def renumber(text: str, prefix: str | None = None) -> str:
+    """``text`` with its figures and equations numbered prefix.1, prefix.2, … (or 1, 2, …)."""
+    return _renumber(text, prefix)[0]
+
+
+def renumber_sections(texts: list[str], prefixes: list[str]) -> list[str]:
+    """Each section numbered by its prefix; a reference to a formula or figure
+    shown in another section ("theo Công thức (3.5)" in section 3, the formula
+    being shown in section 2) takes that section's number."""
+    shown_formulas: Numbers = {}
+    shown_figures: Numbers = {}
+    for text, prefix in zip(texts, prefixes, strict=True):
+        _, formulas, figures = _renumber(text, prefix)
+        for old, new in formulas.items():
+            shown_formulas.setdefault(old, new)
+        for old, new in figures.items():
+            shown_figures.setdefault(old, new)
+    return [
+        _renumber(text, prefix, (shown_formulas, shown_figures))[0]
+        for text, prefix in zip(texts, prefixes, strict=True)
+    ]

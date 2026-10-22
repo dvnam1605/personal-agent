@@ -32,7 +32,7 @@ from app.services.documents.writing.generation import (
     SectionWriter,
 )
 from app.services.documents.writing.review import SectionReviewer
-from app.services.retrieval.numbering import renumber
+from app.services.retrieval.numbering import renumber_sections
 
 logger = logging.getLogger(__name__)
 _NUMBERED_HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\s")
@@ -563,11 +563,13 @@ def _with_formulas(
 
 def _numbered(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Figures and equations numbered by section: "Hình 3.1", "(3.1)" in section 3."""
+    texts = renumber_sections(
+        ["" if s.get("status") == "missing" else str(s.get("text") or "") for s in sections],
+        [str(index) for index in range(1, len(sections) + 1)],
+    )
     return [
-        section
-        if section.get("status") == "missing"
-        else {**section, "text": renumber(section.get("text") or "", str(index))}
-        for index, section in enumerate(sections, start=1)
+        section if section.get("status") == "missing" else {**section, "text": text}
+        for section, text in zip(sections, texts, strict=True)
     ]
 
 

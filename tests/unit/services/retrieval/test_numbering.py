@@ -43,3 +43,13 @@ def test_numbering_twice_changes_nothing() -> None:
 def test_text_without_figures_is_unchanged() -> None:
     text = "Theo Công thức (3.5) của đồ án [1]."
     assert renumber(text, "2") == text
+
+
+def test_a_reference_to_a_formula_shown_in_another_section_takes_its_number() -> None:
+    from app.services.retrieval.numbering import renumber_sections
+
+    shown = "Tập giá trị theo Công thức (3.5) [1]:\n$$P_s = p$$ (3.5)"
+    later = "Đối với một thông số s, tập giá trị xác định theo Công thức (3.5) [11]."
+    out = renumber_sections([shown, later], ["2", "3"])
+    assert out[0].endswith("$$ (2.1)")
+    assert out[1] == "Đối với một thông số s, tập giá trị xác định theo Công thức (2.1) [11]."
