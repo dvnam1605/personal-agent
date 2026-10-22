@@ -32,6 +32,7 @@ from app.services.documents.writing.generation import (
     SectionWriter,
 )
 from app.services.documents.writing.review import SectionReviewer
+from app.services.retrieval.numbering import renumber
 
 logger = logging.getLogger(__name__)
 _NUMBERED_HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\s")
@@ -347,9 +348,11 @@ class DocumentGenerationService:
                 self._store(
                     row,
                     outline,
-                    _unique_images(
-                        _with_formulas(
-                            [s.model_dump() for s in written.sections], formulas, outline
+                    _numbered(
+                        _unique_images(
+                            _with_formulas(
+                                [s.model_dump() for s in written.sections], formulas, outline
+                            )
                         )
                     ),
                     written.citations,
@@ -395,9 +398,10 @@ class DocumentGenerationService:
             formulas=formulas,
             figures=figures,
         )
-        self._store(
-            row, outline, _unique_images(_with_formulas(sections, formulas, outline)), citations
-        )
+        # Only the rewritten section is new; the others already carry the report's
+        # own numbers, which must not be read as the sources' ones.
+        sections = _with_formulas(sections, formulas, outline, only=index)
+        self._store(row, outline, _numbered(_unique_images(sections)), citations)
         await session.flush()
         return row
 
@@ -522,16 +526,29 @@ def table_review_note(rows: list[dict[str, Any]]) -> str:
 
 
 def _with_formulas(
-    sections: list[dict[str, Any]], formulas: dict[str, Formula], outline: DocumentOutline
+    sections: list[dict[str, Any]],
+    formulas: dict[str, Formula],
+    outline: DocumentOutline,
+    *,
+    only: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Each section shows the source equations it mentions or was planned from."""
+    """Each section shows the source equations it mentions or was planned from.
+
+    With ``only``, just that section is filled; equations the others already
+    show count as shown.
+    """
     if not formulas:
         return sections
     planned = {s.heading: s.sources for s in outline.sections}
     shown: set[str] = set()  # a formula appears once in the whole document
+    if only is not None:
+        others = "\n".join(
+            str(section.get("text") or "") for i, section in enumerate(sections) if i != only
+        )
+        shown = {n for n, f in formulas.items() if (f.latex or f.body) in others}
     out: list[dict[str, Any]] = []
-    for section in sections:
-        if section.get("status") == "missing":
+    for i, section in enumerate(sections):
+        if section.get("status") == "missing" or (only is not None and i != only):
             out.append(section)
             continue
         text = insert_formulas(
@@ -542,6 +559,16 @@ def _with_formulas(
         )
         out.append({**section, "text": text})
     return out
+
+
+def _numbered(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Figures and equations numbered by section: "Hình 3.1", "(3.1)" in section 3."""
+    return [
+        section
+        if section.get("status") == "missing"
+        else {**section, "text": renumber(section.get("text") or "", str(index))}
+        for index, section in enumerate(sections, start=1)
+    ]
 
 
 def _unique_images(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
