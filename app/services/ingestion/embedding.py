@@ -176,14 +176,14 @@ class TransformersPoolingBackend:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
             try:
-                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)
+                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=True)  # nosec B615 - local snapshot directory
             except Exception:  # noqa: BLE001 - fallback to remote hub when local cache misses
-                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)
+                tokenizer = AutoTokenizer.from_pretrained(self._local_path, local_files_only=False)  # nosec B615 - local snapshot directory
 
             try:
-                model = AutoModel.from_pretrained(self._local_path, local_files_only=True)
+                model = AutoModel.from_pretrained(self._local_path, local_files_only=True)  # nosec B615 - local snapshot directory
             except Exception:  # noqa: BLE001 - fallback to remote hub when local cache misses
-                model = AutoModel.from_pretrained(self._local_path, local_files_only=False)
+                model = AutoModel.from_pretrained(self._local_path, local_files_only=False)  # nosec B615 - local snapshot directory
             model.to(self._device)
             model.eval()
             # Publish only after the model is fully moved and in eval mode.

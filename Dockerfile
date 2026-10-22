@@ -55,8 +55,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Ensure secrets directory exists
-RUN mkdir -p /app/.secrets
+# Run as an unprivileged user (uid 1000 matches the default WSL user, so the
+# bind-mounted storage/ and models/ stay writable).
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /app/.secrets /app/storage \
+    && chown -R app:app /app/.secrets /app/storage
+USER app
 
 EXPOSE 8000
 

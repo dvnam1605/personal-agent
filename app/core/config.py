@@ -82,7 +82,8 @@ class Settings(BaseSettings):
     )
     debug: bool = False
     api_prefix: str = "/api/v1"
-    host: str = "0.0.0.0"
+    # Local runs listen on loopback only; the container entrypoint binds 0.0.0.0 itself.
+    host: str = "127.0.0.1"
     port: int = 8000
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)

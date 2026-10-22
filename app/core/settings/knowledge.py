@@ -8,6 +8,10 @@ class EmbeddingSettings(BaseModel):
         default="AITeamVN/Vietnamese_Embedding",
         description="Embedding model name (local snapshot by default, ADR 0012)",
     )
+    revision: str = Field(
+        default="dea33aa1ab339f38d66ae0a40e6c40e0a9249568",
+        description="Hub commit the model is pinned to, so a changed upstream repo is never pulled",
+    )
     dimensions: int = Field(default=1024, description="Embedding vector dimensions")
     batch_size: int = Field(default=64, description="Embedding generation batch size")
     local_path: str | None = Field(
@@ -30,6 +34,10 @@ class RerankerSettings(BaseModel):
     model: str = Field(
         default="namdp-ptit/ViRanker",
         description="Cross-encoder reranker model (local snapshot by default, ADR 0012)",
+    )
+    revision: str = Field(
+        default="922bd0d698b12e02f37717051374f40a5297e6a9",
+        description="Hub commit the model is pinned to, so a changed upstream repo is never pulled",
     )
     top_k: int = Field(default=5, description="Number of reranked candidates to return")
     threshold: float = Field(default=0.3, description="Minimum relevance score threshold")

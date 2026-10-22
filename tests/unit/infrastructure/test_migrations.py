@@ -1,6 +1,7 @@
 """Unit tests for database migration and schema completeness."""
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,8 @@ def test_alembic_upgrade_head_creates_hardened_schema(
 
     command.upgrade(alembic_config, "head")
 
-    with sqlite3.connect(database_path) as connection:
+    # sqlite3's own context manager commits but never closes the connection.
+    with closing(sqlite3.connect(database_path)) as connection:
         tables = {
             row[0]
             for row in connection.execute(

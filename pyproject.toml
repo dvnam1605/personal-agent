@@ -111,7 +111,10 @@ norecursedirs = [".*", "deepseek-harness", "TencentDB-Agent-Memory", "data"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Docling reads its own deprecated option internally; nothing in this repo sets it.
-filterwarnings = ["ignore:This field is deprecated:DeprecationWarning:docling"]
+filterwarnings = [
+    "ignore:This field is deprecated:DeprecationWarning:docling",
+    "ignore:`force_full_page_ocr` is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["app"]
