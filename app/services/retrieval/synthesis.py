@@ -7,25 +7,22 @@ response.
 
 The protocol is async to support LLM backends; callers that only need the
 prompt-building logic (tests, offline evaluation) can use
-``build_synthesis_messages`` directly.
+``build_synthesis_messages`` directly. The default LLM callbacks live in
+``synthesis_llm`` and citation building in ``synthesis_citations``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
-import re
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any, Protocol, runtime_checkable
 
-import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
-from app.core.http import llm_http_timeout
 from app.core.images import strip_images
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
@@ -50,6 +47,32 @@ from app.services.retrieval.prompts import (
     SYNTHESIS_SYSTEM_PROMPT,
     build_synthesis_user_message,
 )
+from app.services.retrieval.synthesis_citations import (
+    build_citations_from_bundle,
+    extract_cited_ids,
+    format_document_title,
+)
+from app.services.retrieval.synthesis_llm import (
+    GenerateCallback,
+    StreamGenerateCallback,
+    SynthesisInterruptedError,
+    build_default_generate,
+    build_default_stream_generate,
+    unconfigured_generate,
+    unconfigured_stream_generate,
+)
+
+__all__ = [
+    "AnswerSynthesizer",
+    "GenerateCallback",
+    "PromptAnswerSynthesizer",
+    "StreamGenerateCallback",
+    "SynthesisInterruptedError",
+    "SynthesisResult",
+    "build_citations_from_bundle",
+    "extract_cited_ids",
+    "format_document_title",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -100,120 +123,6 @@ class AnswerSynthesizer(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Citation extraction helpers
-# ---------------------------------------------------------------------------
-
-_CITE_RE = re.compile(r"\[(?:evidence_id=)?[\"']?([0-9a-fA-F]{32})[\"']?\]")
-_HEX_ID_RE = re.compile(r"[0-9a-fA-F]{32}")
-_BRACKET_CITE_RE = re.compile(r"\[(?:\s*(?:evidence_id=)?[\"']?[0-9a-fA-F]{32}[\"']?\s*[,;\s]*)+\]")
-
-
-def _vn_date(value: Any) -> str | None:
-    if not value:
-        return None
-    text = str(value)
-    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
-    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else text
-
-
-def format_document_title(
-    raw_title: str | None,
-    text_content: str | None = None,
-    anchors: dict[str, Any] | None = None,
-) -> str:
-    """Human title for a citation, for any document kind.
-
-    Prefers the document profile (subtype, number, date, title); falls back
-    to a printed "Số: …" line, then to a cleaned-up filename.
-    """
-    anchors = anchors or {}
-    profile_title = (anchors.get("profile_title") or "").strip()
-    number = anchors.get("doc_number")
-    subtype = anchors.get("doc_subtype")
-    when = _vn_date(anchors.get("doc_date"))
-    if profile_title or number:
-        label = profile_title[:120] if profile_title else ""
-        if number and number not in label:
-            head = f"{subtype or 'Văn bản'} số {number}"
-            label = f"{head} – {label}" if label else head
-        if when:
-            label = f"{label} ({when})"
-        return label
-
-    if not raw_title:
-        return "Tài liệu nội bộ"
-
-    if text_content:
-        so_match = re.search(r"Số\s*:\s*(\d{1,5}\s*/\s*[A-ZĐ][\wĐ\-/]*)", text_content)
-        if so_match:
-            number = re.sub(r"\s+", "", so_match.group(1))
-            return f"Văn bản số {number}"
-
-    cleaned = re.sub(r"\.(?:md|pdf|docx?|xlsx?)$", "", raw_title, flags=re.IGNORECASE)
-    cleaned = re.sub(r"^\d+-\d+-\d+-\d+_", "", cleaned)
-    return cleaned.replace("_", " ").strip() or raw_title
-
-
-def extract_cited_ids(text: str) -> list[str]:
-    """Pull unique evidence_id hex strings from single or multi-evidence bracket markers."""
-    ids: list[str] = []
-    for bracket_match in _BRACKET_CITE_RE.finditer(text):
-        for eid in _HEX_ID_RE.findall(bracket_match.group(0)):
-            if eid not in ids:
-                ids.append(eid)
-    return ids
-
-
-def build_citations_from_bundle(
-    cited_ids: list[str],
-    bundle: EvidenceBundle,
-) -> list[Citation]:
-    """Map cited evidence ids back to ``Citation`` objects using bundle items."""
-    id_to_item = {item.evidence_id: item for item in bundle.items}
-    citations: list[Citation] = []
-    seen: set[str] = set()
-    for eid in cited_ids:
-        item = id_to_item.get(eid)
-        if item is None or item.evidence_id in seen:
-            if item is None:
-                logger.debug("cited_evidence_not_in_bundle", extra={"evidence_id": eid})
-            continue
-        seen.add(item.evidence_id)
-        raw_title = (
-            item.title or item.anchors.get("document_title") or item.filename or "Văn bản nội bộ"
-        )
-        title = format_document_title(raw_title, item.content_raw, item.anchors)
-        source_type = item.source_type or item.anchors.get("source_type") or "Văn bản"
-        page_start = item.anchors.get("page_start")
-        page_end = item.anchors.get("page_end")
-        section_title = (
-            " > ".join(item.heading_path)
-            if item.heading_path
-            else item.anchors.get("section_title")
-        )
-        citations.append(
-            Citation(
-                evidence_id=item.evidence_id,
-                document_id=item.document_id,
-                title=title,
-                page_start=page_start,
-                page_end=page_end,
-                heading_path=list(item.heading_path),
-                source_type=source_type,
-                chunk_id=item.primary_chunk_id or item.evidence_id,
-                text=item.content_raw,
-                page_number=page_start or 1,
-                section_title=section_title,
-                score=item.score or item.rerank_score,
-                source_uri=item.anchors.get("source_uri") or item.anchors.get("uri"),
-                document_version_id=item.document_version_id,
-                version_number=item.anchors.get("version_number"),
-            )
-        )
-    return citations
-
-
-# ---------------------------------------------------------------------------
 # Default implementation
 # ---------------------------------------------------------------------------
 
@@ -234,173 +143,12 @@ class PromptAnswerSynthesizer:
         if generate is not None:
             self._generate = generate
         else:
-            self._generate = self._build_default_generate() or _unconfigured_generate
+            self._generate = build_default_generate() or unconfigured_generate
 
         if stream_generate is not None:
             self._stream_generate = stream_generate
         else:
-            self._stream_generate = (
-                self._build_default_stream_generate() or _unconfigured_stream_generate
-            )
-
-    @staticmethod
-    def _build_default_generate() -> GenerateCallback | None:
-        try:
-            api_key = settings.llm.openai_api_key
-            if not api_key:
-                return None
-
-            async def _openai_generate(system: str, user: str) -> str:
-                target_url = settings.llm.chat_completions_url()
-                logger.info(
-                    "synthesis_calling_llm url=%s model=%s mode=%s",
-                    target_url,
-                    settings.llm.primary_model,
-                    str(settings.llm.mode),
-                )
-                timeout = settings.timeouts.llm_request_seconds
-                chunks: list[str] = []
-                stream_status: int | None = None
-                # Use streaming under the hood so intermediate chunks keep proxy connection alive
-                # and prevent 20s empty-body timeouts from upstream reverse proxies.
-                # httpx timeouts are per read, so a slow-trickling stream also
-                # gets an overall deadline.
-                try:
-                    async with (
-                        asyncio.timeout(timeout),
-                        httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client,
-                    ):
-                        async with client.stream(
-                            "POST",
-                            target_url,
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            json={
-                                "model": settings.llm.primary_model,
-                                "messages": [
-                                    {"role": "system", "content": system},
-                                    {"role": "user", "content": user},
-                                ],
-                                "temperature": settings.llm.temperature,
-                                "stream": True,
-                            },
-                        ) as response:
-                            response.raise_for_status()
-                            async for line in response.aiter_lines():
-                                line = line.strip()
-                                if not line or not line.startswith("data:"):
-                                    continue
-                                data_str = line[5:].strip()
-                                if data_str == "[DONE]":
-                                    break
-                                try:
-                                    payload = json.loads(data_str)
-                                    choices = payload.get("choices") or []
-                                    if choices:
-                                        delta = choices[0].get("delta", {}).get("content")
-                                        if delta:
-                                            chunks.append(delta)
-                                except Exception:  # noqa: BLE001 - malformed chunk should not abort stream
-                                    continue
-                except Exception as stream_err:  # noqa: BLE001 - stream failure falls back to standard POST
-                    logger.warning("synthesis_stream_accumulation_failed error=%s", stream_err)
-                    if isinstance(stream_err, httpx.HTTPStatusError):
-                        stream_status = stream_err.response.status_code
-                    partial = "".join(chunks).strip()
-                    if partial:
-                        # Never pass a cut-off answer off as a complete one.
-                        raise SynthesisInterruptedError(partial) from stream_err
-                    if isinstance(stream_err, (httpx.ConnectError, httpx.ConnectTimeout)):
-                        # Gateway unreachable: a second POST would just wait again.
-                        raise ValueError("LLM gateway unreachable") from stream_err
-
-                content = "".join(chunks).strip()
-                if not content and stream_status == 429:
-                    # Rate-limited gateway: an immediate second POST only burns quota.
-                    raise ValueError("LLM gateway rate-limited the synthesis request (429)")
-                if not content:
-                    # Fallback to standard POST if streaming produced no chunks
-                    async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
-                        resp = await client.post(
-                            target_url,
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            json={
-                                "model": settings.llm.primary_model,
-                                "messages": [
-                                    {"role": "system", "content": system},
-                                    {"role": "user", "content": user},
-                                ],
-                                "temperature": settings.llm.temperature,
-                            },
-                        )
-                        resp.raise_for_status()
-                        if resp.content:
-                            data = resp.json()
-                            content = data["choices"][0]["message"].get("content") or ""
-
-                if not content or not str(content).strip():
-                    raise ValueError(
-                        f"LLM returned empty content (model={settings.llm.primary_model})"
-                    )
-                return str(content)
-
-            return _openai_generate
-        except (ImportError, OSError, TimeoutError, TypeError, ValueError, KeyError):
-            logger.exception("synthesis_default_generate_unavailable")
-            return None
-
-    @staticmethod
-    def _build_default_stream_generate() -> StreamGenerateCallback | None:
-        try:
-            api_key = settings.llm.openai_api_key
-            if not api_key:
-                return None
-
-            async def _openai_stream_generate(system: str, user: str) -> AsyncGenerator[str, None]:
-                target_url = settings.llm.chat_completions_url()
-                logger.info(
-                    "synthesis_calling_llm_stream url=%s model=%s mode=%s",
-                    target_url,
-                    settings.llm.primary_model,
-                    str(settings.llm.mode),
-                )
-                timeout = settings.timeouts.llm_request_seconds
-                async with httpx.AsyncClient(timeout=llm_http_timeout(timeout)) as client:
-                    async with client.stream(
-                        "POST",
-                        target_url,
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        json={
-                            "model": settings.llm.primary_model,
-                            "messages": [
-                                {"role": "system", "content": system},
-                                {"role": "user", "content": user},
-                            ],
-                            "temperature": settings.llm.temperature,
-                            "stream": True,
-                        },
-                    ) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            line = line.strip()
-                            if not line or not line.startswith("data:"):
-                                continue
-                            data_str = line[5:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                payload = json.loads(data_str)
-                                choices = payload.get("choices") or []
-                                if choices:
-                                    delta = choices[0].get("delta", {}).get("content")
-                                    if delta:
-                                        yield delta
-                            except Exception:  # noqa: BLE001 - malformed chunk should not abort stream
-                                continue
-
-            return _openai_stream_generate
-        except (ImportError, OSError, TimeoutError, TypeError, ValueError, KeyError):
-            logger.exception("synthesis_default_stream_generate_unavailable")
-            return None
+            self._stream_generate = build_default_stream_generate() or unconfigured_stream_generate
 
     async def synthesize(
         self,
@@ -699,36 +447,3 @@ _INTERRUPTED_NOTE = (
     "\n\n⚠️ Câu trả lời bị gián đoạn do mất kết nối với mô hình AI, "
     "nội dung phía trên có thể chưa đầy đủ."
 )
-
-
-class SynthesisInterruptedError(Exception):
-    """The LLM stream broke after producing part of the answer."""
-
-    def __init__(self, partial: str) -> None:
-        super().__init__("LLM stream interrupted after partial output")
-        self.partial = partial
-
-
-GenerateCallback = Callable[[str, str], Awaitable[str]]
-StreamGenerateCallback = Callable[[str, str], AsyncGenerator[str, None]]
-
-
-async def _unconfigured_generate(system: str, user: str) -> str:
-    """Fallback when no LLM key or generate callback is configured."""
-    logger.warning(
-        "synthesis_unconfigured_generate_invoked",
-        extra={"hint": "inject a real LLM generate callback in production"},
-    )
-    return (
-        "Answer synthesis is not yet configured.  "
-        "Please provide a generate callback to PromptAnswerSynthesizer."
-    )
-
-
-async def _unconfigured_stream_generate(system: str, user: str) -> AsyncGenerator[str, None]:
-    """Fallback generator when no LLM key or stream generate callback is configured."""
-    logger.warning(
-        "synthesis_unconfigured_stream_generate_invoked",
-        extra={"hint": "inject a real LLM stream generate callback in production"},
-    )
-    yield "Answer synthesis is not yet configured. Please provide a generate callback to PromptAnswerSynthesizer."
