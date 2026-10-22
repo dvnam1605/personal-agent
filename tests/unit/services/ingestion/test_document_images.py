@@ -112,3 +112,17 @@ def test_pymupdf_parser_keeps_images_in_reading_order() -> None:
     image_at = next(i for i, t in enumerate(texts) if IMAGE_REF.fullmatch(t))
     assert "Step 1" in " ".join(texts[:image_at]) and "Step 2" in " ".join(texts[image_at:])
     assert len(parsed.images) == 1
+
+
+def test_images_take_the_source_figure_label() -> None:
+    from app.services.ingestion.images import adopt_captions
+
+    collector = ImageCollector()
+    ref = collector.add(_png(300, 200), "png", 300, 200, page=40) or ""
+    doc = _document(
+        collector, "Kiến trúc gồm ba tầng.", ref, "Hình 4.3: Kiến trúc tổng thể của hệ thống"
+    )
+    out = adopt_captions(doc)
+    alt = IMAGE_REF.fullmatch(out.nodes[1].text).group("alt")
+    assert alt == "Hình 4.3: Kiến trúc tổng thể của hệ thống"
+    assert out.nodes[2].text.startswith("Hình 4.3")  # the caption text stays

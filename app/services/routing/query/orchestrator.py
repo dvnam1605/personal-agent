@@ -39,6 +39,7 @@ from app.domain.models.routing.route import RouteDecision
 from app.infrastructure.db.models import User
 from app.services.approvals import ApprovalRequestService
 from app.services.platform.run_persistence import RunPersistenceService
+from app.services.retrieval.numbering import renumber
 from app.services.routing.triage import FastTriage
 
 from .email_synthesis import (
@@ -216,6 +217,16 @@ def answer_anchor(query: str, history: list[dict[str, str]] | None) -> str | Non
     ]
     excerpt = " ".join(re.sub(r"[*_#>`]|\[\d+\]", "", ln).strip(" -") for ln in lines[:2])
     return excerpt[:600] or None
+
+
+def _final_answer(streamed: str, placed: str | None) -> dict[str, str]:
+    """The answer the client should keep when it differs from what streamed.
+
+    Images placed after streaming and the answer's own figure/equation
+    numbers ("Hình 1", "(1)") only exist once the whole answer is known.
+    """
+    final = renumber(placed or streamed)
+    return {"answer": final} if final != streamed else {}
 
 
 _STANDALONE_PROMPT = (
@@ -590,6 +601,7 @@ class QueryOrchestrator:
 
             agent = decision.target_agent
             if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
+                streamed: list[str] = []
                 async for event in self._run_retrieval_stream(
                     effective_query, user_id, conversation_history=history
                 ):
@@ -597,6 +609,7 @@ class QueryOrchestrator:
                     if ev_type == "token":
                         delta = event.get("delta", "")
                         if delta:
+                            streamed.append(delta)
                             async for item in _yield_token(delta):
                                 yield item
                     elif ev_type == "citations":
@@ -614,7 +627,7 @@ class QueryOrchestrator:
                                 "citations": event.get("citations", []),
                                 "sufficiency": event.get("status"),
                                 "unsupported_claims": event.get("unsupported_claims", []),
-                                **({"answer": event["answer"]} if event.get("answer") else {}),
+                                **_final_answer("".join(streamed), event.get("answer")),
                             },
                         )
                 yield _emit_done("completed")
@@ -1031,7 +1044,7 @@ class QueryOrchestrator:
         return QueryResult(
             run_id=run_id,
             status="completed",
-            message=str(getattr(synthesis, "answer", "")),
+            message=renumber(str(getattr(synthesis, "answer", ""))),
             route=route,
             data={"citations": citations, "sufficiency": status},
         )

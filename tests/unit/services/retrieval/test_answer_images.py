@@ -184,3 +184,12 @@ def test_an_uncited_step_inside_the_list_can_host_its_screenshot() -> None:
     )
     lines = interleave(answer, guide).split("\n")
     assert lines[3] == ref(2)  # under step 2, which cites nothing
+
+
+def test_markers_use_the_source_figure_numbers() -> None:
+    from app.services.retrieval.images import ImageMarkers
+
+    content = "Kiến trúc.\n\n" + image_ref("Hình 4.3: Kiến trúc tổng thể", KEY_A)
+    markers = ImageMarkers([("e1", content)])
+    out = markers.replace("Hệ thống gồm ba tầng [1].\n[Hình 4.3]\n[Hình 4.4]", ["e1"])
+    assert out == f"Hệ thống gồm ba tầng [1].\n![Hình 4.3: Kiến trúc tổng thể](image:{KEY_A})"

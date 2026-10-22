@@ -7,12 +7,14 @@ Icons, bullets and rules are skipped by size.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.core.images import image_key, image_ref
 from app.domain.models.ingestion.parsed_document import ParsedImage
 
 MIN_SIDE = 48
+_OWN_LABEL = re.compile(r"^\s*Hình\s*\d+", re.IGNORECASE)
 MIN_AREA = 12_000
 _KEPT_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
 
@@ -64,7 +66,10 @@ class ImageCollector:
                 key=key, data=data, ext=ext, width=width, height=height, page=page
             )
         self._count += 1
-        alt = f"Hình {self._count}: {caption}" if caption else f"Hình {self._count}"
+        if _OWN_LABEL.match(caption):  # Docling caption "Hình 4.3: …" is the label
+            alt = caption
+        else:
+            alt = f"Hình {self._count}: {caption}" if caption else f"Hình {self._count}"
         return image_ref(alt, key)
 
     def add_region(

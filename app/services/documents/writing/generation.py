@@ -32,6 +32,7 @@ from app.services.documents.templates import (
     select_template,
     style_for,
 )
+from app.services.documents.writing.figures import Figure, figure_hint
 from app.services.documents.writing.formulas import Formula, formula_hint
 from app.services.documents.writing.quality import (
     DOCUMENT_WRITER_SYSTEM_PROMPT,
@@ -487,6 +488,7 @@ class SectionWriter:
         requester_id: str | None,
         *,
         formulas: dict[str, Formula] | None = None,
+        figures: list[Figure] | None = None,
     ) -> WrittenDocument:
         template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(request)
         global_citations: list[dict[str, Any]] = []
@@ -509,6 +511,7 @@ class SectionWriter:
                 requester_id,
                 context=earlier,
                 formula_hint=formula_hint(formulas or {}, section.sources),
+                figures=figure_hint(figures or [], section.sources),
             )
             removed_meta += draft.removed_meta
             removed_unverified += draft.removed_unverified
@@ -536,6 +539,7 @@ class SectionWriter:
         sections: list[dict[str, Any]],
         citations: list[dict[str, Any]],
         formulas: dict[str, Formula] | None = None,
+        figures: list[Figure] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Rewrite one section following the user's feedback; the rest is kept.
 
@@ -565,6 +569,7 @@ class SectionWriter:
             requester_id,
             context=others,
             formula_hint=formula_hint(formulas or {}, target.sources),
+            figures=figure_hint(figures or [], target.sources),
             feedback=feedback,
             previous=previous,
         )
@@ -589,6 +594,7 @@ class SectionWriter:
         feedback: str | None = None,
         previous: str = "",
         formula_hint: str = "",
+        figures: tuple[str, str] = ("", ""),
     ) -> _Draft:
         all_headings = "; ".join(s.heading for s in outline.sections)
         question = (
@@ -608,6 +614,14 @@ class SectionWriter:
                 "(3.3)', rồi giải thích ý nghĩa; KHÔNG chép nội dung công thức, hệ thống tự "
                 f"chèn):\n{formula_hint}\n"
                 if formula_hint
+                else ""
+            )
+            + (
+                "HÌNH TRONG CÁC MỤC NGUỒN CỦA MỤC NÀY (khi một đoạn trình bày đúng nội dung "
+                "một hình — sơ đồ, kiến trúc, giao diện, biểu đồ — viết nhãn của hình, ví dụ "
+                "[Hình 4.3], trên một dòng riêng ngay sau đoạn đó; chỉ chọn hình thật sự minh "
+                f"họa đoạn văn, mỗi hình một lần):\n{figures[0]}\n"
+                if figures[0]
                 else ""
             )
             + (
@@ -646,7 +660,10 @@ class SectionWriter:
         )
         try:
             result = await self._pipeline.run_with_synthesis(
-                query, internal_only=True, system_prompt=DOCUMENT_WRITER_SYSTEM_PROMPT
+                query,
+                internal_only=True,
+                system_prompt=DOCUMENT_WRITER_SYSTEM_PROMPT,
+                **({"extra_images": figures[1]} if figures[1] else {}),
             )
         except Exception:  # noqa: BLE001 - one failed section must not lose the rest
             logger.exception("document_section_failed heading=%s", section.heading)

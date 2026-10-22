@@ -412,6 +412,7 @@ class PromptAnswerSynthesizer:
         verdict_status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT,
         conversation_history: list[dict[str, str]] | None = None,
         system_prompt: str | None = None,
+        extra_images: str = "",
     ) -> SynthesisResult:
         if not bundle.items:
             return SynthesisResult(
@@ -459,7 +460,7 @@ class PromptAnswerSynthesizer:
             )
 
         numberer = CitationNumberer(bundle)
-        markers = _image_markers(bundle)
+        markers = _image_markers(bundle, extra_images)
         cleaned_answer = markers.replace(numberer.rewrite(answer_text), numberer.cited_ids)
         # Only what the model actually cited — never a stand-in "top 3".
         citations = build_citations_from_bundle(numberer.cited_ids, bundle)
@@ -642,8 +643,10 @@ class PromptAnswerSynthesizer:
         }
 
 
-def _image_markers(bundle: EvidenceBundle) -> ImageMarkers:
-    return ImageMarkers([(item.evidence_id, item.content_raw or "") for item in bundle.items])
+def _image_markers(bundle: EvidenceBundle, extra_images: str = "") -> ImageMarkers:
+    """Markers over the evidence images, then any extra ones the caller offers."""
+    evidence = [(item.evidence_id, item.content_raw or "") for item in bundle.items]
+    return ImageMarkers([*evidence, ("extra", extra_images)] if extra_images else evidence)
 
 
 def _with_fallback_images(
