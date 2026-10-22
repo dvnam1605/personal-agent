@@ -130,8 +130,12 @@ class RetrievalPipeline:
         internal_only: bool = True,
         conversation_history: list[dict[str, str]] | None = None,
         system_prompt: str | None = None,
+        extra_images: str = "",
     ) -> SynthesisResult:
         """Full path: retrieval → sufficiency → retry → synthesis (P10-18).
+
+        ``extra_images``: image references the answer may show besides those of
+        the evidence (a report section's source figures).
 
         Preserves PARTIAL signal and propagates missing document warnings
         to synthesis prompt.
@@ -183,6 +187,7 @@ class RetrievalPipeline:
             verdict_status=verdict.status,
             conversation_history=conversation_history,
             **({"system_prompt": system_prompt} if system_prompt else {}),
+            **({"extra_images": extra_images} if extra_images else {}),
         )
 
     async def run_with_streaming_synthesis(

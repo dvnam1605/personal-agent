@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.images import IMAGE_REF
 from app.infrastructure.db.models import (
     Document,
     DocumentChunk,
@@ -21,6 +23,7 @@ from app.services.documents.rendering.report import render_docx, render_markdown
 from app.services.documents.rendering.table import render_table_markdown, render_table_xlsx
 from app.services.documents.tables.writer import META_SOURCES, TableWriter, normalize_columns
 from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
+from app.services.documents.writing.figures import Figure, collect_figures
 from app.services.documents.writing.formulas import Formula, collect_formulas, insert_formulas
 from app.services.documents.writing.generation import (
     DocumentOutline,
@@ -31,6 +34,7 @@ from app.services.documents.writing.generation import (
 from app.services.documents.writing.review import SectionReviewer
 
 logger = logging.getLogger(__name__)
+_NUMBERED_HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\s")
 
 
 def generated_docs_dir() -> Path:
@@ -169,6 +173,38 @@ class DocumentGenerationService:
         return lines
 
     @staticmethod
+    async def figure_map(session: AsyncSession, ids: list[str]) -> list[Figure]:
+        """Images of the sources, with the section each belongs to."""
+        if not ids:
+            return []
+        rows = (
+            await session.execute(
+                select(
+                    DocumentChunk.document_id, DocumentChunk.heading_path, DocumentChunk.content_raw
+                )
+                .where(DocumentChunk.document_id.in_(ids), DocumentChunk.hierarchy_level == 0)
+                .order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
+            )
+        ).all()
+        # Lettered sub-headings ("a, Lớp HybridRetrieval") lose their numbered parent
+        # in the stored path; the last numbered heading before them is that parent.
+        chunks: list[tuple[str, str]] = []
+        numbered, current_doc = "", None
+        for document_id, path, text in rows:
+            if document_id != current_doc:
+                numbered, current_doc = "", document_id
+            headings = [h for h in (path or []) if h]
+            for heading in headings:
+                if _NUMBERED_HEADING.match(heading):
+                    numbered = heading
+            if "(image:" in text:
+                heading = " > ".join(headings)
+                if numbered and not _NUMBERED_HEADING.match(heading):
+                    heading = f"{numbered} > {heading}"
+                chunks.append((heading, text))
+        return collect_figures(chunks)
+
+    @staticmethod
     async def formula_map(session: AsyncSession, ids: list[str]) -> dict[str, Formula]:
         """Numbered equations of the sources, with the section each belongs to."""
         if not ids:
@@ -304,13 +340,18 @@ class DocumentGenerationService:
                 self._store_table(row, outline, rows, citations)
             else:
                 formulas = await self.formula_map(session, outline.source_document_ids)
+                figures = await self.figure_map(session, outline.source_document_ids)
                 written = await self._writer.write(
-                    outline, row.request, requester_id, formulas=formulas
+                    outline, row.request, requester_id, formulas=formulas, figures=figures
                 )
                 self._store(
                     row,
                     outline,
-                    _with_formulas([s.model_dump() for s in written.sections], formulas, outline),
+                    _unique_images(
+                        _with_formulas(
+                            [s.model_dump() for s in written.sections], formulas, outline
+                        )
+                    ),
                     written.citations,
                 )
             row.status = "done"
@@ -342,6 +383,7 @@ class DocumentGenerationService:
             raise IndexError(index)
         outline = DocumentOutline.model_validate(row.outline)
         formulas = await self.formula_map(session, outline.source_document_ids)
+        figures = await self.figure_map(session, outline.source_document_ids)
         sections, citations = await self._writer.rewrite_section(
             outline,
             row.request,
@@ -351,8 +393,11 @@ class DocumentGenerationService:
             sections=list(row.sections),
             citations=list(row.citations or []),
             formulas=formulas,
+            figures=figures,
         )
-        self._store(row, outline, _with_formulas(sections, formulas, outline), citations)
+        self._store(
+            row, outline, _unique_images(_with_formulas(sections, formulas, outline)), citations
+        )
         await session.flush()
         return row
 
@@ -496,4 +541,21 @@ def _with_formulas(
             already_shown=shown,
         )
         out.append({**section, "text": text})
+    return out
+
+
+def _unique_images(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each source image appears once in the document, in the first section showing it."""
+    shown: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for section in sections:
+        kept: list[str] = []
+        for line in (section.get("text") or "").split("\n"):
+            ref = IMAGE_REF.fullmatch(line.strip())
+            if ref is not None:
+                if ref.group("key") in shown:
+                    continue
+                shown.add(ref.group("key"))
+            kept.append(line)
+        out.append({**section, "text": re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()})
     return out

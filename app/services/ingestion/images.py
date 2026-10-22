@@ -47,6 +47,38 @@ def store_images(document: ParsedDocument) -> None:
         save_image(image.key, image.data, image.ext)
 
 
+# A figure's own caption: "Hình 4.3: Kiến trúc tổng thể", "Hình 2. Sơ đồ …".
+_CAPTION = re.compile(r"^\s*(?P<label>Hình\s*\d+(?:\.\d+)*)\s*[:.\-–]?\s*(?P<title>.*)$", re.I)
+CAPTION_TITLE_CHARS = 150
+
+
+def adopt_captions(document: ParsedDocument) -> ParsedDocument:
+    """Label each image with the source's own caption next to it ("Hình 4.3: …").
+
+    The text then says "như Hình 4.3" and the image carries the same label, so
+    the model can point at it; images without a caption keep "Hình N".
+    """
+    nodes = list(document.nodes)
+    changed = False
+    for index, node in enumerate(nodes):
+        ref = IMAGE_REF.fullmatch(node.text.strip())
+        if ref is None:
+            continue
+        for near in (index + 1, index - 1):
+            if not 0 <= near < len(nodes) or IMAGE_REF.search(nodes[near].text):
+                continue
+            caption = _CAPTION.match(nodes[near].text.split("\n", 1)[0])
+            if caption is None:
+                continue
+            label = re.sub(r"\s+", " ", caption.group("label")).strip()
+            title = caption.group("title").strip()[:CAPTION_TITLE_CHARS]
+            alt = f"{label}: {title}" if title else label
+            nodes[index] = node.model_copy(update={"text": image_ref(alt, ref.group("key"))})
+            changed = True
+            break
+    return document.model_copy(update={"nodes": tuple(nodes)}) if changed else document
+
+
 class ImageDescriber:
     """Fills each image reference's alt text with a short description."""
 

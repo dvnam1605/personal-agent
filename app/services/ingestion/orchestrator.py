@@ -34,7 +34,7 @@ from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.embedding import LocalEmbeddingService
 from app.services.ingestion.fingerprint import compute_fingerprint, fingerprint_matches_stored
-from app.services.ingestion.images import store_images
+from app.services.ingestion.images import adopt_captions, store_images
 from app.services.ingestion.parsing.base import parse_source, parser_identity
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
@@ -197,6 +197,7 @@ class IngestionOrchestrator:
                 tree = await self._formula_rebuilder.arebuild(tree)
             # Image files are kept whatever happens next; chunks refer to them by key.
             store_images(tree)
+            tree = adopt_captions(tree)
             if self._image_describer is not None:
                 tree = await self._image_describer.adescribe(tree)
 

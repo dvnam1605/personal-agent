@@ -110,6 +110,9 @@ def _covers(sources: list[str], heading: str) -> bool:
     return False
 
 
+covers = _covers  # shared with figures.py
+
+
 def formula_hint(formulas: dict[str, Formula], sources: list[str]) -> str:
     """Formulas of a section's source headings, for the writer prompt."""
     lines = [

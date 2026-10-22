@@ -204,3 +204,82 @@ def test_inline_math_in_a_sentence_becomes_a_word_equation(tmp_path) -> None:
     xml = paragraph._p.xml
     assert xml.count("<m:oMath") == 2 and "$" not in paragraph.text
     assert paragraph.text.startswith("Trong đó, tập ") and paragraph.text.endswith("[1].")
+
+
+def test_an_image_appears_once_in_the_whole_report() -> None:
+    from app.services.documents.service import _unique_images
+
+    picture = "![Hình 4.15: Giao diện quản trị](image:" + "e" * 24 + ")"
+    sections = [
+        {"heading": "I", "text": f"Tổng quan [1].\n{picture}"},
+        {"heading": "II", "text": f"Chi tiết [2].\n{picture}\n\nKết luận [2]."},
+    ]
+    out = _unique_images(sections)
+    assert picture in out[0]["text"]
+    assert out[1]["text"] == "Chi tiết [2].\n\nKết luận [2]."
+
+
+def test_a_section_is_offered_the_figures_of_its_source_headings() -> None:
+    from app.core.images import image_ref
+    from app.services.documents.writing.figures import collect_figures, figure_hint
+
+    arch = image_ref("Hình 4.2: Sơ đồ kiến trúc — mô tả tự động: ba tầng", "1" * 24)
+    ui = image_ref("Hình 4.12: Giao diện trang chủ", "2" * 24)
+    figures = collect_figures(
+        [("4.1 Kiến trúc tổng thể", f"Kiến trúc.\n\n{arch}"), ("4.4 Giao diện", f"UI.\n\n{ui}")]
+    )
+    hint, refs = figure_hint(figures, ["4.1 Kiến trúc tổng thể"])
+    assert hint == "- [Hình 4.2] Sơ đồ kiến trúc — mô tả tự động: ba tầng"
+    assert refs == arch
+
+
+async def test_markers_resolve_against_the_offered_figures() -> None:
+    import uuid
+
+    from app.core.images import image_ref
+    from app.domain.models.retrieval import Evidence, EvidenceBundle
+    from app.services.retrieval.synthesis import PromptAnswerSynthesizer
+
+    bundle = EvidenceBundle(
+        items=[
+            Evidence(
+                evidence_id=uuid.uuid4().hex,
+                kind="CHILD",
+                content_raw="Hệ thống gồm ba tầng.",
+                token_estimate=5,
+                primary_chunk_id="c1",
+                document_id="doc-1",
+            )
+        ],
+        total_tokens=5,
+        documents_used=["doc-1"],
+        parent_ids_used=[],
+        retrieval_trace_id=uuid.uuid4().hex,
+    )
+    arch = image_ref("Hình 4.2: Sơ đồ kiến trúc", "1" * 24)
+
+    async def gen(system: str, user: str) -> str:
+        return "Hệ thống gồm ba tầng [E1].\n[Hình 4.2]"
+
+    result = await PromptAnswerSynthesizer(generate=gen).synthesize(
+        "Viết mục kiến trúc", bundle, extra_images=arch
+    )
+    assert result.answer == f"Hệ thống gồm ba tầng [1].\n{arch}"
+
+
+def test_inline_code_loses_its_backticks(tmp_path) -> None:
+    from docx import Document
+
+    from app.services.documents.rendering.report import render_docx
+    from app.services.documents.templates import TEMPLATE_BY_KEY
+
+    path = render_docx(
+        tmp_path / "c.docx",
+        "Báo cáo",
+        [{"heading": "I", "text": "Thuộc tính `sql_client` truy vấn PostgreSQL [1]."}],
+        [],
+        template=TEMPLATE_BY_KEY["summary_report"],
+    )
+    paragraph = next(p for p in Document(str(path)).paragraphs if "Thuộc tính" in p.text)
+    assert paragraph.text == "Thuộc tính sql_client truy vấn PostgreSQL [1]."
+    assert [r.font.name for r in paragraph.runs if r.text == "sql_client"] == ["Consolas"]

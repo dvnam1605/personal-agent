@@ -28,6 +28,8 @@ _MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 _PICTURE_WIDTH_INCHES = 5.5
 _TEXT_ARG = re.compile(r"\\text\{[^{}]*\}")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
+_CODE = re.compile(r"`([^`\n]+)`")
+_CODE_FONT = "Consolas"
 # Underscores inside identifiers (insufficient_columns, MAX_EDIT_TIME) are not italics.
 _ITALIC = re.compile(r"(?<![\w*])_(?=\S)(.+?)(?<=\S)_(?![\w*])")
 # Inline LaTeX the writer uses for symbols in a sentence: "tập $P_s$".
@@ -64,12 +66,12 @@ def render_markdown(
 
 
 def _add_runs(paragraph: Any, text: str) -> None:
-    """Minimal inline Markdown: **bold**, _italic_ and $math$ (a Word equation)."""
+    """Minimal inline Markdown: **bold**, _italic_, `code` and $math$ (a Word equation)."""
     pos = 0
     tokens: list[tuple[int, int, str, str]] = [
         (m.start(), m.end(), "m", m.group(1)) for m in _INLINE_MATH.finditer(text)
     ]
-    for pattern, kind in ((_BOLD, "b"), (_ITALIC, "i")):
+    for pattern, kind in ((_CODE, "c"), (_BOLD, "b"), (_ITALIC, "i")):
         for m in pattern.finditer(text):
             if not any(s <= m.start() < e for s, e, _, _ in tokens):
                 tokens.append((m.start(), m.end(), kind, m.group(1)))
@@ -88,6 +90,8 @@ def _add_runs(paragraph: Any, text: str) -> None:
         run = paragraph.add_run(inner)
         run.bold = kind == "b"
         run.italic = kind == "i"
+        if kind == "c":
+            run.font.name = _CODE_FONT
         pos = end
     if pos < len(text):
         paragraph.add_run(text[pos:])

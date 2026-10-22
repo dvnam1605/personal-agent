@@ -95,8 +95,9 @@ _GENERIC_PAIRS = frozenset(
 ImageRefs = list[tuple[str, str, str]]
 
 
-MARKER = re.compile(r"\[\s*(Hình\s*\d+)\s*\]", re.IGNORECASE)
-_LABEL = re.compile(r"^\s*(Hình\s*\d+)", re.IGNORECASE)
+# "[Hình 4]" or, with the source's own numbering, "[Hình 4.3]".
+MARKER = re.compile(r"\[\s*(Hình\s*\d+(?:\.\d+)*)\s*\]", re.IGNORECASE)
+_LABEL = re.compile(r"^\s*(Hình\s*\d+(?:\.\d+)*)", re.IGNORECASE)
 _STEP_LINE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")
 MIN_STEPS_FOR_FALLBACK = 3
 
