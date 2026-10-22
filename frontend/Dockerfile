@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # --- Stage 2: Nginx (unprivileged image: runs as user nginx, listens on 8080) ---
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runner
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS runner
 
 USER root
 
