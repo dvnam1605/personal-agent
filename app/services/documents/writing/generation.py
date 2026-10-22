@@ -13,10 +13,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.core.llm import llm_json
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-from app.services.documents.llm import llm_json
 from app.services.documents.tables.writer import (
     DEFAULT_COLUMNS,
     MAX_COLUMNS,

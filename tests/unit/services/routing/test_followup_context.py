@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
+from app.core import llm as llm_module
 from app.domain.enums.enums import RouteType
-from app.services.documents import llm as llm_module
 from app.services.routing.query.orchestrator import (
     QueryOrchestrator,
     answer_anchor,

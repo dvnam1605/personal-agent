@@ -41,6 +41,7 @@ from app.services.ingestion.embedding import (  # noqa: E402
     LocalEmbeddingService,
     TransformersPoolingBackend,
 )
+from app.services.ingestion.formulas import FormulaLatexRebuilder  # noqa: E402
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
 from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
@@ -76,7 +77,7 @@ def _source_id(path: Path) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=DATA_ROOT, help="folder to ingest")
+    parser.add_argument("--root", type=Path, default=DATA_ROOT, help="folder or file to ingest")
     parser.add_argument("--no-llm-profile", action="store_true", help="rules-only profiling")
     parser.add_argument("--force", action="store_true", help="re-index unchanged files")
     return parser.parse_args()
@@ -89,8 +90,12 @@ async def main() -> None:
         logger.error("Data directory not found: %s", data_dir)
         sys.exit(1)
 
-    md_files = sorted(
-        p for p in data_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+    md_files = (
+        [data_dir]
+        if data_dir.is_file()
+        else sorted(
+            p for p in data_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+        )
     )
     logger.info("Found %d supported files in %s", len(md_files), data_dir)
 
@@ -139,6 +144,7 @@ async def main() -> None:
         profile_store=SqlAlchemyProfileRepository(session_factory),
         relation_extractor=DocumentRelationExtractor(use_llm=not args.no_llm_profile),
         relation_store=SqlAlchemyRelationRepository(session_factory),
+        formula_rebuilder=None if args.no_llm_profile else FormulaLatexRebuilder(),
     )
 
     total_start = time.perf_counter()

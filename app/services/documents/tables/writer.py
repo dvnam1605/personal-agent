@@ -18,9 +18,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.llm import llm_json
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
-from app.services.documents.llm import llm_json
 from app.services.documents.writing.quality import _number_values, _significant
 from app.services.documents.writing.review import MAX_REVIEW_ROUNDS
 

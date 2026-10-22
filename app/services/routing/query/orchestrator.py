@@ -226,7 +226,7 @@ async def standalone_followup(query: str, history: list[dict[str, str]], anchor:
     )
     fallback = f"{previous} — {anchor} ({query})" if previous else f"{anchor} ({query})"
     try:
-        from app.services.documents.llm import llm_text
+        from app.core.llm import llm_text
 
         rewritten = await llm_text(
             _STANDALONE_PROMPT,

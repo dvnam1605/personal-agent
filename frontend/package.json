@@ -13,7 +13,8 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.44.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "temml": "0.14.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

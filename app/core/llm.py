@@ -1,4 +1,4 @@
-"""Single non-streaming chat call used by outline planning and section review.
+"""Single non-streaming chat call to the LLM gateway for short structured tasks.
 
 Every caller has a deterministic fallback, so a gateway failure returns None
 instead of raising.

@@ -235,3 +235,22 @@
 .md-table tr:hover td {
   background-color: var(--color-surface-hover);
 }
+
+.md-equation {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+  overflow-x: auto;
+  color: var(--color-text);
+}
+
+.md-equation-body {
+  flex: 1;
+  text-align: center;
+}
+
+.md-equation-number {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}

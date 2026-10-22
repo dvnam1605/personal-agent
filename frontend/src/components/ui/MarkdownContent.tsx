@@ -1,9 +1,28 @@
 import React from 'react'
+import temml from 'temml'
+import 'temml/dist/Temml-Local.css'
 import './MarkdownContent.css'
 
 interface MarkdownContentProps {
   content: string
   className?: string
+}
+
+// A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)".
+const EQUATION_LINE = /^\$\$(.+?)\$\$\s*(?:\((\d+(?:\.\d+)+)\))?\s*$/
+
+// Temml escapes text and rejects \href-style commands by default, so its MathML is safe to inject.
+const Equation: React.FC<{ latex: string; number?: string }> = ({ latex, number }) => {
+  const html = React.useMemo(
+    () => temml.renderToString(latex, { displayMode: true, throwOnError: false }),
+    [latex],
+  )
+  return (
+    <div className="md-equation">
+      <span className="md-equation-body" dangerouslySetInnerHTML={{ __html: html }} />
+      {number && <span className="md-equation-number">({number})</span>}
+    </div>
+  )
 }
 
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
@@ -191,6 +210,16 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
 
     if (inCodeBlock) {
       codeBlockLines.push(line)
+      continue
+    }
+
+    const equation = line.trim().match(EQUATION_LINE)
+    if (equation) {
+      flushList()
+      flushTable()
+      elements.push(
+        <Equation key={`eq-${elements.length}`} latex={equation[1]} number={equation[2]} />,
+      )
       continue
     }
 

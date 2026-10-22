@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 
-from app.services.documents.llm import llm_text
+from app.core.llm import llm_text
 from app.services.documents.writing.quality import _number_values, _significant
 
 logger = logging.getLogger(__name__)

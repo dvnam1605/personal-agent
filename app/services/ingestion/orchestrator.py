@@ -81,6 +81,7 @@ class IngestionOrchestrator:
         profile_store: Any | None = None,
         relation_extractor: Any | None = None,
         relation_store: Any | None = None,
+        formula_rebuilder: Any | None = None,
     ) -> None:
         # Profiling and relations are optional (tests skip the LLM and tables);
         # relations build on the profile, so they need it as well.
@@ -88,6 +89,7 @@ class IngestionOrchestrator:
         self._profiles = profile_store
         self._relation_extractor = relation_extractor
         self._relations = relation_store
+        self._formula_rebuilder = formula_rebuilder
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
@@ -188,6 +190,8 @@ class IngestionOrchestrator:
                 await mark(IngestionStatus.FAILED)
                 return obs.freeze()
             tree = parsed.document
+            if self._formula_rebuilder is not None:
+                tree = await self._formula_rebuilder.arebuild(tree)
 
             # Profile before the transaction so an LLM call never holds it open.
             profile_draft = None

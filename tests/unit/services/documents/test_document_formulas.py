@@ -126,3 +126,41 @@ def test_formula_hint_lists_only_the_section_formulas() -> None:
 
     hint = formula_hint(FORMULAS, ["3.4.2 Kỹ thuật TK-Table và Self-Augmented Prompting"])
     assert "(3.5)" in hint and "(3.6)" in hint and "(3.3)" not in hint
+
+
+COSINE = r"\cos(a, b) = \frac{a \cdot b}{\|a\| \|b\|}"
+LATEX_CHUNK = (
+    "Mức độ tương đồng được đo bằng cosine similarity theo Công thức (3.2):\n\n"
+    f"Công thức (3.2): $${COSINE}$$"
+)
+
+
+def test_latex_formulas_are_collected_and_shown_as_equation_lines() -> None:
+    formulas = collect_formulas([("3.2 Hệ thống tìm kiếm lai", LATEX_CHUNK)])
+    assert formulas["3.2"].latex == COSINE
+    assert "cosine similarity" in formulas["3.2"].context
+    out = insert_formulas("Độ tương đồng tính theo Công thức (3.2) [1].", formulas)
+    assert out.endswith(f"$${COSINE}$$ (3.2)")
+
+
+def test_equation_lines_become_word_equations(tmp_path) -> None:
+    from docx import Document
+
+    from app.services.documents.rendering.report import render_docx
+    from app.services.documents.templates import TEMPLATE_BY_KEY
+
+    latex = r"\text{cos\_sim} = \sum_{i:d \in L_i} \frac{1}{\sqrt{k+r}}"
+    text = f"Theo đồ án [1].\n\n$${latex}$$ (3.3)"
+    path = render_docx(
+        tmp_path / "f.docx",
+        "Báo cáo",
+        [{"heading": "I. Kỹ thuật", "text": text}],
+        [],
+        template=TEMPLATE_BY_KEY["summary_report"],
+    )
+    xml = Document(str(path)).element.xml
+    assert "<m:oMath" in xml and "<m:f>" in xml
+    assert "(3.3)" in xml and "$$" not in xml
+    # No placeholder boxes for the missing upper limit and root degree.
+    assert '<m:supHide m:val="1"/>' in xml and '<m:degHide m:val="1"/>' in xml
+    assert "cos_sim" in xml and "cos\\_sim" not in xml

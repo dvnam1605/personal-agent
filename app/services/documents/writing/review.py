@@ -17,8 +17,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.llm import llm_json, llm_text
 from app.core.text import unaccent_vietnamese
-from app.services.documents.llm import llm_json, llm_text
 from app.services.documents.writing.quality import _LIST_MARKER, _sentences
 
 logger = logging.getLogger(__name__)

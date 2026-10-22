@@ -1,8 +1,9 @@
 """Render a written document to Markdown (UI) and .docx (download).
 
 The .docx uses python-docx (installed with docling). Administrative kinds
-get the national motto header block; every document ends with a numbered
-"Tài liệu tham khảo" list matching the inline [n] markers.
+get the national motto header block; equation lines ("$$…$$ (3.5)") become
+native Word equations; every document ends with a numbered "Tài liệu tham
+khảo" list matching the inline [n] markers.
 """
 
 from __future__ import annotations
@@ -12,12 +13,18 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import latex2mathml.converter
+import mathml2omml
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import parse_xml
 from docx.shared import Pt
 
 from app.services.documents.templates import DocTemplate
+from app.services.documents.writing.formulas import EQUATION_LINE
 
+_MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_TEXT_ARG = re.compile(r"\\text\{[^{}]*\}")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC = re.compile(r"(?<!\*)_(.+?)_(?!\*)")
 
@@ -73,13 +80,63 @@ def _add_runs(paragraph: Any, text: str) -> None:
         paragraph.add_run(text[pos:])
 
 
+def _m(tag: str) -> str:
+    return f"{{{_MATH_NS}}}{tag}"
+
+
+def _hide_empty_slots(math: Any) -> None:
+    """Word draws a placeholder box for a missing limit or root degree unless hidden."""
+    for nary in math.iter(_m("nary")):
+        props = nary.find(_m("naryPr"))
+        if props is None:
+            props = nary.makeelement(_m("naryPr"), {})
+            nary.insert(0, props)
+        for slot, flag in (("sub", "subHide"), ("sup", "supHide")):
+            part = nary.find(_m(slot))
+            if part is not None and len(part) == 0:
+                props.append(props.makeelement(_m(flag), {_m("val"): "1"}))
+    for rad in math.iter(_m("rad")):
+        if rad.find(_m("deg")) is None:
+            props = rad.makeelement(_m("radPr"), {})
+            props.append(props.makeelement(_m("degHide"), {_m("val"): "1"}))
+            rad.insert(0, props)
+            rad.insert(1, rad.makeelement(_m("deg"), {}))
+
+
+def _omml(latex: str) -> Any | None:
+    """LaTeX as a Word equation element (LaTeX → MathML → OMML), or None."""
+    # latex2mathml keeps the backslash of "\_" inside \text{…}.
+    latex = _TEXT_ARG.sub(lambda m: m.group(0).replace("\\_", "_"), latex)
+    try:
+        omml = mathml2omml.convert(latex2mathml.converter.convert(latex))
+    except Exception:  # noqa: BLE001 - fall back to the LaTeX source as text
+        return None
+    math = parse_xml(omml.replace("<m:oMath>", f'<m:oMath xmlns:m="{_MATH_NS}">', 1))
+    _hide_empty_slots(math)
+    return math
+
+
+def _add_equation(doc: Any, latex: str, number: str | None) -> None:
+    paragraph = doc.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    element = _omml(latex)
+    if element is None:
+        paragraph.add_run(latex)
+    else:
+        paragraph._p.append(element)
+    if number:
+        paragraph.add_run(f"    ({number})")
+
+
 def _add_block(doc: Any, block: str) -> None:
     for raw in block.splitlines():
         line = raw.rstrip()
         if not line.strip():
             continue
         stripped = line.lstrip()
-        if stripped.startswith("### "):
+        if equation := EQUATION_LINE.match(stripped):
+            _add_equation(doc, equation.group("latex").strip(), equation.group("num"))
+        elif stripped.startswith("### "):
             doc.add_heading(stripped[4:], level=3)
         elif stripped.startswith(("- ", "* ", "• ")):
             _add_runs(doc.add_paragraph(style="List Bullet"), stripped[2:])

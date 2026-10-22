@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models import (
@@ -178,7 +178,10 @@ class DocumentGenerationService:
                 select(DocumentChunk.heading_path, DocumentChunk.content_raw).where(
                     DocumentChunk.document_id.in_(ids),
                     DocumentChunk.hierarchy_level == 0,
-                    DocumentChunk.content_raw.contains("Công thức:"),
+                    or_(
+                        DocumentChunk.content_raw.contains("Công thức:"),
+                        DocumentChunk.content_raw.contains("$$"),
+                    ),
                 )
             )
         ).all()

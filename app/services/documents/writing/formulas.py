@@ -1,11 +1,13 @@
 """Put the equations of the sources into the sections that present them.
 
-Ingestion stores equations as "Công thức: <text> (3.5)" in their own chunks, so
+Ingestion stores equations as "Công thức (3.5): $$<latex>$$" (or, when the
+LaTeX could not be rebuilt, "Công thức: <text> (3.5)") in their own chunks, so
 section retrieval often misses them. The source equations are collected once,
 with their section and preceding text, and inserted into each written section:
 after the sentence that mentions them by number, or, for the source sections the
 section was planned from, after the most related paragraph (else at the end).
-Each formula appears at most once in the document.
+Each formula appears at most once in the document, as an equation line
+"$$<latex>$$ (3.5)" that the renderers typeset.
 """
 
 from __future__ import annotations
@@ -15,8 +17,15 @@ from dataclasses import dataclass
 
 from app.core.text import unaccent_vietnamese
 
-# Equation line as stored at ingestion: "Công thức: <body> (3.5)".
+# Equation lines as stored at ingestion: LaTeX, or the raw text layer.
+_STORED_LATEX = re.compile(
+    r"Công thức \((?P<num>\d+(?:\.\d+)+)\):\s*\$\$(?P<latex>.+?)\$\$", re.DOTALL
+)
 _STORED = re.compile(r"Công thức:\s*(?P<body>.+?)\s*\((?P<num>\d+(?:\.\d+)+)\)", re.MULTILINE)
+# A typeset equation line in a written section: "$$<latex>$$ (3.5)".
+EQUATION_LINE = re.compile(
+    r"^\$\$(?P<latex>.+?)\$\$\s*(?:\((?P<num>\d+(?:\.\d+)+)\))?\s*$", re.DOTALL
+)
 # A mention in written text: "Công thức (3.5)", "biểu thức 3.3".
 _MENTION = re.compile(r"(?i)(?:công thức|biểu thức|phương trình)\s*\(?(?P<num>\d+(?:\.\d+)+)\)?")
 # Colons/semicolons do not end a sentence, so an equation never splits one there.
@@ -38,6 +47,7 @@ class Formula:
     body: str
     section: str = ""  # source heading the formula sits under
     context: str = ""  # the source text right before the formula
+    latex: str = ""
 
 
 def _words(text: str) -> set[str]:
@@ -52,19 +62,29 @@ def collect_formulas(chunks: list[tuple[str, str]]) -> dict[str, Formula]:
     """Formulas by number from stored (heading, text) chunks."""
     formulas: dict[str, Formula] = {}
     for heading, text in chunks:
-        for m in _STORED.finditer(text):
+        matches = [(m, m.group("latex").strip()) for m in _STORED_LATEX.finditer(text)]
+        matches += [(m, "") for m in _STORED.finditer(_STORED_LATEX.sub(" ", text))]
+        for m, latex in matches:
             num = m.group("num")
-            body = re.sub(r"\s+", " ", m.group("body")).strip()
+            body = latex or re.sub(r"\s+", " ", m.group("body")).strip()
             if not body or num in formulas:
                 continue
-            before = _STORED.sub(" ", text[: m.start()])
+            source = text if latex else _STORED_LATEX.sub(" ", text)
+            before = _STORED.sub(" ", _STORED_LATEX.sub(" ", source[: m.start()]))
             formulas[num] = Formula(
                 number=num,
                 body=body,
                 section=heading,
                 context=re.sub(r"\s+", " ", before).strip()[-400:],
+                latex=latex,
             )
     return formulas
+
+
+def formula_line(formula: Formula) -> str:
+    if formula.latex:
+        return f"$${formula.latex}$$ ({formula.number})"
+    return f"Công thức ({formula.number}): {formula.body}"
 
 
 def _covers(sources: list[str], heading: str) -> bool:
@@ -133,7 +153,7 @@ def _blocks(numbers: list[str], formulas: dict[str, Formula], *, with_lead: bool
         if lead and lead != last_lead:
             parts.append(lead)
         last_lead = lead
-        parts.append(f"Công thức ({number}): {formulas[number].body}")
+        parts.append(formula_line(formulas[number]))
     return "\n\n".join(parts)
 
 
@@ -185,7 +205,9 @@ def insert_formulas(
             continue
         shown.add(formula.number)
         topic = _words(f"{formula.section} {formula.context}")
-        scores = [0 if p.startswith("Công thức (") else len(_words(p) & topic) for p in paragraphs]
+        scores = [
+            0 if p.startswith(("Công thức (", "$$")) else len(_words(p) & topic) for p in paragraphs
+        ]
         best = max(range(len(paragraphs)), key=lambda i: scores[i])
         if scores[best] >= MIN_CONTEXT_OVERLAP:
             after_paragraph.setdefault(best, []).append(formula.number)
