@@ -19,22 +19,22 @@ from app.domain.models.retrieval import (
     RetrievalQuery,
 )
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-from app.services.retrieval import query_reformulation
-from app.services.retrieval.dense import DenseRetrievalService
-from app.services.retrieval.injection_boundary import (
+from app.services.retrieval.answer.injection_boundary import (
     sanitize_evidence_for_prompt,
     wrap_untrusted_memory,
     wrap_untrusted_tool_result,
 )
+from app.services.retrieval.answer.synthesis import (
+    PromptAnswerSynthesizer,
+    SynthesisInterruptedError,
+)
 from app.services.retrieval.provider import escape_bind_colons
-from app.services.retrieval.query_reformulation import (
+from app.services.retrieval.search import query_reformulation
+from app.services.retrieval.search.dense import DenseRetrievalService
+from app.services.retrieval.search.query_reformulation import (
     areformulate_query,
     clear_reformulation_cache,
     fallback_fts_query,
-)
-from app.services.retrieval.synthesis import (
-    PromptAnswerSynthesizer,
-    SynthesisInterruptedError,
 )
 
 
@@ -329,7 +329,7 @@ class TestCitationLabels:
         assert "chưa gắn được trích dẫn" not in result.answer
 
     def test_legacy_hex_ids_still_resolve(self) -> None:
-        from app.services.retrieval.citations import CitationNumberer
+        from app.services.retrieval.answer.citations import CitationNumberer
 
         bundle = self._bundle3()
         eid = bundle.items[1].evidence_id

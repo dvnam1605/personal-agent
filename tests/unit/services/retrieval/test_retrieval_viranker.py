@@ -11,10 +11,10 @@ from app.core.config import RerankerSettings, Settings
 from app.domain.models.retrieval import RetrievedChunk
 from app.services.ingestion.embedding import EmbeddingContract, LocalEmbeddingService
 from app.services.retrieval.evaluation import AblationRunner, SearchModeAblationConfig
+from app.services.retrieval.evidence.sufficiency import DEFAULT_MIN_SCORE_THRESHOLD
 from app.services.retrieval.factory import build_reranker, build_retrieval_pipeline
 from app.services.retrieval.pipeline import RetrievalPipeline
-from app.services.retrieval.rerank import IdentityReranker, ViRankerReranker
-from app.services.retrieval.sufficiency import DEFAULT_MIN_SCORE_THRESHOLD
+from app.services.retrieval.search.rerank import IdentityReranker, ViRankerReranker
 from tests.fixtures.retrieval_benchmark_dataset import BENCHMARK_CORPUS, BENCHMARK_QUERIES
 
 

@@ -5,11 +5,12 @@ import { AssistantWorkspace } from './components/workspaces/AssistantWorkspace'
 import { CalendarWorkspace } from './components/workspaces/CalendarWorkspace'
 import { EmailWorkspace } from './components/workspaces/EmailWorkspace'
 import { MeetingsWorkspace } from './components/workspaces/MeetingsWorkspace'
-import { KnowledgeWorkspace } from './components/workspaces/KnowledgeWorkspace'
-import { DocumentsWorkspace } from './components/workspaces/DocumentsWorkspace'
+import { KnowledgeWorkspace } from './components/workspaces/knowledge/KnowledgeWorkspace'
+import { DocumentsWorkspace } from './components/workspaces/documents/DocumentsWorkspace'
 import { SettingsWorkspace } from './components/workspaces/SettingsWorkspace'
 import { CitationDrawer, EmailDrawer } from './components/layout/DetailDrawers'
-import { ToastProvider, useToast } from './components/ui/Toast'
+import { ToastProvider } from './components/ui/Toast'
+import { useToast } from './components/ui/toastContext'
 import { AuthModal } from './components/auth/AuthModal'
 import { apiClient } from './api/client'
 import { useConversations } from './hooks/useConversations'
@@ -84,7 +85,7 @@ const AppContent: React.FC = () => {
     }
 
     initAuth()
-  }, [])
+  }, [loadConversation, setActiveConversationId, setConversations])
 
   const handleSelectSession = (sessionId: string) => {
     if (sessionId === activeConversationId) return

@@ -6,9 +6,9 @@ from typing import Any
 
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+from app.services.retrieval.answer.synthesis import SynthesisResult
+from app.services.retrieval.answer.verbalize import accept_phrasing
 from app.services.retrieval.relations.service import RelationAnswer
-from app.services.retrieval.synthesis import SynthesisResult
-from app.services.retrieval.verbalize import accept_phrasing
 from app.services.routing.query.orchestrator import QueryOrchestrator
 
 DRAFT = (

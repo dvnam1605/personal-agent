@@ -37,7 +37,7 @@ from app.services.documents.writing.quality import (
     polish_style,
 )
 from app.services.documents.writing.review import SectionReviewer
-from app.services.retrieval.images import restore_images, split_images
+from app.services.retrieval.answer.images import restore_images, split_images
 
 logger = logging.getLogger(__name__)
 

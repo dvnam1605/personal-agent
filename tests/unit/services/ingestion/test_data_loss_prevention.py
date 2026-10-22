@@ -8,7 +8,7 @@ from app.domain.models.retrieval import ExpansionPolicy, RetrievalQuery, Retriev
 from app.infrastructure.db.models import _sanitize_document_metadata
 from app.services.ingestion.parsing.markdown_parser import MarkdownDocumentParser
 from app.services.ingestion.source import SourceDocument
-from app.services.retrieval.expansion import ExpansionService
+from app.services.retrieval.search.expansion import ExpansionService
 
 
 class FakeProvider:

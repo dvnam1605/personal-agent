@@ -6,8 +6,8 @@ import uuid
 
 from app.domain.models.retrieval import Evidence, EvidenceBundle
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-from app.services.retrieval.grounding import abstain_message, check_answer, check_identifiers
-from app.services.retrieval.synthesis import PromptAnswerSynthesizer
+from app.services.retrieval.answer.grounding import abstain_message, check_answer, check_identifiers
+from app.services.retrieval.answer.synthesis import PromptAnswerSynthesizer
 
 
 def _ev(content: str, *, number: str | None = None, title: str | None = None) -> Evidence:

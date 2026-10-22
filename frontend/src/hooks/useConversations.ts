@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { apiClient } from '../api/client'
 import type { ChatTurn } from '../components/conversation/MessageItem'
-import type { ToastType } from '../components/ui/Toast'
+import type { ToastType } from '../components/ui/toastContext'
 import type { DBConversationSummary, DBMessageItem } from '../types/api'
 
 function dbMessagesToTurns(messages: DBMessageItem[]): ChatTurn[] {
@@ -73,16 +73,19 @@ export function useConversations(showToast: (message: string, type?: ToastType) 
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [turns, setTurns] = useState<ChatTurn[]>([])
 
-  const loadConversation = async (conversationId: string) => {
-    try {
-      const detail = await apiClient.getConversation(conversationId)
-      const loadedTurns = dbMessagesToTurns(detail.messages)
-      setTurns(loadedTurns)
-    } catch (err) {
-      console.error('Failed to load conversation:', err)
-      showToast('Không thể tải lịch sử cuộc trò chuyện này.', 'error')
-    }
-  }
+  const loadConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        const detail = await apiClient.getConversation(conversationId)
+        const loadedTurns = dbMessagesToTurns(detail.messages)
+        setTurns(loadedTurns)
+      } catch (err) {
+        console.error('Failed to load conversation:', err)
+        showToast('Không thể tải lịch sử cuộc trò chuyện này.', 'error')
+      }
+    },
+    [showToast],
+  )
 
   return {
     conversations,

@@ -23,20 +23,20 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus, SufficiencyVerdict
-from app.services.retrieval.compare_policy import CompareResult, enforce_compare_diversity
-from app.services.retrieval.diversity import apply_diversity
-from app.services.retrieval.expansion import ExpansionService, resolve_expansion_policy
-from app.services.retrieval.grounding import abstain_message, check_identifiers
-from app.services.retrieval.packing import build_bundle
-from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
-from app.services.retrieval.rerank import IdentityReranker, Reranker
-from app.services.retrieval.retry import RetryPolicy, apply_retry_strategy
-from app.services.retrieval.sufficiency import SufficiencyChecker
-from app.services.retrieval.synthesis import (
+from app.services.retrieval.answer.grounding import abstain_message, check_identifiers
+from app.services.retrieval.answer.synthesis import (
     AnswerSynthesizer,
     PromptAnswerSynthesizer,
     SynthesisResult,
 )
+from app.services.retrieval.evidence.compare_policy import CompareResult, enforce_compare_diversity
+from app.services.retrieval.evidence.diversity import apply_diversity
+from app.services.retrieval.evidence.packing import build_bundle
+from app.services.retrieval.evidence.retry import RetryPolicy, apply_retry_strategy
+from app.services.retrieval.evidence.sufficiency import SufficiencyChecker
+from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
+from app.services.retrieval.search.expansion import ExpansionService, resolve_expansion_policy
+from app.services.retrieval.search.rerank import IdentityReranker, Reranker
 
 logger = logging.getLogger(__name__)
 

@@ -36,7 +36,7 @@ from app.services.documents.writing.generation import (
     normalize_outline_sections,
     renumber_document,
 )
-from app.services.retrieval.synthesis import SynthesisResult
+from app.services.retrieval.answer.synthesis import SynthesisResult
 
 # ------------------------------------------------------------- templates
 

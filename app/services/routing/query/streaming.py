@@ -29,7 +29,7 @@ from app.domain.errors import (
     ValidationError,
 )
 from app.services.platform.run_persistence import RunPersistenceService
-from app.services.retrieval.numbering import renumber
+from app.services.retrieval.answer.numbering import renumber
 
 from .email_synthesis import summarize_emails_stream
 from .models import QueryResult, route_info

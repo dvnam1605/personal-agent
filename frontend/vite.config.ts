@@ -4,6 +4,21 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rolldownOptions: {
+      output: {
+        // Libraries change rarely: separate chunks keep the app chunk small and cacheable.
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            { name: 'temml', test: /node_modules[\\/]temml[\\/]/ },
+            { name: 'icons', test: /node_modules[\\/]lucide-react[\\/]/ },
+            { name: 'vendor', test: /node_modules[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

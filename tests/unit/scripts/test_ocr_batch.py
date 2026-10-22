@@ -1,4 +1,4 @@
-"""Unit tests for scripts/ocr_batch.py (spec P9E-3) — engines are faked."""
+"""Unit tests for scripts/ingestion/ocr_batch.py (spec P9E-3) — engines are faked."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 
 from app.services.ingestion.source import checksum_file
 
-_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "ocr_batch.py"
+_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "ingestion" / "ocr_batch.py"
 _spec = importlib.util.spec_from_file_location("ocr_batch_under_test", _SCRIPT)
 assert _spec is not None and _spec.loader is not None
 ocr_batch = importlib.util.module_from_spec(_spec)

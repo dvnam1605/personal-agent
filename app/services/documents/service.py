@@ -32,7 +32,7 @@ from app.services.documents.writing.generation import (
     SectionWriter,
 )
 from app.services.documents.writing.review import SectionReviewer
-from app.services.retrieval.numbering import renumber_sections
+from app.services.retrieval.answer.numbering import renumber_sections
 
 logger = logging.getLogger(__name__)
 _NUMBERED_HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\s")

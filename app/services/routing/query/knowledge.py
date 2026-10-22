@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.retrieval.numbering import renumber
+from app.services.retrieval.answer.numbering import renumber
 
 from .followup import _FOLLOWUP_SCOPE, _RAG_MAX_SCOPED_DOCUMENTS
 from .models import QueryResult, QueryRouteInfo
@@ -249,7 +249,7 @@ class KnowledgeMixin:
         """Natural wording for a SQL-backed answer (facts unchanged; draft on doubt)."""
         if not self._phrase_structured:
             return draft
-        from app.services.retrieval.verbalize import phrase_structured_answer
+        from app.services.retrieval.answer.verbalize import phrase_structured_answer
 
         try:
             return await phrase_structured_answer(question, draft)
@@ -270,8 +270,8 @@ class KnowledgeMixin:
         """
         from app.domain.models.retrieval import RetrievalMode
         from app.domain.models.retrieval.sufficiency import SufficiencyStatus
-        from app.services.retrieval.prompts import SYNTHESIS_SYSTEM_PROMPT
-        from app.services.retrieval.synthesis import SynthesisResult
+        from app.services.retrieval.answer.prompts import SYNTHESIS_SYSTEM_PROMPT
+        from app.services.retrieval.answer.synthesis import SynthesisResult
 
         relation = route.relation
         # With signers plus another relation, the signers are what was asked.
@@ -349,7 +349,7 @@ class KnowledgeMixin:
     ) -> Any:
         if self._retrieve is not None:
             return await self._retrieve(query, user_id)
-        from app.services.retrieval.synthesis import SynthesisResult
+        from app.services.retrieval.answer.synthesis import SynthesisResult
 
         route = await self._route_knowledge(query, user_id)
         if route.relation is not None:

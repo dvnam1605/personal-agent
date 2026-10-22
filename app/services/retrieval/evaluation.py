@@ -27,12 +27,12 @@ from app.services.retrieval.benchmark_types import (
     BenchmarkQuery,
     BenchmarkQueryCategory,
 )
-from app.services.retrieval.expansion import resolve_expansion_policy
+from app.services.retrieval.evidence.packing import build_bundle, unit_for_chunk
 from app.services.retrieval.factory import build_retrieval_pipeline
-from app.services.retrieval.packing import build_bundle, unit_for_chunk
 from app.services.retrieval.pipeline import HybridRetriever
 from app.services.retrieval.provider import RowProvider
-from app.services.retrieval.rerank import IdentityReranker, Reranker
+from app.services.retrieval.search.expansion import resolve_expansion_policy
+from app.services.retrieval.search.rerank import IdentityReranker, Reranker
 
 # ---------------------------------------------------------------------------
 # 1. Information Retrieval (IR) Metrics

@@ -15,7 +15,7 @@ from app.domain.models.retrieval import Evidence, EvidenceBundle
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.evidence_repository import record_run_evidence, run_evidence
 from app.infrastructure.db.models import AssistantRun, Conversation, Message, User
-from app.services.retrieval.citations import CitationNumberer, evidence_snapshot
+from app.services.retrieval.answer.citations import CitationNumberer, evidence_snapshot
 
 OWNER = "11111111-1111-1111-1111-111111111111"
 OTHER = "22222222-2222-2222-2222-222222222222"

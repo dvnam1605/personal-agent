@@ -23,7 +23,7 @@ from app.domain.models import (
     WebSearchPage,
 )
 from app.domain.models.retrieval import Evidence, RetrievalQuery
-from app.services.retrieval.injection_boundary import sanitize_evidence_for_prompt
+from app.services.retrieval.answer.injection_boundary import sanitize_evidence_for_prompt
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.tools.registry import ToolRegistry
 

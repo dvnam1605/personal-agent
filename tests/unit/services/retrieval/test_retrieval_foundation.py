@@ -15,10 +15,10 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.services.ingestion.embedding import EmbeddingContract, LocalEmbeddingService
-from app.services.retrieval.dense import DenseRetrievalService
-from app.services.retrieval.hybrid import HybridRetrievalService
-from app.services.retrieval.sparse import SparseRetrievalService
-from app.services.retrieval.sql import fts_query_expression
+from app.services.retrieval.search.dense import DenseRetrievalService
+from app.services.retrieval.search.hybrid import HybridRetrievalService
+from app.services.retrieval.search.sparse import SparseRetrievalService
+from app.services.retrieval.search.sql import fts_query_expression
 
 CONTRACT = EmbeddingContract(model_name="test-model", dimensions=4)
 
@@ -327,7 +327,7 @@ class TestParallelExecution:
 class TestSqlProvenance:
     def test_chunk_anchor_metadata_drive_uri_differs_from_title(self) -> None:
         """M4: Drive row where uri != title must preserve title as filename."""
-        from app.services.retrieval.sql import chunk_anchor_metadata
+        from app.services.retrieval.search.sql import chunk_anchor_metadata
 
         row = {
             "document_title": "Quarterly_Financial_Report_2026.docx",

@@ -28,22 +28,22 @@ from app.services.ingestion.embedding import (
     LocalEmbeddingService,
     TransformersPoolingBackend,
 )
-from app.services.retrieval.dense import DenseRetrievalService
-from app.services.retrieval.hybrid import DEFAULT_RRF_K, HybridRetrievalService
-from app.services.retrieval.pipeline import DEFAULT_RERANK_TOP_K_MAX, RetrievalPipeline
-from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
-from app.services.retrieval.rerank import IdentityReranker, Reranker, ViRankerReranker
-from app.services.retrieval.retry import RetryPolicy
-from app.services.retrieval.sparse import SparseRetrievalService
-from app.services.retrieval.sufficiency import (
-    DEFAULT_MIN_SCORE_THRESHOLD,
-    SufficiencyChecker,
-)
-from app.services.retrieval.synthesis import (
+from app.services.retrieval.answer.synthesis import (
     AnswerSynthesizer,
     GenerateCallback,
     PromptAnswerSynthesizer,
 )
+from app.services.retrieval.evidence.retry import RetryPolicy
+from app.services.retrieval.evidence.sufficiency import (
+    DEFAULT_MIN_SCORE_THRESHOLD,
+    SufficiencyChecker,
+)
+from app.services.retrieval.pipeline import DEFAULT_RERANK_TOP_K_MAX, RetrievalPipeline
+from app.services.retrieval.provider import RowProvider, SqlAlchemyRowProvider
+from app.services.retrieval.search.dense import DenseRetrievalService
+from app.services.retrieval.search.hybrid import DEFAULT_RRF_K, HybridRetrievalService
+from app.services.retrieval.search.rerank import IdentityReranker, Reranker, ViRankerReranker
+from app.services.retrieval.search.sparse import SparseRetrievalService
 
 logger = logging.getLogger(__name__)
 

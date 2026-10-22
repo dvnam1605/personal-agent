@@ -27,38 +27,56 @@ type CalendarOmnibarMode = 'schedule' | 'search' | 'summarize'
 export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onScheduleMeeting }) => {
   const [filter, setFilter] = useState<'today' | 'tomorrow' | 'week'>('today')
   const [events, setEvents] = useState<CalendarEvent[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeMode, setActiveMode] = useState<CalendarOmnibarMode>('schedule')
   const [inputValue, setInputValue] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
-  const fetchCalendar = async (scope: 'today' | 'tomorrow' | 'week') => {
+  const startLoading = () => {
     setIsLoading(true)
     setError(null)
-    const query =
-      scope === 'today'
-        ? 'Lịch của tôi hôm nay?'
-        : scope === 'tomorrow'
-        ? 'Lịch của tôi ngày mai?'
-        : 'Lịch của tôi trong tuần này?'
+  }
 
-    try {
-      const res = await apiClient.submitQuery(query)
-      if (res.data?.events && Array.isArray(res.data.events)) {
-        setEvents(res.data.events as CalendarEvent[])
-      } else {
-        setEvents([])
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Không thể tải lịch trình từ Google Calendar.')
-    } finally {
-      setIsLoading(false)
-    }
+  const selectFilter = (scope: 'today' | 'tomorrow' | 'week') => {
+    if (scope === filter) return
+    startLoading()
+    setFilter(scope)
+  }
+
+  const reloadCalendar = () => {
+    startLoading()
+    setReloadKey((key) => key + 1)
   }
 
   useEffect(() => {
-    fetchCalendar(filter)
-  }, [filter])
+    let active = true
+    const query =
+      filter === 'today'
+        ? 'Lịch của tôi hôm nay?'
+        : filter === 'tomorrow'
+        ? 'Lịch của tôi ngày mai?'
+        : 'Lịch của tôi trong tuần này?'
+    const load = async () => {
+      try {
+        const res = await apiClient.submitQuery(query)
+        if (!active) return
+        if (res.data?.events && Array.isArray(res.data.events)) {
+          setEvents(res.data.events as CalendarEvent[])
+        } else {
+          setEvents([])
+        }
+      } catch (err: any) {
+        if (active) setError(err?.message || 'Không thể tải lịch trình từ Google Calendar.')
+      } finally {
+        if (active) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [filter, reloadKey])
 
   const formatEventTime = (timeVal?: string | { dateTime?: string; date?: string }) => {
     if (!timeVal) return ''
@@ -121,19 +139,19 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
           <div className="toolbar-filter-group">
             <button
               className={`toolbar-filter-btn ${filter === 'today' ? 'toolbar-filter-btn--active' : ''}`}
-              onClick={() => setFilter('today')}
+              onClick={() => selectFilter('today')}
             >
               Hôm nay
             </button>
             <button
               className={`toolbar-filter-btn ${filter === 'tomorrow' ? 'toolbar-filter-btn--active' : ''}`}
-              onClick={() => setFilter('tomorrow')}
+              onClick={() => selectFilter('tomorrow')}
             >
               Ngày mai
             </button>
             <button
               className={`toolbar-filter-btn ${filter === 'week' ? 'toolbar-filter-btn--active' : ''}`}
-              onClick={() => setFilter('week')}
+              onClick={() => selectFilter('week')}
             >
               Tuần này
             </button>
@@ -143,7 +161,7 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
         <div className="toolbar-right">
           <button
             className="toolbar-btn"
-            onClick={() => fetchCalendar(filter)}
+            onClick={reloadCalendar}
             disabled={isLoading}
             title="Làm mới lịch trình"
           >
@@ -278,7 +296,7 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
               <h4>Không thể đồng bộ lịch</h4>
               <p>{error}</p>
             </div>
-            <button className="btn-retry" onClick={() => fetchCalendar(filter)}>
+            <button className="btn-retry" onClick={reloadCalendar}>
               Thử lại
             </button>
           </div>

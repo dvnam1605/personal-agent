@@ -29,6 +29,9 @@ SENSITIVE_KEYS = {
 }
 
 
+_NOISY_LIBRARY_LOGGERS = ("httpcore", "httpx", "hpack", "urllib3", "huggingface_hub", "filelock")
+
+
 def _is_sensitive(key: str) -> bool:
     return any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS)
 
@@ -109,6 +112,10 @@ def setup_logging() -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level)
+    # HTTP client internals log every request and connection at DEBUG/INFO,
+    # even while the interpreter shuts down and stdout is already closed.
+    for noisy in _NOISY_LIBRARY_LOGGERS:
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

@@ -28,34 +28,43 @@ export const MeetingsWorkspace: React.FC<MeetingsWorkspaceProps> = ({
     discussions?: any[]
     documents?: any[]
   } | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'brief' | 'emails' | 'docs' | 'notes'>('brief')
+  const [reloadKey, setReloadKey] = useState(0)
 
-  const fetchMeetingPrep = async () => {
+  const fetchMeetingPrep = () => {
     setIsLoading(true)
     setError(null)
-    try {
-      const res = await apiClient.submitQuery('Chuẩn bị cho cuộc họp tiếp theo')
-      if (res.data?.meeting) {
-        setDossier({
-          meeting: res.data.meeting,
-          discussions: res.data.discussions || [],
-          documents: res.data.documents || [],
-        })
-      } else {
-        setDossier(null)
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Không thể tổng hợp hồ sơ chuẩn bị cuộc họp.')
-    } finally {
-      setIsLoading(false)
-    }
+    setReloadKey((key) => key + 1)
   }
 
   useEffect(() => {
-    fetchMeetingPrep()
-  }, [])
+    let active = true
+    const load = async () => {
+      try {
+        const res = await apiClient.submitQuery('Chuẩn bị cho cuộc họp tiếp theo')
+        if (!active) return
+        if (res.data?.meeting) {
+          setDossier({
+            meeting: res.data.meeting,
+            discussions: res.data.discussions || [],
+            documents: res.data.documents || [],
+          })
+        } else {
+          setDossier(null)
+        }
+      } catch (err: any) {
+        if (active) setError(err?.message || 'Không thể tổng hợp hồ sơ chuẩn bị cuộc họp.')
+      } finally {
+        if (active) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [reloadKey])
 
   const meeting = dossier?.meeting
 

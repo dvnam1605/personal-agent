@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.core.text import unaccent_vietnamese
-from app.services.retrieval.injection_boundary import BOUNDARY_INSTRUCTIONS
+from app.services.retrieval.answer.injection_boundary import BOUNDARY_INSTRUCTIONS
 
 DOCUMENT_WRITER_SYSTEM_PROMPT = (
     "Bạn là chuyên viên soạn thảo văn bản chuyên nghiệp. Nhiệm vụ: viết MỘT mục của tài liệu "

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.images import image_ref
-from app.services.retrieval.numbering import renumber
+from app.services.retrieval.answer.numbering import renumber
 
 ARCH = image_ref("Hình 4.3: Sơ đồ kiến trúc — mô tả tự động: ba tầng", "a" * 24)
 UI = image_ref("Hình 22 — mô tả tự động: màn hình đăng nhập", "b" * 24)
@@ -46,7 +46,7 @@ def test_text_without_figures_is_unchanged() -> None:
 
 
 def test_a_reference_to_a_formula_shown_in_another_section_takes_its_number() -> None:
-    from app.services.retrieval.numbering import renumber_sections
+    from app.services.retrieval.answer.numbering import renumber_sections
 
     shown = "Tập giá trị theo Công thức (3.5) [1]:\n$$P_s = p$$ (3.5)"
     later = "Đối với một thông số s, tập giá trị xác định theo Công thức (3.5) [11]."

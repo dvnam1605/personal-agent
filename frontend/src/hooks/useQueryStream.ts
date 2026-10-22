@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type React from 'react'
 import { apiClient } from '../api/client'
 import type { ChatTurn } from '../components/conversation/MessageItem'
-import type { ToastType } from '../components/ui/Toast'
+import type { ToastType } from '../components/ui/toastContext'
 import type { ApprovalRequestResponse, DBConversationSummary } from '../types/api'
 
 interface UseQueryStreamOptions {

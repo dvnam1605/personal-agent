@@ -13,8 +13,8 @@ from app.domain.models.ingestion.documents import (
     FingerprintInputs,
     SourceDocument,
 )
-from app.services.ingestion.backfill import FingerprintBackfillJob
 from app.services.ingestion.fingerprint import compute_legacy_fingerprint_v1
+from app.services.ingestion.maintenance.backfill import FingerprintBackfillJob
 
 
 @pytest.mark.asyncio

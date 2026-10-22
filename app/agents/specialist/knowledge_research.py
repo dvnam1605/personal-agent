@@ -22,7 +22,7 @@ from app.domain.models import (
     SpecialistReport,
     SpecialistTask,
 )
-from app.services.retrieval.injection_boundary import BOUNDARY_INSTRUCTIONS
+from app.services.retrieval.answer.injection_boundary import BOUNDARY_INSTRUCTIONS
 
 KNOWLEDGE_RESEARCH_AGENT = KNOWLEDGE_RESEARCH_AGENT_NAME
 

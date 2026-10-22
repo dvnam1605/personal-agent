@@ -73,7 +73,7 @@ class AuthRateLimiter:
                     f"Vui lòng thử lại sau {mins} phút.",
                     ttl,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
             logger.warning("auth.ratelimit_redis_fallback", action="check_lockout", error=str(exc))
             # Fallback to memory
             self._clean_memory_store()
@@ -108,7 +108,7 @@ class AuthRateLimiter:
             pipe.incr(ip_key)
             pipe.expire(ip_key, 60)
             await pipe.execute()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
             logger.warning("auth.ratelimit_redis_fallback", action="check_ip_login", error=str(exc))
             self._clean_memory_store()
             bucket = self._memory_store[ip_key]
@@ -147,7 +147,7 @@ class AuthRateLimiter:
                 failed_count=new_count,
             )
             return new_count
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
             logger.warning("auth.ratelimit_redis_fallback", action="record_failure", error=str(exc))
             self._clean_memory_store()
             bucket = self._memory_store[failed_key]
@@ -166,7 +166,7 @@ class AuthRateLimiter:
         try:
             client = await redis_manager.get_client()
             await client.delete(failed_key)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
             logger.warning("auth.ratelimit_redis_fallback", action="clear_failures", error=str(exc))
             if failed_key in self._memory_store:
                 del self._memory_store[failed_key]
@@ -200,7 +200,7 @@ class AuthRateLimiter:
             pipe.expire(ip_key, 3600)
             await pipe.execute()
             return True, None, 0
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
             logger.warning("auth.ratelimit_redis_fallback", action="check_register", error=str(exc))
             self._clean_memory_store()
             bucket = self._memory_store[ip_key]

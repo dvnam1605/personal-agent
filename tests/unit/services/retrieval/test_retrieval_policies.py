@@ -17,24 +17,24 @@ from app.domain.models.retrieval import (
     RetrievedChunk,
 )
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus, SufficiencyVerdict
-from app.services.retrieval.compare_policy import enforce_compare_diversity
-from app.services.retrieval.injection_boundary import (
+from app.services.retrieval.answer.injection_boundary import (
     BOUNDARY_INSTRUCTIONS,
     sanitize_evidence_for_prompt,
 )
-from app.services.retrieval.pipeline import RetrievalPipeline
-from app.services.retrieval.retry import (
+from app.services.retrieval.answer.synthesis import (
+    PromptAnswerSynthesizer,
+    build_citations_from_bundle,
+    extract_cited_ids,
+)
+from app.services.retrieval.evidence.compare_policy import enforce_compare_diversity
+from app.services.retrieval.evidence.retry import (
     DEFAULT_MAX_ATTEMPTS,
     RetryPolicy,
     RetryStrategy,
     apply_retry_strategy,
 )
-from app.services.retrieval.sufficiency import SufficiencyChecker
-from app.services.retrieval.synthesis import (
-    PromptAnswerSynthesizer,
-    build_citations_from_bundle,
-    extract_cited_ids,
-)
+from app.services.retrieval.evidence.sufficiency import SufficiencyChecker
+from app.services.retrieval.pipeline import RetrievalPipeline
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -853,13 +853,13 @@ class TestPromptTemplates:
     """Verify prompt structure for synthesis."""
 
     def test_system_prompt_contains_boundary(self) -> None:
-        from app.services.retrieval.prompts import SYNTHESIS_SYSTEM_PROMPT
+        from app.services.retrieval.answer.prompts import SYNTHESIS_SYSTEM_PROMPT
 
         assert "UNTRUSTED" in SYNTHESIS_SYSTEM_PROMPT
         assert "evidence" in SYNTHESIS_SYSTEM_PROMPT.lower()
 
     def test_user_message_with_evidence(self) -> None:
-        from app.services.retrieval.prompts import build_synthesis_user_message
+        from app.services.retrieval.answer.prompts import build_synthesis_user_message
 
         items = [make_evidence(eid="e" * 32, content="test content")]
         bundle = make_bundle(items)
@@ -869,7 +869,7 @@ class TestPromptTemplates:
         assert "test content" in msg
 
     def test_user_message_empty_bundle(self) -> None:
-        from app.services.retrieval.prompts import build_synthesis_user_message
+        from app.services.retrieval.answer.prompts import build_synthesis_user_message
 
         bundle = make_bundle([])
         msg = build_synthesis_user_message("What is X?", bundle)
@@ -877,7 +877,7 @@ class TestPromptTemplates:
 
     def test_user_message_with_missing_documents_warning(self) -> None:
         """L3: User message includes coverage warning when missing documents are passed."""
-        from app.services.retrieval.prompts import build_synthesis_user_message
+        from app.services.retrieval.answer.prompts import build_synthesis_user_message
 
         items = [make_evidence(eid="e" * 32, doc="d1")]
         bundle = make_bundle(items)
@@ -908,7 +908,7 @@ class TestExtraPolicies:
 
     def test_unit_for_chunk_populates_provenance(self) -> None:
         """H1 & H2: unit_for_chunk sets score, rerank_score, and provenance fields."""
-        from app.services.retrieval.packing import unit_for_chunk
+        from app.services.retrieval.evidence.packing import unit_for_chunk
 
         c = RetrievedChunk(
             chunk_id="c-1",
@@ -938,7 +938,7 @@ class TestExtraPolicies:
     @pytest.mark.asyncio
     async def test_parent_expansion_populates_provenance(self) -> None:
         """M1 & H2: _parent_units populates score, anchors from parent row, and provenance."""
-        from app.services.retrieval.expansion import ExpansionService
+        from app.services.retrieval.search.expansion import ExpansionService
 
         pid = uuid.uuid4().hex
         did = uuid.uuid4().hex
@@ -994,7 +994,7 @@ class TestExtraPolicies:
 
     def test_provenance_fallback_to_title_when_uri_none(self) -> None:
         """H9: When uri is None (local corpus), filename falls back to document_title."""
-        from app.services.retrieval.packing import unit_for_chunk
+        from app.services.retrieval.evidence.packing import unit_for_chunk
 
         c = RetrievedChunk(
             chunk_id="c-local-1",

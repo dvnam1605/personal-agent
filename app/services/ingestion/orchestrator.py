@@ -33,8 +33,8 @@ from app.services.ingestion.chunking.identity import (
 from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.embedding import LocalEmbeddingService
+from app.services.ingestion.enrichment.images import adopt_captions, store_images
 from app.services.ingestion.fingerprint import compute_fingerprint, fingerprint_matches_stored
-from app.services.ingestion.images import adopt_captions, store_images
 from app.services.ingestion.parsing.base import parse_source, parser_identity
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
