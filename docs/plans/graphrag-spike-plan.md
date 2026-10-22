@@ -60,7 +60,7 @@ Có thể làm toàn bộ trên máy B nếu đã chép cả `data/`, `models/` 
 | Thứ | Lấy ở đâu | Bắt buộc |
 |---|---|---|
 | Code (repo, nhánh `feat/generic-rag-profiles`) | `git clone` hoặc scp | ✔ |
-| Corpus `.md` đã parse | `scripts/export_corpus_md.py` (mục 3.1) | ✔ |
+| Corpus `.md` đã parse | `scripts/ingestion/export_corpus_md.py` (mục 3.1) | ✔ |
 | Bộ câu hỏi | `tests/evaluation/gold/rag_gold_v1.json` + mục 6 | ✔ |
 | Model embedding tiếng Việt | `models/models--AITeamVN--Vietnamese_Embedding/` hoặc tải lại từ HF `AITeamVN/Vietnamese_Embedding` | ✔ |
 | Dump DB (nếu muốn chạy cả hệ hiện tại trên B) | `pg_dump` (mục 2.3) | tuỳ chọn |
@@ -93,7 +93,7 @@ Có thể làm toàn bộ trên máy B nếu đã chép cả `data/`, `models/` 
    Image đã có pymupdf và các thư viện OpenCV.
 5. Nếu dùng dump cũ:
    ```bash
-   docker cp scripts/backfill_profiles.py assistant_backend:/tmp/
+   docker cp scripts/backfill/backfill_profiles.py assistant_backend:/tmp/
    ```
    ```bash
    docker exec -e PYTHONPATH=/app -w /app assistant_backend python /tmp/backfill_profiles.py --no-llm
@@ -105,7 +105,7 @@ Có thể làm toàn bộ trên máy B nếu đã chép cả `data/`, `models/` 
 
 ### 3.1 Xuất corpus (chỉ đọc DB)
 ```bash
-docker cp scripts/export_corpus_md.py assistant_backend:/tmp/
+docker cp scripts/ingestion/export_corpus_md.py assistant_backend:/tmp/
 ```
 ```bash
 docker exec -e PYTHONPATH=/app -w /app assistant_backend python /tmp/export_corpus_md.py --out /tmp/corpus_md
@@ -122,7 +122,7 @@ Kết quả:
 ### 3.2 Baseline hệ hiện tại
 1. Gold set (19 câu, `--split all`):
    ```bash
-   uv run python scripts/eval_rag.py --split all --save-baseline
+   uv run python scripts/benchmarks/eval_rag.py --split all --save-baseline
    ```
    Kết quả nằm trong `eval_results/`.
 2. Bộ câu hỏi quan hệ R1–R15 (mục 6): gửi từng câu qua API và lưu JSONL theo cùng định dạng ở mục 6.3:

@@ -30,7 +30,7 @@ RAG dùng được cho **mọi loại tài liệu**: hành chính, báo cáo/t�
 | Sửa thêm | LLM fail nhanh khi 9router không chạy (connect 10s, không POST lại); số hiệu khớp bất kể dấu phân cách (`80/QĐ` = `80-QĐ`) | ✅ `8332aaf`, `82a3eea` |
 | P5 | Tạo tài liệu: migration `0013`, template theo loại, dàn ý (rule/LLM) → chat "duyệt" → viết từng mục bằng RAG có trích dẫn → Markdown + .docx; API `/documents/*`; nút tải .docx ở frontend | ✅ `1545b28`, `359dd22`, `a8b66d5` |
 | Sửa từ dữ liệu thật | Tiêu đề chức danh không phải người; loại con hành chính đủ (25 QĐ năm 2026); chọn nguồn theo chủ đề | ✅ `3f4571f` |
-| P3 | Gold set 19 câu (`tests/evaluation/gold/rag_gold_v1.json`), runner live `scripts/eval_rag.py`, smoke test CI; sửa triage `chuc`→chit-chat | ✅ `77bcc1e` |
+| P3 | Gold set 19 câu (`tests/evaluation/gold/rag_gold_v1.json`), runner live `scripts/benchmarks/eval_rag.py`, smoke test CI; sửa triage `chuc`→chit-chat | ✅ `77bcc1e` |
 | P4 | Excel → bảng SQL + text-to-SQL an toàn | ⏭ **làm tiếp từ đây** (đã thiết kế trong plan) |
 
 **Test:** toàn bộ unit test chạy ổn (khoảng 1150 test). Hai test đỏ đã có từ trước và không liên quan:
@@ -62,7 +62,7 @@ RAG dùng được cho **mọi loại tài liệu**: hành chính, báo cáo/t�
 
 Lệnh ingest lại file slide:
 ```
-uv run python scripts/ingest_corpus.py --root data/DoAn --no-llm-profile
+uv run python scripts/ingestion/ingest_corpus.py --root data/DoAn --no-llm-profile
 ```
 
 ## Kết quả đánh giá gold set (baseline 2026-10-20, 9router không chạy)
@@ -79,12 +79,12 @@ uv run python scripts/ingest_corpus.py --root data/DoAn --no-llm-profile
 Baseline lưu ở `eval_results/baseline.json` (bị gitignore). Lệnh chạy lại và so sánh:
 
 ```
-uv run python scripts/eval_rag.py --split all --compare eval_results/baseline.json
+uv run python scripts/benchmarks/eval_rag.py --split all --compare eval_results/baseline.json
 ```
 
 ## Việc tiếp theo
 
-1. **Bật lại 9router**, rồi chạy lại gold set để có số liệu thật cho các chỉ số cần LLM. Sau đó chạy `scripts/backfill_profiles.py` (không có `--no-llm`) để LLM điền tiêu đề đồ án và 3 profile đang cần review.
+1. **Bật lại 9router**, rồi chạy lại gold set để có số liệu thật cho các chỉ số cần LLM. Sau đó chạy `scripts/backfill/backfill_profiles.py` (không có `--no-llm`) để LLM điền tiêu đề đồ án và 3 profile đang cần review.
 2. **Câu 664 cho thấy recall theo đoạn còn yếu khi không có rerank.** Hai hướng: bật ViRanker với khoảng 20–30 ứng viên, hoặc tăng số chunk lấy trong một tài liệu ở chế độ `DOCUMENT_SEARCH`. Đo lại bằng gold set.
 3. **P4 Excel** (thiết kế trong plan): xlsx → bảng `sheets.*` + text-to-SQL an toàn, dùng `StructuredResult` và route metadata đã có.
 4. **Ingest lại file slide** `DoAn/Nguyễn Tuấn Linh…pdf` (lỗi bảng rỗng đã sửa). Kiểm tra sách 399 trang đã embed xong chưa (đang chạy nền lúc cập nhật).
