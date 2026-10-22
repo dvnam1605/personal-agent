@@ -200,4 +200,3 @@ async def test_query_supervisor_dag_execution(db_session: AsyncSession) -> None:
     assert "Supervisor DAG" in body["message"]
     assert "quy định hạn mức" in body["message"]
     assert "Bản nháp email" in body["message"]
-

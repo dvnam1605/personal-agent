@@ -1,21 +1,11 @@
 """Spreadsheet generation: a table filled from the source documents.
 
-"Lập bảng tổng hợp các quyết định khen thưởng năm 2026" → the planner
-proposes columns (and what one row is) for the user to edit, then every
-source document is read on its own:
-
-* columns backed by document metadata (number, date, title, issuer, type,
-  signer) are filled from ``document_profiles`` — exact, no LLM;
-* content columns are extracted by the LLM from that document's evidence,
-  each cell with the evidence numbers that support it;
-* a figure in a cell that occurs in none of its cited evidence is cleared
-  deterministically;
-* a reviewer LLM checks every content cell against its evidence; flagged
-  cells are re-extracted with the issues as feedback, up to
-  ``MAX_REVIEW_ROUNDS`` reviews; cells still flagged are cleared and marked
-  for the user, never guessed.
-
-Documents are processed concurrently (bounded) since each one is independent.
+The planner proposes columns for the user to edit; then each source document is
+processed independently (bounded concurrency). Metadata columns come straight
+from ``document_profiles``; content columns are extracted by the LLM with cited
+evidence, figures absent from that evidence are cleared, and a reviewer LLM
+re-checks cells up to ``MAX_REVIEW_ROUNDS`` times. Cells still flagged are
+cleared and marked for the user, never guessed.
 """
 
 from __future__ import annotations
@@ -28,11 +18,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.llm import llm_json
 from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
-from app.services.documents.llm import llm_json
-from app.services.documents.quality import _number_values, _significant
-from app.services.documents.review import MAX_REVIEW_ROUNDS
+from app.services.documents.writing.quality import _number_values, _significant
+from app.services.documents.writing.review import MAX_REVIEW_ROUNDS
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +32,7 @@ MAX_ROWS_PER_DOCUMENT = 50
 CONCURRENCY = 3
 TABLE_LLM_TIMEOUT = 90.0
 EVIDENCE_TOKENS = 3500
-# A document whose whole text fits is read in full (a list of nine
-# recipients split over chunks must not lose five of them to retrieval).
+# Documents this short are read in full so retrieval cannot drop list items.
 FULL_TEXT_CHARS = 16000
 
 # Columns that come straight from the document profile.
@@ -97,8 +86,6 @@ def normalize_columns(raw: Any) -> list[TableColumn]:
     return out[:MAX_COLUMNS]
 
 
-# --------------------------------------------------------------- planning
-
 COLUMNS_SYSTEM_PROMPT = (
     "Bạn thiết kế một bảng tổng hợp (Excel) lập từ các văn bản nội bộ tiếng Việt.\n"
     "1. Đề xuất 4–10 cột sát yêu cầu. Mỗi cột có 'source': một trong "
@@ -129,8 +116,6 @@ async def propose_table(
     )
     return await json_call(COLUMNS_SYSTEM_PROMPT, user, timeout=TABLE_LLM_TIMEOUT)
 
-
-# ------------------------------------------------------------- extraction
 
 EXTRACT_SYSTEM_PROMPT = (
     "Bạn trích dữ liệu từ MỘT văn bản để điền vào bảng tổng hợp.\n"
@@ -248,9 +233,7 @@ class TableWriter:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Rows (with cells, citations, review) and the document-wide citation list.
 
-        ``full_texts``: per document, its top-level chunks in order
-        ({chunk_id, text, page_start, section_title}); used instead of
-        retrieval when the whole document fits in ``FULL_TEXT_CHARS``.
+        ``full_texts`` (top-level chunks per document) replaces retrieval for short documents.
         """
         full_texts = full_texts or {}
         columns = [TableColumn.model_validate(c) for c in outline.columns]

@@ -235,3 +235,48 @@
 .md-table tr:hover td {
   background-color: var(--color-surface-hover);
 }
+
+.md-equation {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+  overflow-x: auto;
+  color: var(--color-text);
+}
+
+.md-equation-body {
+  flex: 1;
+  text-align: center;
+}
+
+.md-equation-number {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.md-figure {
+  margin: var(--space-3) 0;
+  text-align: center;
+}
+
+.md-figure-img {
+  max-width: 100%;
+  max-height: 480px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+}
+
+.md-figure-placeholder {
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+}
+
+.md-figure-caption {
+  margin-top: var(--space-1);
+  font-size: 0.85em;
+  font-style: italic;
+  color: var(--color-text-muted);
+}

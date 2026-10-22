@@ -31,6 +31,8 @@ dependencies = [
     "pyyaml>=6.0.3",
     "pymupdf>=1.24",
     "openpyxl>=3.1",
+    "mathml2omml>=0.0.2",
+    "latex2mathml>=3.77",
 ]
 
 [tool.uv]

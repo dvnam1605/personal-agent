@@ -35,8 +35,13 @@ class IngestionRepository(Protocol):
         parser_version: str,
         parents: list[ParentChunkDraft],
         children: list[tuple[ChildChunkDraft, list[float] | None]],
+        force_new_version: bool = False,
     ) -> tuple[str, int]:
-        """Insert candidate version + chunks; returns (document_id, version)."""
+        """Insert candidate version + chunks; returns (document_id, version).
+
+        ``force_new_version`` writes a new version even when the fingerprint
+        matches the active one (forced re-index after a parser change).
+        """
         ...
 
     async def activate_candidate(

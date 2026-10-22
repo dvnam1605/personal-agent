@@ -2154,6 +2154,15 @@ wheels = [
 ]
 
 [[package]]
+name = "mathml2omml"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/0c/8ce3a89839fb263fb9b66e291c9419adcdb57f214c7ca7c9a5d1b28ac4ba/mathml2omml-0.0.2.tar.gz", hash = "sha256:c67b289cd09208c4b6f3c4f74653f6d86edfd8fff4c18e6c95a7afa9994e7323", size = 23280, upload-time = "2019-11-24T07:30:53.556Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/c9/0359d7975900d26e30c39d0058828cc1f787ae75171866112aa7e4ce4c76/mathml2omml-0.0.2-py3-none-any.whl", hash = "sha256:6a2a1a10e90d7d8a672a1b37b6b49a6187e6720439aeb922949d254bb4656f25", size = 23853, upload-time = "2019-11-24T07:30:51.486Z" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3026,6 +3035,8 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langsmith" },
+    { name = "latex2mathml" },
+    { name = "mathml2omml" },
     { name = "openpyxl" },
     { name = "orjson" },
     { name = "pgvector" },
@@ -3079,6 +3090,8 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.2" },
     { name = "langsmith", specifier = ">=0.11.0" },
+    { name = "latex2mathml", specifier = ">=3.77" },
+    { name = "mathml2omml", specifier = ">=0.0.2" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "orjson", specifier = ">=3.10.0" },
     { name = "paddleocr", marker = "extra == 'ocr-paddle'", specifier = ">=3.7,<4" },

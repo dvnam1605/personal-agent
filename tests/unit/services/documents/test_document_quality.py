@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.documents.quality import apply_quality_gates
+from app.services.documents.writing.quality import apply_quality_gates
 
 EVIDENCE = (
     '<retrieved_document id="E1" number="664/QĐ-TNVN" date="2026-03-20">'
@@ -47,7 +47,7 @@ def test_heading_left_empty_is_dropped() -> None:
 
 
 def test_polish_style_removes_chatbot_habits() -> None:
-    from app.services.documents.quality import polish_style
+    from app.services.documents.writing.quality import polish_style
 
     text = (
         "Dưới đây là nội dung mục Đánh giá.\n\n### 1. Kết quả\n\n"

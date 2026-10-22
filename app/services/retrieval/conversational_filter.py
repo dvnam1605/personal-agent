@@ -8,6 +8,7 @@ while preserving domain keywords, proper names, and entity identifiers.
 from __future__ import annotations
 
 import re
+
 from app.services.retrieval.vietnamese_orthography import normalize_unicode
 
 # Common typos and accents in Vietnamese search queries (Universal)

@@ -1,9 +1,8 @@
-"""Ingestion orchestrator: parse -> chunk -> embed -> persist (spec P9D).
+"""Ingestion orchestrator: parse -> profile -> chunk -> embed -> persist.
 
-Wires P9B parsing and P9C chunking into the complete pipeline with typed job
-statuses, per-stage durations, batch-safe failure isolation, and atomic
-version activation. One failed file never raises past this layer; callers
-inspect the returned observability record.
+Runs one source through the pipeline with typed job statuses, per-stage
+durations and atomic version activation. One failed file never raises past
+this layer; callers inspect the returned observability record.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ from app.services.ingestion.chunking.parents import SectionParentChunker
 from app.services.ingestion.chunking.protocols import ChunkContext
 from app.services.ingestion.embedding import LocalEmbeddingService
 from app.services.ingestion.fingerprint import compute_fingerprint, fingerprint_matches_stored
+from app.services.ingestion.images import store_images
 from app.services.ingestion.parsing.base import parse_source, parser_identity
 from app.services.ingestion.parsing.markdown_parser import MARKDOWN_PARSER_VERSION
 from app.services.ingestion.persistence import IngestionRepository, UnitOfWork
@@ -80,11 +80,19 @@ class IngestionOrchestrator:
         chunking_settings: ChunkingSettings | None = None,
         profiler: Any | None = None,
         profile_store: Any | None = None,
+        relation_extractor: Any | None = None,
+        relation_store: Any | None = None,
+        formula_rebuilder: Any | None = None,
+        image_describer: Any | None = None,
     ) -> None:
-        # Profiling is optional so lightweight test wiring needs neither an LLM
-        # nor the profiles table; production wiring passes both.
+        # Profiling and relations are optional (tests skip the LLM and tables);
+        # relations build on the profile, so they need it as well.
         self._profiler = profiler
         self._profiles = profile_store
+        self._relation_extractor = relation_extractor
+        self._relations = relation_store
+        self._formula_rebuilder = formula_rebuilder
+        self._image_describer = image_describer
         self._repository = repository
         self._transaction = transaction
         self._embedding = embedding
@@ -106,8 +114,7 @@ class IngestionOrchestrator:
             meta = parsed_result.document.metadata
             identity = (meta.parser_name, meta.parser_version)
         else:
-            # The engine (Docling or PyMuPDF for PDFs) depends on the content;
-            # it is part of the fingerprint so switching engines re-ingests.
+            # The PDF engine depends on content and is part of the fingerprint.
             identity = await asyncio.to_thread(parser_identity, source, content)
         obs.parser_name, obs.parser_version = identity
         started_stage = time.perf_counter()
@@ -122,8 +129,6 @@ class IngestionOrchestrator:
                 try:
                     await self._heartbeat(obs.job_id)
                 except Exception as exc:  # noqa: BLE001 - heartbeat is best-effort
-                    # Heartbeat is best-effort, but a dead heartbeat silently
-                    # disables stale-claim protection — never swallow it quietly.
                     logger.debug(
                         "ingestion_heartbeat_failed",
                         extra={"job_id": obs.job_id, "error": str(exc)},
@@ -139,12 +144,8 @@ class IngestionOrchestrator:
             ).fingerprint
             logical_id = logical_document_id_for(source.source_id)
 
-            # This read sits outside the persist transaction, so two concurrent
-            # ingests can both elect the same N+1. The in-transaction check in
-            # persist_candidate re-reads the latest row (FOR UPDATE on PG),
-            # bumps to N+2 with remapped chunk IDs on collision, or returns
-            # the existing version with is_deduplicated=True — no corruption,
-            # no silent overwrite.
+            # Read outside the transaction; persist_candidate re-checks under a
+            # row lock and resolves concurrent version races.
             state = await self._repository.latest_state(logical_id)
             unchanged, is_legacy = (
                 fingerprint_matches_stored(
@@ -155,7 +156,6 @@ class IngestionOrchestrator:
                 else (False, False)
             )
             if state is not None and unchanged and not force_reindex:
-                # L3: an unchanged fingerprint is a healthy skip, not a failure.
                 obs.warnings.append("fingerprint unchanged; skipping reindex")
                 if is_legacy:
                     obs.warnings.append(
@@ -168,8 +168,7 @@ class IngestionOrchestrator:
             document_id = document_id_for(logical_id, version_number)
 
             await mark(IngestionStatus.PARSING)
-            # A pre-parsed result (parsed on another machine with more RAM) skips
-            # parsing; chunking, embedding and persistence are unchanged.
+            # A pre-parsed result (e.g. parsed on another machine) skips parsing.
             parsed = parsed_result or await parse_source(source, content)
             obs.durations["parse"] = stage_elapsed()
             if parsed.quality is not None:
@@ -194,9 +193,14 @@ class IngestionOrchestrator:
                 await mark(IngestionStatus.FAILED)
                 return obs.freeze()
             tree = parsed.document
+            if self._formula_rebuilder is not None:
+                tree = await self._formula_rebuilder.arebuild(tree)
+            # Image files are kept whatever happens next; chunks refer to them by key.
+            store_images(tree)
+            if self._image_describer is not None:
+                tree = await self._image_describer.adescribe(tree)
 
-            # Profile before the persist transaction: the optional LLM fallback
-            # must never hold a DB transaction open.
+            # Profile before the transaction so an LLM call never holds it open.
             profile_draft = None
             profile_overrides: dict[str, Any] = {}
             if self._profiler is not None and self._profiles is not None:
@@ -210,6 +214,20 @@ class IngestionOrchestrator:
                 tree
             )
             obs.durations["parents"] = stage_elapsed()
+
+            # May call an LLM, so it also runs before the transaction.
+            relation_drafts = None
+            if (
+                profile_draft is not None
+                and self._relation_extractor is not None
+                and self._relations is not None
+            ):
+                relation_drafts = await self._relation_extractor.aextract(
+                    "\n".join(p.raw_text for p in parents),
+                    category=profile_draft.doc_category.value,
+                    entities=profile_draft.entities,
+                )
+                obs.durations["relations"] = stage_elapsed()
 
             await mark(IngestionStatus.BUILDING_CHILDREN)
             child_chunker = SentenceChildChunker(chunk_context, self._chunking_settings)
@@ -247,6 +265,7 @@ class IngestionOrchestrator:
                     fingerprint=fingerprint,
                     parser_name=obs.parser_name,
                     parser_version=obs.parser_version,
+                    force_new_version=force_reindex,
                     parents=parents,
                     children=[
                         (child, vector)
@@ -260,7 +279,6 @@ class IngestionOrchestrator:
                     persisted_id != document_id and persisted_version < version_number,
                 )
                 if is_dedup:
-                    # Deduplicated: active version with same fingerprint already committed
                     obs.status = IngestionStatus.SKIPPED
                     obs.document_id = persisted_id
                     obs.document_version = persisted_version
@@ -276,6 +294,13 @@ class IngestionOrchestrator:
                         logical_document_id=logical_id,
                         draft=profile_draft,
                         overrides=profile_overrides,
+                    )
+                if relation_drafts is not None:
+                    await self._relations.replace(
+                        session,
+                        document_id=persisted_id,
+                        logical_document_id=logical_id,
+                        drafts=relation_drafts,
                     )
             obs.durations["persist"] = stage_elapsed()
 

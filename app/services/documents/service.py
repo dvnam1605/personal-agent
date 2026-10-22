@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models import (
@@ -17,17 +17,18 @@ from app.infrastructure.db.models import (
     DocumentProfile,
     GeneratedDocument,
 )
-from app.services.documents.generation import (
+from app.services.documents.rendering.report import render_docx, render_markdown
+from app.services.documents.rendering.table import render_table_markdown, render_table_xlsx
+from app.services.documents.tables.writer import META_SOURCES, TableWriter, normalize_columns
+from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
+from app.services.documents.writing.formulas import Formula, collect_formulas, insert_formulas
+from app.services.documents.writing.generation import (
     DocumentOutline,
     DocumentPlanner,
     OutlineSection,
     SectionWriter,
 )
-from app.services.documents.render import render_docx, render_markdown
-from app.services.documents.review import SectionReviewer
-from app.services.documents.table import META_SOURCES, TableWriter, normalize_columns
-from app.services.documents.table_render import render_table_markdown, render_table_xlsx
-from app.services.documents.templates import TEMPLATE_BY_KEY, select_template
+from app.services.documents.writing.review import SectionReviewer
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +51,9 @@ class DocumentGenerationService:
         review: bool = True,
     ) -> None:
         self._planner = DocumentPlanner(metadata_service, pipeline, use_llm=use_llm)
-        # Every written section is checked against its evidence and fixed.
         reviewer = SectionReviewer() if use_llm and review else None
         self._writer = SectionWriter(pipeline, reviewer=reviewer)
         self._table_writer = TableWriter(pipeline, review=use_llm and review)
-
-    # ------------------------------------------------------------ queries
 
     @staticmethod
     async def source_titles(session: AsyncSession, ids: list[str]) -> list[str]:
@@ -104,7 +102,6 @@ class DocumentGenerationService:
                 "issuer": (profile.issuer if profile is not None else None) or "",
                 "doc_type": (profile.doc_subtype if profile is not None else None) or "",
                 "signer": signer,
-                # Rows are listed by date, then number.
                 "sort_key": f"{doc_date.isoformat() if doc_date else '9999-12-31'}|{number}",
             }
         return out
@@ -142,6 +139,57 @@ class DocumentGenerationService:
         return out
 
     @staticmethod
+    async def source_outline(session: AsyncSession, ids: list[str]) -> list[str]:
+        """Table of contents of the source documents (section headings, in order)."""
+        from app.services.documents.writing.generation import MAX_OUTLINE_LINES
+
+        if not ids:
+            return []
+        rows = (
+            await session.execute(
+                select(DocumentChunk.document_id, DocumentChunk.heading_path)
+                .where(DocumentChunk.document_id.in_(ids), DocumentChunk.hierarchy_level == 0)
+                .order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
+            )
+        ).all()
+        titles = dict(
+            zip(ids, await DocumentGenerationService.source_titles(session, ids), strict=False)
+        )
+        lines: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for doc_id, path in rows:
+            heading = " > ".join(h for h in (path or []) if h)
+            if not heading or (doc_id, heading) in seen:
+                continue
+            seen.add((doc_id, heading))
+            prefix = f"[{titles.get(doc_id, doc_id)}] " if len(ids) > 1 else ""
+            lines.append(f"{prefix}{heading}")
+            if len(lines) >= MAX_OUTLINE_LINES:
+                break
+        return lines
+
+    @staticmethod
+    async def formula_map(session: AsyncSession, ids: list[str]) -> dict[str, Formula]:
+        """Numbered equations of the sources, with the section each belongs to."""
+        if not ids:
+            return {}
+        rows = (
+            await session.execute(
+                select(DocumentChunk.heading_path, DocumentChunk.content_raw).where(
+                    DocumentChunk.document_id.in_(ids),
+                    DocumentChunk.hierarchy_level == 0,
+                    or_(
+                        DocumentChunk.content_raw.contains("Công thức:"),
+                        DocumentChunk.content_raw.contains("$$"),
+                    ),
+                )
+            )
+        ).all()
+        return collect_formulas(
+            [(" > ".join(h for h in (path or []) if h), text) for path, text in rows]
+        )
+
+    @staticmethod
     async def get_owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedDocument:
         row = await session.get(GeneratedDocument, doc_id)
         if row is None or row.user_id != user_id:
@@ -166,8 +214,6 @@ class DocumentGenerationService:
         )
         return (await session.execute(stmt)).scalar_one_or_none()
 
-    # ---------------------------------------------------------- lifecycle
-
     async def create_outline(
         self,
         session: AsyncSession,
@@ -181,6 +227,7 @@ class DocumentGenerationService:
             request,
             requester_id,
             source_titles_for=lambda ids: self.source_titles(session, ids),
+            source_outline_for=lambda ids: self.source_outline(session, ids),
         )
         row = GeneratedDocument(
             id=str(uuid.uuid4()),
@@ -215,8 +262,18 @@ class DocumentGenerationService:
             return row
         outline = DocumentOutline.model_validate(row.outline)
         if sections and outline.kind != "table":
+            # Edited sections keep the source headings the planner mapped to them.
+            mapped = {s.heading: s.sources for s in outline.sections}
+            edited = [OutlineSection.model_validate(s) for s in sections][:8]
             outline = outline.model_copy(
-                update={"sections": [OutlineSection.model_validate(s) for s in sections][:8]}
+                update={
+                    "sections": [
+                        e
+                        if e.sources
+                        else e.model_copy(update={"sources": mapped.get(e.heading, [])})
+                        for e in edited
+                    ]
+                }
             )
         if columns and outline.kind == "table":
             edited = normalize_columns(columns)
@@ -246,9 +303,15 @@ class DocumentGenerationService:
                 )
                 self._store_table(row, outline, rows, citations)
             else:
-                written = await self._writer.write(outline, row.request, requester_id)
+                formulas = await self.formula_map(session, outline.source_document_ids)
+                written = await self._writer.write(
+                    outline, row.request, requester_id, formulas=formulas
+                )
                 self._store(
-                    row, outline, [s.model_dump() for s in written.sections], written.citations
+                    row,
+                    outline,
+                    _with_formulas([s.model_dump() for s in written.sections], formulas, outline),
+                    written.citations,
                 )
             row.status = "done"
             row.error = None
@@ -278,6 +341,7 @@ class DocumentGenerationService:
         if not 0 <= index < len(row.sections):
             raise IndexError(index)
         outline = DocumentOutline.model_validate(row.outline)
+        formulas = await self.formula_map(session, outline.source_document_ids)
         sections, citations = await self._writer.rewrite_section(
             outline,
             row.request,
@@ -286,8 +350,9 @@ class DocumentGenerationService:
             feedback=feedback,
             sections=list(row.sections),
             citations=list(row.citations or []),
+            formulas=formulas,
         )
-        self._store(row, outline, sections, citations)
+        self._store(row, outline, _with_formulas(sections, formulas, outline), citations)
         await session.flush()
         return row
 
@@ -409,3 +474,26 @@ def table_review_note(rows: list[dict[str, Any]]) -> str:
     if cleared:
         base += f" {cleared} ô chưa xác minh được đã để trống (tô vàng trong file Excel)."
     return base
+
+
+def _with_formulas(
+    sections: list[dict[str, Any]], formulas: dict[str, Formula], outline: DocumentOutline
+) -> list[dict[str, Any]]:
+    """Each section shows the source equations it mentions or was planned from."""
+    if not formulas:
+        return sections
+    planned = {s.heading: s.sources for s in outline.sections}
+    shown: set[str] = set()  # a formula appears once in the whole document
+    out: list[dict[str, Any]] = []
+    for section in sections:
+        if section.get("status") == "missing":
+            out.append(section)
+            continue
+        text = insert_formulas(
+            section.get("text") or "",
+            formulas,
+            sources=planned.get(section.get("heading") or "", []),
+            already_shown=shown,
+        )
+        out.append({**section, "text": text})
+    return out

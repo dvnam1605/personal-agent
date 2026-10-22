@@ -8,11 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
-from app.infrastructure.db.models import GeneratedDocument
+from app.core.images import MEDIA_TYPES, image_file
+from app.infrastructure.db.models import Document, DocumentChunk, GeneratedDocument
 from app.infrastructure.db.session import get_db_session
 from app.services.documents.service import (
     DocumentGenerationService,
@@ -101,6 +102,41 @@ async def _owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedD
         return await DocumentGenerationService.get_owned(session, user_id, doc_id)
     except DocumentNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.") from None
+
+
+@router.get("/images/{key}", summary="An image of an ingested document")
+async def document_image(
+    key: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> FileResponse:
+    # Served only when an active document the user can read refers to it.
+    path = image_file(key)
+    requester = retrieval_requester_id(user_id)
+    owner = Document.user_id.is_(None)
+    if requester is not None:
+        owner = or_(owner, Document.user_id == requester)
+    visible = None
+    if path is not None:
+        visible = (
+            await session.execute(
+                select(DocumentChunk.id)
+                .join(Document, Document.id == DocumentChunk.document_id)
+                .where(
+                    Document.is_active,
+                    owner,
+                    DocumentChunk.content_raw.contains(f"(image:{key})"),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if path is None or visible is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found.")
+    return FileResponse(
+        path,
+        media_type=MEDIA_TYPES[path.suffix.lstrip(".")],
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("", summary="Generated documents of the current user (newest first)")

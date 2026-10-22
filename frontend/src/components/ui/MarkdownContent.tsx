@@ -1,4 +1,7 @@
 import React from 'react'
+import temml from 'temml'
+import 'temml/dist/Temml-Local.css'
+import { apiClient } from '../../api/client'
 import './MarkdownContent.css'
 
 interface MarkdownContentProps {
@@ -6,11 +9,71 @@ interface MarkdownContentProps {
   className?: string
 }
 
+// An image of a source document on its own line: "![Hình 4 — mô tả tự động: …](image:<key>)".
+const IMAGE_LINE = /^!\[([^\]\n]*)\]\(image:([0-9a-f]{24})\)$/
+
+const DocumentImage: React.FC<{ imageKey: string; alt: string }> = ({ imageKey, alt }) => {
+  const [url, setUrl] = React.useState<string | null>(null)
+  const [failed, setFailed] = React.useState(false)
+  React.useEffect(() => {
+    let objectUrl: string | null = null
+    let cancelled = false
+    apiClient
+      .fetchDocumentImage(imageKey)
+      .then((u) => {
+        objectUrl = u
+        if (cancelled) URL.revokeObjectURL(u)
+        else setUrl(u)
+      })
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [imageKey])
+  const label = alt.split(' — ')[0]
+  return (
+    <figure className="md-figure">
+      {url ? (
+        <img src={url} alt={alt} title={alt} className="md-figure-img" />
+      ) : (
+        <div className="md-figure-placeholder">{failed ? 'Không tải được hình' : 'Đang tải hình…'}</div>
+      )}
+      <figcaption className="md-figure-caption">{label}</figcaption>
+    </figure>
+  )
+}
+
+const InlineMath: React.FC<{ latex: string }> = ({ latex }) => {
+  const html = React.useMemo(
+    () => temml.renderToString(latex, { displayMode: false, throwOnError: false }),
+    [latex],
+  )
+  return <span className="md-inline-math" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+// A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)".
+const EQUATION_LINE = /^\$\$(.+?)\$\$\s*(?:\((\d+(?:\.\d+)+)\))?\s*$/
+
+// Temml escapes text and rejects \href-style commands by default, so its MathML is safe to inject.
+const Equation: React.FC<{ latex: string; number?: string }> = ({ latex, number }) => {
+  const html = React.useMemo(
+    () => temml.renderToString(latex, { displayMode: true, throwOnError: false }),
+    [latex],
+  )
+  return (
+    <div className="md-equation">
+      <span className="md-equation-body" dangerouslySetInnerHTML={{ __html: html }} />
+      {number && <span className="md-equation-number">({number})</span>}
+    </div>
+  )
+}
+
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
   // Helper to render inline formatting: bold, italic, code, links
   const renderInline = (text: string): React.ReactNode[] => {
     // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] or [1, 2] citation badges, or raw hex hashes
-    const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
+    const tokenRegex = /(\$(?=\S)[^$\n]+?(?<=\S)\$|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
     const parts = text.split(tokenRegex)
 
     return parts.map((part, index) => {
@@ -32,6 +95,11 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
             ))}
           </React.Fragment>
         )
+      }
+
+      // Inline math: $P_s$, $\mathbb{R}$
+      if (/^\$[^$\n]+\$$/.test(part)) {
+        return <InlineMath key={index} latex={part.slice(1, -1)} />
       }
 
       // Hide any raw evidence hash brackets that may have escaped backend replacement
@@ -109,12 +177,14 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
 
   let listItems: React.ReactNode[] = []
   let isNumberedList = false
+  // An image or equation between steps splits the list; keep counting from its number.
+  let listStart = 1
 
   const flushList = () => {
     if (listItems.length > 0) {
       if (isNumberedList) {
         elements.push(
-          <ol key={`ol-${elements.length}`} className="md-ol">
+          <ol key={`ol-${elements.length}`} className="md-ol" start={listStart}>
             {listItems.map((item, idx) => (
               <li key={idx}>{item}</li>
             ))}
@@ -191,6 +261,26 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
 
     if (inCodeBlock) {
       codeBlockLines.push(line)
+      continue
+    }
+
+    const picture = line.trim().match(IMAGE_LINE)
+    if (picture) {
+      flushList()
+      flushTable()
+      elements.push(
+        <DocumentImage key={`img-${elements.length}`} imageKey={picture[2]} alt={picture[1]} />,
+      )
+      continue
+    }
+
+    const equation = line.trim().match(EQUATION_LINE)
+    if (equation) {
+      flushList()
+      flushTable()
+      elements.push(
+        <Equation key={`eq-${elements.length}`} latex={equation[1]} number={equation[2]} />,
+      )
       continue
     }
 
@@ -305,11 +395,12 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
     }
 
     // Check Ordered List
-    const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/)
+    const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/)
     if (olMatch) {
       if (!isNumberedList) flushList()
+      if (listItems.length === 0) listStart = Number(olMatch[2]) || 1
       isNumberedList = true
-      listItems.push(renderInline(olMatch[2]))
+      listItems.push(renderInline(olMatch[3]))
       continue
     }
 

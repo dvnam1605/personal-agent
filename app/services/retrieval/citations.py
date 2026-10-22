@@ -68,6 +68,9 @@ class CitationNumberer:
     def number_of(self, evidence_id: str) -> int | None:
         return self._number_by_eid.get(evidence_id)
 
+    def evidence_id_of(self, number: int) -> str | None:
+        return self.cited_ids[number - 1] if 0 < number <= len(self.cited_ids) else None
+
     def rewrite(self, text: str) -> str:
         """Rewrite every citation bracket in a complete answer."""
         out = CITATION_BRACKET_RE.sub(lambda m: self.render_bracket(m.group(0)), text)

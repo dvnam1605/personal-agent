@@ -1,10 +1,9 @@
 """Templates for documents the assistant can write on request.
 
-Each template fixes the section skeleton and tone for one document kind so
-the LLM only has to fill sections from evidence (and can be skipped
-entirely: the template outline is a usable default when the gateway is
-down). Administrative kinds carry the national motto header (Nghị định
-30/2020/NĐ-CP layout) in the .docx output.
+Each template fixes the section skeleton and tone for one document kind, so
+the LLM only fills sections from evidence and the outline still works when the
+gateway is down. Administrative kinds get the national motto header
+(Nghị định 30/2020/NĐ-CP layout) in the .docx output.
 """
 
 from __future__ import annotations
@@ -19,9 +18,7 @@ from app.core.text import unaccent_vietnamese
 class SectionSpec:
     heading: str
     purpose: str
-    # The slot the outline planner expands into sections named after the
-    # actual topics of the source documents (one per programme, event or
-    # field of work) instead of a generic "Nội dung …" heading.
+    # Expanded by the outline planner into one section per topic of the sources.
     topical: bool = False
 
 
@@ -44,8 +41,7 @@ def _s(heading: str, purpose: str, *, topical: bool = False) -> SectionSpec:
 TABLE_TEMPLATE_KEY = "table_summary"
 
 TEMPLATES: tuple[DocTemplate, ...] = (
-    # First: "báo cáo … dạng bảng excel" is a table, not a prose report.
-    # Columns are proposed per request (documents.table), so no sections.
+    # Must come first: "báo cáo … dạng bảng excel" is a table, not a prose report.
     DocTemplate(
         key=TABLE_TEMPLATE_KEY,
         label="Bảng tổng hợp",
@@ -176,8 +172,7 @@ TEMPLATES: tuple[DocTemplate, ...] = (
 _DEFAULT_KEY = "summary_report"
 TEMPLATE_BY_KEY: dict[str, DocTemplate] = {t.key: t for t in TEMPLATES}
 
-# How a human specialist writes each kind: register, sentence shape, what
-# a paragraph does. Prose by default — lists only for genuinely parallel items.
+# Per-kind writing style: prose by default, lists only for genuinely parallel items.
 _PROSE = (
     "Viết thành các đoạn văn xuôi liền mạch như người đã đọc kỹ tài liệu rồi tự tổng hợp lại: "
     "mỗi đoạn có câu chủ đề, các câu nối với nhau bằng từ liên kết, tổng hợp nhiều văn bản vào "

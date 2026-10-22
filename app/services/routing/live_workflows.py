@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-import logging
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -306,7 +306,7 @@ def _extract_research_topic(query: str) -> str:
             prefix = query[:idx].strip()
             for verb in ["tìm kiếm ", "tìm ", "tra cứu ", "xem ", "đọc "]:
                 if prefix.lower().startswith(verb):
-                    prefix = prefix[len(verb):].strip()
+                    prefix = prefix[len(verb) :].strip()
             if prefix:
                 return prefix
     return query
@@ -328,11 +328,8 @@ async def run_supervisor_dag(
     del search_messages
     query_unaccented = _unaccent(query).lower()
 
-    has_research = any(
-        d in route.domains for d in ("knowledge_research", "internal_doc")
-    ) or any(
-        k in query_unaccented
-        for k in ("quy che", "chi tieu", "tai lieu", "quy dinh", "chinh sach")
+    has_research = any(d in route.domains for d in ("knowledge_research", "internal_doc")) or any(
+        k in query_unaccented for k in ("quy che", "chi tieu", "tai lieu", "quy dinh", "chinh sach")
     )
 
     has_calendar = "calendar" in route.domains or any(
@@ -341,9 +338,7 @@ async def run_supervisor_dag(
 
     has_draft = (
         "communication" in route.domains
-        and any(
-            k in query_unaccented for k in ("soan", "email", "thu", "gui", "bao cao", "draft")
-        )
+        and any(k in query_unaccented for k in ("soan", "email", "thu", "gui", "bao cao", "draft"))
     ) or ("soan" in query_unaccented and "email" in query_unaccented)
 
     # Step 1: Tra cứu kho tri thức (Knowledge Research)
@@ -355,8 +350,7 @@ async def run_supervisor_dag(
             synthesis = await retrieve(topic)
             doc_answer = str(getattr(synthesis, "answer", "") or "").strip()
             citations = [
-                c.model_dump(mode="json")
-                for c in list(getattr(synthesis, "citations", []) or [])
+                c.model_dump(mode="json") for c in list(getattr(synthesis, "citations", []) or [])
             ]
         except Exception:
             logger.exception("supervisor_dag_knowledge_retrieval_failed")
@@ -415,30 +409,36 @@ async def run_supervisor_dag(
             "",
         ]
         if doc_answer:
-            msg_lines.extend([
-                "#### 1. 📚 Tra cứu kho tri thức",
-                doc_answer,
-                "",
-            ])
+            msg_lines.extend(
+                [
+                    "#### 1. 📚 Tra cứu kho tri thức",
+                    doc_answer,
+                    "",
+                ]
+            )
         if cal_lines:
-            msg_lines.extend([
-                "#### 2. 📅 Thông tin lịch làm việc",
-                "\n".join(cal_lines),
+            msg_lines.extend(
+                [
+                    "#### 2. 📅 Thông tin lịch làm việc",
+                    "\n".join(cal_lines),
+                    "",
+                ]
+            )
+        msg_lines.extend(
+            [
+                "#### 3. ✉️ Bản nháp email báo cáo đã soạn",
+                f"📌 **Tiêu đề:** {subject}  ",
+                f"📬 **Người nhận:** {', '.join(to_list)}  ",
                 "",
-            ])
-        msg_lines.extend([
-            "#### 3. ✉️ Bản nháp email báo cáo đã soạn",
-            f"📌 **Tiêu đề:** {subject}  ",
-            f"📬 **Người nhận:** {', '.join(to_list)}  ",
-            "",
-            "---",
-            "",
-            body,
-            "",
-            "---",
-            "",
-            "> 💡 *Tôi đã tạo sẵn thẻ xác nhận bên dưới. Bạn có thể nhấn **Duyệt** để tự động tạo bản nháp này trên Gmail của bạn.*",
-        ])
+                "---",
+                "",
+                body,
+                "",
+                "---",
+                "",
+                "> 💡 *Tôi đã tạo sẵn thẻ xác nhận bên dưới. Bạn có thể nhấn **Duyệt** để tự động tạo bản nháp này trên Gmail của bạn.*",
+            ]
+        )
         return QueryResult(
             run_id=run_id,
             status="needs_approval",
@@ -461,17 +461,21 @@ async def run_supervisor_dag(
         "",
     ]
     if doc_answer:
-        msg_lines.extend([
-            "#### 1. 📚 Kết quả tra cứu kho tri thức",
-            doc_answer,
-            "",
-        ])
+        msg_lines.extend(
+            [
+                "#### 1. 📚 Kết quả tra cứu kho tri thức",
+                doc_answer,
+                "",
+            ]
+        )
     if cal_lines:
-        msg_lines.extend([
-            "#### 2. 📅 Thông tin lịch làm việc",
-            "\n".join(cal_lines),
-            "",
-        ])
+        msg_lines.extend(
+            [
+                "#### 2. 📅 Thông tin lịch làm việc",
+                "\n".join(cal_lines),
+                "",
+            ]
+        )
 
     return QueryResult(
         run_id=run_id,

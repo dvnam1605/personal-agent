@@ -8,6 +8,7 @@ the evaluation harness can tell rule, LLM and human values apart.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 from datetime import date
@@ -40,7 +41,7 @@ from app.services.ingestion.profiling.signals import (
     build_signals_from_text,
 )
 
-EXTRACTOR_VERSION = "profile-v7"
+EXTRACTOR_VERSION = "profile-v8"
 
 _PERSON_KINDS = {"author", "signer", "supervisor", "party", "attendee", "chair"}
 _TITLE_MAX_CHARS = 220
@@ -139,8 +140,7 @@ class DocumentProfiler:
             draft.needs_review = True
             draft.review_reason = "low_confidence" if unsure else f"missing:{','.join(missing)}"
         if fields.review_notes:
-            # Conflicting evidence (e.g. OCR'd number ≠ filename number) is a
-            # human call: keep the printed value, surface the conflict.
+            # Conflicting evidence is a human call: keep the printed value, flag it.
             draft.needs_review = True
             notes = "; ".join(fields.review_notes)
             draft.review_reason = (
@@ -152,14 +152,11 @@ class DocumentProfiler:
             self._apply_overrides(draft, overrides)
         return draft
 
-    # ----------------------------------------------------------- rules
-
     def _apply_rules(self, signals: DocumentSignals, cls: Classification) -> RuleFields:
         f = RuleFields(language=detect_language(signals.vietnamese_ratio))
         author_role: str | None = None
 
-        # Category layout rules first: they know where the real number/date
-        # live (e.g. above "Căn cứ"), so generic matches cannot pre-empt them.
+        # Category layout rules first so generic label matches cannot pre-empt them.
         category_rules = {
             DocCategory.ADMINISTRATIVE: self._admin_rules,
             DocCategory.CONTRACT: self._contract_rules,
@@ -219,7 +216,6 @@ class DocumentProfiler:
         if title and cls.category is DocCategory.ADMINISTRATIVE:
             title = _admin_title(title, str(f.extras.get("doc_type") or cls.subtype or ""))
         f.set("title", title)
-        # Last resort: first date printed near the top ("HÀ NỘI, 06/2026").
         if f.doc_date is None:
             fallback = parse_date_any(" \n ".join(signals.header_lines[:20]))
             if fallback:
@@ -249,8 +245,7 @@ class DocumentProfiler:
             # OCR often merges the next "Căn cứ …; Nghị định …" clause into the line.
             subject = subject.split(";")[0].strip(" ,.")
         else:
-            # Title line lost (OCR/layout): name the decision by its Điều 1
-            # action rather than leave it untitled or borrow a cited decree.
+            # Title line lost (OCR/layout): name the decision by its Điều 1 action.
             subject = ext._extract_subject_from_article1(f"{header}\n{signals.tail_text}")
             if subject:
                 source = "rule_article1"
@@ -261,8 +256,7 @@ class DocumentProfiler:
             f.set("title", f"{doc_type} {subject[0].lower()}{subject[1:]}", source)
         signer, role = ext._extract_signatory(tail)
         if signer and clean_person(signer)[0] is None:
-            # The layout rule grabbed a heading after the signature block
-            # (e.g. an appendix titled "BÁO CÁO TỔNG HỢP"), not a person.
+            # The layout rule grabbed a heading after the signature, not a person.
             signer = None
         if signer:
             f.people.append(person(signer, role or "Người ký", "signer"))
@@ -312,6 +306,16 @@ class DocumentProfiler:
     @staticmethod
     def _title(signals: DocumentSignals, cls: Classification) -> str | None:
         lines = signals.header_lines
+        if cls.category is DocCategory.TECHNICAL:
+            # A book's cover: the full title sits right above "by <author>".
+            for idx, line in enumerate(lines[:30]):
+                if idx and re.match(r"(?i)^by\s+\S", line) and _title_like(lines[idx - 1]):
+                    return lines[idx - 1][:_TITLE_MAX_CHARS]
+        head_line = lines[cls.title_line_index] if cls.title_line_index is not None else ""
+        if head_line and _BOILERPLATE_HEADING.match(
+            unaccent_vietnamese(head_line.lstrip("# ").strip()).lower()
+        ):
+            cls = dataclasses.replace(cls, title_line_index=None)
         if cls.title_line_index is not None:
             head = lines[cls.title_line_index].lstrip("# ").strip()
             cont = _continuation(lines, cls.title_line_index + 1)
@@ -319,8 +323,7 @@ class DocumentProfiler:
                 return cont  # the thesis topic, not "ĐỒ ÁN TỐT NGHIỆP"
             text = f"{head} {cont}".strip() if cont and len(head.split()) <= 3 else head
             return text[:_TITLE_MAX_CHARS]
-        # A thesis's inner headings are never its title (its topic is on the
-        # cover); leave it to the cover lines below or the LLM fallback.
+        # A thesis's inner headings are never its title (the topic is on the cover).
         headings = () if cls.category is DocCategory.ACADEMIC else signals.headings
         for heading in headings:
             if len(heading.split()) >= 3 and _title_like(heading):
@@ -332,8 +335,6 @@ class DocumentProfiler:
         # Better no title (UI falls back to the filename) than a wrong one.
         return None
 
-    # ----------------------------------------------------------- draft
-
     @staticmethod
     def _to_draft(
         signals: DocumentSignals, cls: Classification, f: RuleFields
@@ -342,8 +343,7 @@ class DocumentProfiler:
         sources["doc_category"] = "rule"
         return DocumentProfileDraft(
             doc_category=cls.category,
-            # Admin docs whose title line was not matched still have the type the
-            # layout rules detected (filename QD/CT, header) — keep them countable.
+            # Fall back to the type the admin layout rules detected.
             doc_subtype=cls.subtype
             or (
                 str(f.extras.get("doc_type"))
@@ -469,8 +469,7 @@ _BOILERPLATE_HEADING = re.compile(
     r"^(?:loi cam on|loi mo dau|loi noi dau|muc ?luc|tom ?tat|danh muc|phu luc|"
     r"tai lieu tham khao|table of contents|contents|preface|abstract|chuong \d|chapter \d|"
     r"cong hoa xa hoi|doc lap"
-    # Numbered section headings ("1.1 Đặt vấn đề", "2. Giải pháp") are body
-    # sections, never the document title.
+    # Numbered section headings are body sections, never the title.
     r"|\d+(?:\.\d+)*\.?\s)"
 )
 
@@ -492,10 +491,9 @@ _TYPE_PREFIX = re.compile(
 
 
 def _admin_title(title: str, doc_type: str) -> str:
-    """ "QUYẾT ĐỊNH: QUYET ĐỊNH Phê duyệt …" → "Quyết định phê duyệt …".
+    """Drop the repeated type header from an admin title.
 
-    The generic title line of an administrative document repeats its type
-    name (OCR may misspell it); the trích yếu is what follows.
+    "QUYẾT ĐỊNH: QUYET ĐỊNH Phê duyệt …" → "Quyết định phê duyệt …".
     """
     folded = unaccent_vietnamese(title).lower()
     m = _TYPE_PREFIX.match(folded)

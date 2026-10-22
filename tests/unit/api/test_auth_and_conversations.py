@@ -1,12 +1,10 @@
 """Unit tests for user authentication and conversations persistence."""
 
-import time
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.infrastructure.db.base import Base
-from app.infrastructure.db.models import Conversation, Message, User
 from app.services.auth.service import (
     AuthService,
     create_access_token,

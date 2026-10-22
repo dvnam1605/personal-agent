@@ -364,3 +364,18 @@ def test_admin_title_drops_repeated_type_name() -> None:
         == "Quyết định phê duyệt Kế hoạch chuyển đổi số năm 2025"
     )
     assert _admin_title("Quy chế làm việc", "Quyết định") == "Quy chế làm việc"
+
+
+async def test_book_title_comes_from_the_cover_not_the_contents(
+    profiler: DocumentProfiler,
+) -> None:
+    cover = (
+        "Designing Multi-Agent\nSystems\nPrinciples, Patterns, and Implementation\nfor AI Agents\n"
+        "Victor Dibia\nDesigning Multi-Agent Systems Principles, Patterns, and Implementation "
+        "for AI Agents\nby Victor Dibia\nCopyright © 2025 Victor Dibia. All rights reserved.\n"
+        "ISBN: 979-8-1234567-8-9\nTable of contents\nPreface\nChapter 1 Introduction\n"
+    )
+    d = await profiler.aprofile_text(cover, "dibia_book.pdf")
+    assert d.title == (
+        "Designing Multi-Agent Systems Principles, Patterns, and Implementation for AI Agents"
+    )

@@ -1,13 +1,9 @@
 """Writing prompt and deterministic quality gates for generated documents.
 
-A generated document is a finished deliverable, not a Q&A turn: it must
-read well, carry no meta-commentary ("không tìm thấy bằng chứng…", document
-ids), and every figure in it must come from the evidence. The prompt asks
-for that; the gates below enforce it after generation:
-
-* meta sentences about missing data / evidence / document ids are removed;
-* a sentence whose numbers (amounts, dates, document numbers, counts) do
-  not all occur in the evidence the section was written from is removed.
+A generated document is a finished deliverable, not a Q&A turn. The prompt asks
+for clean, grounded prose; the gates enforce it afterwards by removing
+meta-commentary (missing data, document ids) and any sentence with a figure
+absent from the section's evidence.
 """
 
 from __future__ import annotations
@@ -25,8 +21,24 @@ DOCUMENT_WRITER_SYSTEM_PROMPT = (
     "1. Mọi số liệu, số tiền, tỷ lệ, ngày tháng, số hiệu văn bản, tên người, tên đơn vị phải "
     "chép NGUYÊN VĂN từ bằng chứng. Tuyệt đối không tự tính, làm tròn, suy đoán hay bịa số liệu.\n"
     "2. Mỗi câu có thông tin cụ thể phải gắn nhãn bằng chứng, ví dụ [E2] hoặc [E1, E3].\n"
-    "3. Chỉ viết những gì có căn cứ. Nếu bằng chứng cho mục này ít, viết ngắn gọn và chắc chắn; "
-    "không viết câu nhận xét về việc thiếu dữ liệu.\n"
+    "3. Chỉ viết những gì có căn cứ; không viết câu nhận xét về việc thiếu dữ liệu.\n"
+    "3a. VIẾT ĐẦY ĐỦ, CHI TIẾT: khai thác hết các bằng chứng liên quan tới mục, không tóm gọn "
+    "thành vài câu chung chung. Với mỗi đối tượng được nêu (một công nghệ, một văn bản, một "
+    "nhiệm vụ, một kết quả…), trình bày rõ: đó là gì, dùng vào việc gì / áp dụng ở đâu, vận "
+    "hành hoặc thực hiện thế nào, vì sao được chọn, kết quả và số liệu (nếu bằng chứng có). Độ "
+    "dài tương xứng lượng bằng chứng: bằng chứng phong phú thì viết nhiều đoạn; chỉ khi bằng "
+    "chứng thật sự ít mới viết ngắn.\n"
+    "3a'. CÔNG THỨC: khi viết tới một công thức có trong bằng chứng ('Công thức (3.5): $$…$$'), "
+    "chép nó trên một dòng riêng dạng $$<LaTeX>$$ (3.5) rồi giải thích các ký hiệu; ký hiệu "
+    "toán trong câu viết dạng LaTeX giữa hai dấu $ (ví dụ $P_s$).\n"
+    "3a''. HÌNH ẢNH: bằng chứng có thể chứa hình (Hình N — mô tả tự động: …). Khi trình bày "
+    "một bước thao tác, giao diện hay sơ đồ mà hình minh họa, viết [Hình N] trên một dòng riêng "
+    "ngay sau đoạn đó; chỉ dùng số hình có trong bằng chứng, mỗi hình một lần.\n"
+    "3b. MỤC PHẢI TỰ ĐỨNG ĐƯỢC: câu đầu tiên nêu rõ chủ thể, không bắt đầu bằng đại từ chỉ định "
+    "không có tiền ngữ ('Thực trạng này…', 'Điều đó…', 'Vấn đề trên…'); khi nhắc tới 'thực "
+    "trạng', 'vấn đề', 'giải pháp' phải nói rõ đó là gì.\n"
+    "3c. KHÔNG LẶP LẠI nội dung các mục khác đã viết (xem danh sách trong đề bài); chỉ nhắc lại "
+    "một vế ngắn khi cần liên kết.\n"
     "4. TUYỆT ĐỐI KHÔNG viết các câu kiểu: 'không tìm thấy…', 'bằng chứng không cung cấp…', "
     "'tài liệu chưa đề cập…', 'dữ liệu chưa đầy đủ…', 'thông báo về tài liệu…'; không nhắc mã "
     "tài liệu (doc-…), nhãn E# ngoài ngoặc vuông hay cách hệ thống truy xuất.\n\n"
@@ -72,7 +84,7 @@ def _number_values(text: str) -> set[int]:
 
 
 def _significant(values: set[int]) -> set[int]:
-    # 0–10 are too common (list numbering, "Điều 2", "09 tập thể") to verify.
+    # 0–10 are too common (list numbering, "Điều 2") to verify.
     return {v for v in values if v > 10}
 
 
@@ -114,7 +126,7 @@ def apply_quality_gates(text: str, evidence_text: str) -> tuple[str, GateReport]
         if kept:
             out_lines.append(prefix + " ".join(kept))
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(out_lines)).strip()
-    # A heading left without any content under it is dropped too.
+    # Drop headings left with no content under them.
     cleaned = re.sub(r"(?m)^#{1,6} .+\n+(?=#{1,6} |\Z)", "", cleaned).strip()
     return cleaned, report
 
@@ -126,19 +138,14 @@ _CHATBOT_SENTENCE = re.compile(
 
 
 def polish_style(text: str) -> str:
-    """Remove chatbot formatting habits from a written section.
-
-    Headings inside a section, bold/italic markers, horizontal rules and
-    opener/closer sentences ("Dưới đây là…", "Hy vọng…") have no place in a
-    document a person wrote; the content around them is kept.
-    """
+    """Strip chatbot habits (inner headings, bold/italic, rules, "Dưới đây là…" openers)."""
     lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
         if re.fullmatch(r"[-*_]{3,}", stripped):
             continue
         if stripped.startswith("#"):
-            # Inner sub-heading: keep its words only if they carry content.
+            # Inner sub-heading: dropped, leaving a paragraph break if it named a topic.
             heading = stripped.lstrip("#").strip().strip("*_ ")
             if heading and not re.fullmatch(r"[\dIVX.]+\s*\S{0,40}", heading):
                 lines.append("")

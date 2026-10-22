@@ -1,9 +1,8 @@
-"""DoclingDocumentParser: born-digital PDF + DOCX via Docling (spec P9B-1).
+"""DoclingDocumentParser: born-digital PDF + DOCX via Docling.
 
-Docling is imported lazily inside this module only; nothing outside the
-parsing package ever sees a Docling type. The primary parser never runs OCR
+Docling is imported lazily and its types never leave this module. OCR is off
 (``do_ocr=False``): scanned PDFs fail the useful-text gate and come back as
-typed NEEDS_OCR results instead (spec P9B-4).
+typed NEEDS_OCR results instead.
 """
 
 from __future__ import annotations
@@ -11,8 +10,9 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import io
+import re
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.domain.models.ingestion.documents import SourceDocument
 from app.domain.models.ingestion.parsed_document import (
@@ -25,6 +25,7 @@ from app.domain.models.ingestion.parsed_document import (
     TableNode,
 )
 from app.services.ingestion.parsing.base import DocumentParseError, ParserUnavailableError
+from app.services.ingestion.parsing.images import ImageCollector
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from docling.document_converter import DocumentConverter
@@ -69,6 +70,63 @@ def docling_version() -> str:
         return "unknown"
 
 
+class _FormulaTextReader:
+    """Equation text and picture images read from the PDF itself (PyMuPDF), lazily opened.
+
+    Empty for non-PDF sources, scanned pages, or when PyMuPDF is unavailable.
+    """
+
+    def __init__(self, content: bytes, filename: str) -> None:
+        self._content = content
+        self._is_pdf = filename.lower().endswith(".pdf") or content[:5] == b"%PDF-"
+        self._doc: Any = None
+        self._failed = False
+
+    def _open(self) -> Any:
+        if self._doc is None and not self._failed and self._is_pdf:
+            try:
+                import pymupdf
+
+                self._doc = pymupdf.open(stream=self._content, filetype="pdf")
+            except Exception:  # noqa: BLE001 - formulas are a best-effort extra
+                self._failed = True
+        return self._doc
+
+    def text(self, item: object, document: object) -> str:
+        doc = self._open()
+        prov = (getattr(item, "prov", None) or [None])[0]
+        if doc is None or prov is None or not getattr(prov, "page_no", None):
+            return ""
+        try:
+            page = doc[prov.page_no - 1]
+            size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
+            height = float(getattr(size, "height", 0) or page.rect.height)
+            box = prov.bbox.to_top_left_origin(page_height=height)
+            # Widen to full page width so the equation number on the right is kept.
+            clip = (page.rect.x0, box.t - 2, page.rect.x1, box.b + 2)
+            raw = page.get_text("text", clip=clip)
+        except Exception:  # noqa: BLE001
+            return ""
+        return re.sub(r"\s+", " ", raw).strip()
+
+    def image(
+        self, item: object, document: object, collector: ImageCollector, caption: str
+    ) -> str | None:
+        """Reference to the picture's image, kept by ``collector``."""
+        doc = self._open()
+        prov = (getattr(item, "prov", None) or [None])[0]
+        if doc is None or prov is None or not getattr(prov, "page_no", None):
+            return None
+        try:
+            page = doc[prov.page_no - 1]
+            size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
+            height = float(getattr(size, "height", 0) or page.rect.height)
+            box = prov.bbox.to_top_left_origin(page_height=height)
+        except Exception:  # noqa: BLE001
+            return None
+        return collector.add_region(doc, prov.page_no, (box.l, box.t, box.r, box.b), caption)
+
+
 def _page_range(item: object) -> tuple[int | None, int | None]:
     prov = getattr(item, "prov", None) or []
     page_numbers = [entry.page_no for entry in prov if getattr(entry, "page_no", None)]
@@ -104,6 +162,8 @@ class DoclingDocumentParser:
             raise DocumentParseError(f"docling failed on {source.filename}: {exc}") from exc
 
         document = result.document
+        formula_reader = _FormulaTextReader(content, source.filename)
+        images = ImageCollector()
         nodes: list[HeadingNode | ListNode | ParagraphNode | TableNode] = []
         heading_stack: list[tuple[int, str]] = []
         warnings: list[str] = []
@@ -135,8 +195,7 @@ class DoclingDocumentParser:
                         level=1,
                     )
                 )
-                # A title is the document root: it is never popped by later
-                # sections, only replaced by another title.
+                # A title is the root: only another title replaces it.
                 heading_stack[:] = [(0, title_text)]
             elif isinstance(node_item, SectionHeaderItem):
                 level = min(max(int(node_item.level or 2), 1), 6)
@@ -181,9 +240,7 @@ class DoclingDocumentParser:
             elif isinstance(node_item, TableItem):
                 markdown = (node_item.export_to_markdown(document) or "").strip()
                 if not markdown:
-                    # Layout detected a table region with no cells (common on
-                    # slide decks / images); one empty table must not fail the
-                    # whole document.
+                    # Docling finds empty table regions on slides/images; skip them.
                     warnings.append(f"empty table skipped at block {block_index}")
                     continue
                 table_data = getattr(node_item, "data", None)
@@ -203,9 +260,26 @@ class DoclingDocumentParser:
                 )
             elif isinstance(node_item, TextItem):
                 text = (node_item.text or "").strip()
+                item_label = str(getattr(node_item.label, "value", node_item.label) or "")
+                if item_label == "formula":
+                    # Without formula enrichment Docling keeps only the equation box;
+                    # read its text from the PDF text layer.
+                    formula = text or formula_reader.text(node_item, document)
+                    if formula:
+                        nodes.append(
+                            ParagraphNode(
+                                node_id=f"n{len(nodes):04d}",
+                                order=block_index,
+                                text=f"Công thức: {formula}",
+                                heading_path=heading_path(),
+                                anchor=anchor,
+                            )
+                        )
+                    elif "formulas without a text layer were skipped" not in warnings:
+                        warnings.append("formulas without a text layer were skipped")
+                    continue
                 if not text:
                     continue
-                item_label = str(getattr(node_item.label, "value", node_item.label) or "")
                 if item_label == "title":
                     nodes.append(
                         HeadingNode(
@@ -254,12 +328,13 @@ class DoclingDocumentParser:
                     ).strip()
                 parts = [p for p in (pic_caption, pic_text) if p]
                 pic_description = " - ".join(parts)
-                if pic_description:
+                ref = formula_reader.image(node_item, document, images, pic_description)
+                if ref or pic_description:
                     nodes.append(
                         ParagraphNode(
                             node_id=f"n{len(nodes):04d}",
                             order=block_index,
-                            text=f"[Hình ảnh: {pic_description}]",
+                            text=ref or f"[Hình ảnh: {pic_description}]",
                             heading_path=heading_path(),
                             anchor=anchor,
                         )
@@ -280,8 +355,7 @@ class DoclingDocumentParser:
         if empty_pages:
             warnings.append(f"{empty_pages} page(s) contributed no content")
 
-        # Newline-joined: header/tail layout rules are line-based (a space join
-        # collapsed the whole document into one "line").
+        # Newline-joined: the header/tail layout rules are line-based.
         full_text = "\n".join(n.text for n in nodes)
         from app.services.ingestion.administrative_extractor import AdministrativeMetadataExtractor
 
@@ -298,4 +372,5 @@ class DoclingDocumentParser:
                 parse_warnings=tuple(warnings),
             ),
             nodes=tuple(nodes),
+            images=images.images,
         )

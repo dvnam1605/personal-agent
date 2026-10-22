@@ -8,15 +8,15 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from app.services.documents.generation import DocumentOutline, DocumentPlanner
-from app.services.documents.table import (
+from app.services.documents.rendering.table import render_table_markdown, render_table_xlsx
+from app.services.documents.tables.writer import (
     DEFAULT_COLUMNS,
     TableColumn,
     TableWriter,
     normalize_columns,
 )
-from app.services.documents.table_render import render_table_markdown, render_table_xlsx
 from app.services.documents.templates import is_generation_request, select_template
+from app.services.documents.writing.generation import DocumentOutline, DocumentPlanner
 
 EVIDENCE = {
     "d1": [

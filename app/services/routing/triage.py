@@ -1,9 +1,8 @@
-"""Fast Triage engine for deterministic routing and supervisor bypass (P15 / H3 / M1 / M9).
+"""Deterministic first-pass routing that bypasses the Supervisor LLM.
 
-Implements the Hard Invariant (§6.1):
-Single-domain queries (e.g. "Lịch ngày mai?", "Email của Nam?", "Tìm quyết định 123")
-MUST NOT invoke the Supervisor LLM. FastTriage resolves >= 70% of user queries
-deterministically in <= 10ms with 0 Supervisor LLM tokens.
+Single-domain queries must never reach the Supervisor (§6.1). Rules resolve most
+queries within a ~10 ms budget; a heuristic and then an LLM classifier only handle
+what the rules leave ambiguous.
 """
 
 from __future__ import annotations
@@ -53,19 +52,20 @@ from app.services.skills.registry import SkillRegistry, load_production_skills
 
 logger = structlog.get_logger(__name__)
 
-# Multi-step conjunctions indicating genuine supervisor decomposition needs
 _MULTI_STEP_CONJUNCTIONS = re.compile(
     r"\b(roi|sau do|va sau do|dong thoi|ket hop|lien ket|sau khi|and then|then)\b",
     re.IGNORECASE,
 )
 
 
+# Accented "hợp" is never "họp" (meeting); match it before unaccenting merges the two.
+_ACCENTED_HOP = re.compile(r"(?<!\w)h[ợỢ]p(?!\w)", re.IGNORECASE)
+
+
 def _is_meeting_only_calendar(unaccented_cal: str) -> bool:
     """True when no calendar signal survives after removing title noise/durations.
 
-    Used by the document-topic guard: "cuộc họp"/"kế hoạch" inside a document
-    title and deadline phrases like "trước 24 giờ" must not count as calendar
-    evidence.
+    Meeting words inside a document title and deadline phrases are not calendar evidence.
     """
     cleaned = DOC_DURATION_PATTERN.sub("", DOC_TITLE_CALENDAR_NOISE_PATTERN.sub("", unaccented_cal))
     return not (
@@ -95,7 +95,6 @@ class FastTriage:
         """Route query directly to specialist, static workflow, or supervisor."""
         started = time.perf_counter()
 
-        # Handle non-string / None defensively
         if not isinstance(query, str):
             decision = RouteDecision(
                 route_type=RouteType.CLARIFICATION,
@@ -110,7 +109,6 @@ class FastTriage:
 
         normalized = query.strip()
 
-        # 1. Circuit breaker: Empty or whitespace input -> CLARIFICATION
         if not normalized:
             decision = RouteDecision(
                 route_type=RouteType.CLARIFICATION,
@@ -123,10 +121,8 @@ class FastTriage:
             self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return decision
 
-        # M9 Optimization: cache unaccented representation once for the entire triage call
         unaccented = unaccent_vietnamese(normalized)
 
-        # 2. Strict Safety Filter (bilingual prompt injection & destructive commands)
         if PROMPT_ATTACK_PATTERN.search(unaccented):
             decision = RouteDecision(
                 route_type=RouteType.REJECT,
@@ -152,8 +148,9 @@ class FastTriage:
                 self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
                 return decision
 
-        # Calendar domain detection
-        unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented))
+        # Mask accented "hợp" first; only ambiguous unaccented "hop" needs NON_MEETING_HOP.
+        unaccented_cal = unaccent_vietnamese(_ACCENTED_HOP.sub("hopx", normalized))
+        unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented_cal))
         has_calendar_core = bool(CALENDAR_CORE.search(unaccented_cal))
         has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented))
         has_cal_relative = bool(CALENDAR_RELATIVE.search(unaccented))
@@ -162,7 +159,7 @@ class FastTriage:
             has_calendar_core or has_cal_inquiry or has_cal_relative or has_time_signal
         )
 
-        # Order phrase guard (H1): 'thứ tự' must not be confused with Wednesday 'thứ tư'
+        # 'thứ tự' (order) unaccents close to Wednesday 'thứ tư'.
         is_order_phrase = bool(ORDER_PHRASE.search(unaccented))
         has_wednesday = (
             bool(CALENDAR_WEDNESDAY.search(unaccented))
@@ -172,7 +169,6 @@ class FastTriage:
         has_standard_weekday = bool(CALENDAR_WEEKDAY.search(unaccented)) and has_calendar_signal
         has_weekday = has_standard_weekday or has_wednesday
 
-        # Relative date alone is calendar ONLY if paired with calendar core, inquiry, or tight time signal
         has_cal_rel_valid = has_cal_relative and (
             has_calendar_core or has_cal_inquiry or has_time_signal
         )
@@ -181,7 +177,6 @@ class FastTriage:
             has_calendar_core or has_weekday or has_cal_rel_valid or has_cal_inquiry_with_time
         )
 
-        # Communication domain detection
         is_meeting_followup = bool(FOLLOWUP_AFTER_MEETING.search(unaccented))
         is_invitation_comm = bool(INVITATION_PATTERN.search(unaccented))
         has_comm = (
@@ -190,28 +185,21 @@ class FastTriage:
             or is_invitation_comm
         )
 
-        # If it is a personal follow-up email/message after a meeting or invitation letter:
-        # The meeting/event is only temporal/thematic context, active domain is Communication
+        # In a follow-up or invitation message the meeting is only context, not a calendar action.
         if is_meeting_followup or is_invitation_comm:
             has_calendar = False
 
-        # Research domain detection
         has_doc_terms = bool(RESEARCH_DOC_PATTERN.search(unaccented))
         has_lookup_verbs = bool(RESEARCH_LOOKUP_PATTERN.search(unaccented))
         has_tim_doc = bool(TIM_PREFIX_PATTERN.search(unaccented)) and has_doc_terms
         has_effective_lookup = has_lookup_verbs or has_tim_doc
         if has_comm or has_calendar:
-            # Multi-domain only if both an explicit document term AND a lookup verb are present
-            # (e.g. "Tìm tài liệu quy định rồi soạn email" or "Tìm quy chế và xếp lịch họp"),
-            # otherwise doc terms are email topics and lookup verbs are calendar/mail searches.
+            # Alongside mail/calendar, research needs both a doc term and a lookup verb.
             has_research = has_doc_terms and has_effective_lookup
         else:
             has_research = has_doc_terms or has_lookup_verbs
 
-        # Document-topic guard: meeting nouns inside a document read/summarize
-        # request ("Tóm tắt văn bản Quy chế tổ chức cuộc họp...") name the TOPIC,
-        # not a calendar action. Without this, a pure knowledge request gains a
-        # spurious calendar domain and bounces to the supervisor stub on POST /query.
+        # Meeting nouns inside a document read/summarize request name the topic, not an event.
         if (
             has_calendar
             and not has_comm
@@ -222,7 +210,6 @@ class FastTriage:
             has_calendar = False
             has_research = has_doc_terms or has_effective_lookup
 
-        # 3. Casual conversation or greeting (when no explicit work domain terms are present)
         if CASUAL_PATTERN.search(unaccented) and not (has_comm or has_calendar or has_doc_terms):
             decision = RouteDecision(
                 route_type=RouteType.CASUAL_RESPONSE,
@@ -235,9 +222,7 @@ class FastTriage:
             self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return decision
 
-        # 4. Known Static Workflow trigger match (WF-01, WF-02, WF-05)
-        # Compiled static workflows take precedence over uncompiled dynamic skills (§5.3 / P19).
-        # Schedule inquiries (e.g. "có lịch gì không", "mấy giờ", "rảnh không") preserve CalendarAgent fast-path.
+        # Static workflows win over dynamic skills; schedule inquiries keep the CalendarAgent path.
         is_calendar_schedule_inquiry = has_calendar and has_cal_inquiry
         if not is_calendar_schedule_inquiry:
             matched_workflow = self._workflows.match(normalized)
@@ -262,7 +247,6 @@ class FastTriage:
                     self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
                     return decision
 
-            # 5. Dynamic Skill Matching (P14 integration / prototype fallback)
             for skill in self._skills.list_all():
                 skill_def = self._skills.get(skill.name, skill.version)
                 if skill_def and any(
@@ -336,7 +320,6 @@ class FastTriage:
         if has_research:
             matched_domains.append((Domain.KNOWLEDGE_RESEARCH, "KnowledgeResearchAgent"))
 
-        # 6. Fast path: exactly 1 domain detected -> DIRECT_SPECIALIST (0 Supervisor LLM tokens)
         if len(matched_domains) == 1:
             domain, agent = matched_domains[0]
             decision = RouteDecision(
@@ -352,7 +335,6 @@ class FastTriage:
             self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return decision
 
-        # 7. Multi-domain query: e.g. "tìm tài liệu rồi gửi mail và tạo lịch họp"
         if len(matched_domains) > 1:
             domains_list = [d for d, _ in matched_domains]
             decision = RouteDecision(
@@ -367,7 +349,6 @@ class FastTriage:
             self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return decision
 
-        # 8. Casual conversation or greeting
         if CASUAL_PATTERN.search(unaccented):
             decision = RouteDecision(
                 route_type=RouteType.CASUAL_RESPONSE,
@@ -380,13 +361,11 @@ class FastTriage:
             self._log_route(decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return decision
 
-        # 9. Stage 2: Built-in Lightweight Heuristic Classifier
         stage2_decision = self._stage2_heuristic_classify(normalized, unaccented)
         if stage2_decision is not None:
             self._log_route(stage2_decision, elapsed_ms=(time.perf_counter() - started) * 1000.0)
             return stage2_decision
 
-        # Stage 2: Pluggable External Classifier if provided
         if self._classifier is not None:
             try:
                 classified = self._classifier(normalized)
@@ -395,8 +374,7 @@ class FastTriage:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("stage2_classifier_error", error=str(exc))
 
-        # 10. Fallback: Save tokens (§6.1) - Prefer CLARIFICATION over expensive SUPERVISOR
-        # Only route to SUPERVISOR_DAG if explicit multi-step conjunctions are present
+        # Prefer cheap CLARIFICATION over the Supervisor unless multi-step connectors appear.
         has_conjunction = bool(_MULTI_STEP_CONJUNCTIONS.search(unaccented))
         if has_conjunction and len(normalized.split()) >= 4:
             decision = RouteDecision(
@@ -418,7 +396,6 @@ class FastTriage:
                 reason_code="AMBIGUOUS_QUERY_CLARIFICATION",
             )
 
-        # 11. LLM router fallback: short classification when still ambiguous / low-confidence
         if needs_llm_fallback(decision):
             llm_decision = classify_with_llm(normalized)
             if llm_decision is not None:
@@ -468,7 +445,7 @@ class FastTriage:
         return None
 
     def _log_route(self, decision: RouteDecision, *, elapsed_ms: float) -> None:
-        """Structured logging with structlog and latency budget monitoring (M1 / L5)."""
+        """Log the decision and warn when the 10 ms latency budget is exceeded."""
         logger.info(
             "fast_triage_decision",
             route_type=decision.route_type.value,

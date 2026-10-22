@@ -1,20 +1,10 @@
 """Self-review of a written section against the evidence it cites.
 
-The deterministic gates (quality.py) catch figures that occur nowhere in the
-evidence; they cannot see a claim attributed to the wrong document, a date
-swapped between two decisions, or a sentence the evidence does not support.
-After a section is written, a reviewer LLM checks every sentence against the
-cited evidence:
-
-1. no issue → the section is kept;
-2. issues → the section is rewritten with the issues as instructions,
-   passed through the gates again and re-reviewed, up to three reviews;
-3. sentences still flagged by the last review (or when a rewrite fails) are
-   removed, so a wrong statement never reaches the document.
-
-When the gateway is down the review is skipped, never blocking the document.
-Budget: one review per section; a section with issues costs at most two
-rewrites and two more reviews.
+The deterministic gates (quality.py) only catch figures absent from the
+evidence. A reviewer LLM checks every sentence against its cited evidence; a
+section with issues is rewritten, re-gated and re-reviewed up to
+``MAX_REVIEW_ROUNDS`` times, and sentences still flagged are removed. When the
+gateway is down the review is skipped, never blocking the document.
 """
 
 from __future__ import annotations
@@ -27,9 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.llm import llm_json, llm_text
 from app.core.text import unaccent_vietnamese
-from app.services.documents.llm import llm_json, llm_text
-from app.services.documents.quality import _LIST_MARKER, _sentences
+from app.services.documents.writing.quality import _LIST_MARKER, _sentences
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +27,34 @@ REVIEW_TIMEOUT_SECONDS = 60.0
 # Reviews per section; a section can be rewritten MAX_REVIEW_ROUNDS - 1 times.
 MAX_REVIEW_ROUNDS = 3
 MAX_EVIDENCE_CHARS = 1800  # per cited evidence unit shown to the reviewer
-PROBLEMS = ("unsupported", "contradiction", "wrong_citation", "off_topic")
+PROBLEMS = ("unsupported", "contradiction", "wrong_citation", "off_topic", "dangling_reference")
+# Opening demonstrative with no antecedent ("Thực trạng này…"); rewritten, never removed.
+_DANGLING_OPENING = re.compile(
+    r"^\W*(?:(?:thực trạng|tình trạng|vấn đề|điều|việc|kết quả|nội dung|giải pháp|nhu cầu|"
+    r"hạn chế|khó khăn|xu hướng|tình hình|bối cảnh|đặc điểm|hệ thống|mô hình|cách tiếp cận)\s+"
+    r"(?:này|đó|trên|ấy|nói trên)|điều này|điều đó|những điều trên)\b",
+    re.IGNORECASE,
+)
+
+
+def structural_issues(text: str) -> list[ReviewIssue]:
+    """Deterministic issues: an opening sentence that cannot stand on its own."""
+    first = (
+        next((s for s in _sentences(text.strip().splitlines()[0]) if s.strip()), "")
+        if text.strip()
+        else ""
+    )
+    if first and _DANGLING_OPENING.match(first):
+        return [
+            ReviewIssue(
+                sentence=first.strip(),
+                problem="dangling_reference",
+                explanation="Câu mở đầu mục dùng đại từ chỉ định nhưng chưa nêu đó là gì; "
+                "phải nêu rõ chủ thể (lấy từ bằng chứng) để mục tự đứng được.",
+            )
+        ]
+    return []
+
 
 REVIEWER_SYSTEM_PROMPT = (
     "Bạn là chuyên viên thẩm định văn bản. Kiểm tra TỪNG CÂU của một mục tài liệu so với các "
@@ -62,7 +79,9 @@ REVISER_SYSTEM_PROMPT = (
     "2. Mọi số liệu, ngày tháng, số hiệu, tên người, tên đơn vị chép nguyên văn từ bằng chứng.\n"
     "3. Mỗi câu có thông tin cụ thể gắn nhãn trích dẫn đúng số của bằng chứng, dạng [2] hoặc "
     "[1][3]; chỉ dùng các số bằng chứng được cung cấp.\n"
-    "4. Giữ nguyên các phần đúng, giữ văn phong và độ dài tương đương; văn xuôi, không tiêu đề "
+    "4. Câu mở đầu bị báo 'dangling_reference' thì viết lại để nêu rõ chủ thể (ví dụ thay "
+    "'Thực trạng này…' bằng câu nói rõ thực trạng gì), dựa trên bằng chứng.\n"
+    "5. Giữ nguyên các phần đúng, giữ văn phong và độ dài tương đương; văn xuôi, không tiêu đề "
     "con, không in đậm, không lời dẫn kiểu 'Dưới đây là…', không nhận xét về việc sửa.\n"
     "Chỉ trả về nội dung mục đã viết lại."
 )
@@ -75,8 +94,7 @@ class ReviewIssue(BaseModel):
 
 
 class SectionReview(BaseModel):
-    # ok: no issue | revised: rewritten, clean | trimmed: flagged sentences
-    # removed | skipped: reviewer unavailable
+    # ok | revised | trimmed (flagged sentences removed) | skipped (reviewer unavailable)
     verdict: str
     issues: list[ReviewIssue] = Field(default_factory=list)
     removed_sentences: list[str] = Field(default_factory=list)
@@ -202,11 +220,9 @@ class SectionReviewer:
         evidence: dict[int, str],
         regate: Callable[[str], str],
     ) -> tuple[str, SectionReview]:
-        """Review → rewrite → review … up to MAX_REVIEW_ROUNDS reviews.
+        """Review → rewrite → review … up to MAX_REVIEW_ROUNDS; still-flagged sentences are removed.
 
-        Sentences still flagged by the last review (or when a rewrite fails)
-        are removed. ``regate`` re-applies the deterministic quality gates to
-        every rewrite.
+        ``regate`` re-applies the deterministic quality gates to every rewrite.
         """
         if not evidence or not text.strip():
             return text, SectionReview(verdict="skipped")
@@ -220,6 +236,7 @@ class SectionReviewer:
                 if rounds == 0:
                     return text, SectionReview(verdict="skipped")
                 break  # reviewer failed after a rewrite: trim what was flagged last
+            issues = structural_issues(current) + issues
             rounds += 1
             if not issues:
                 verdict = "revised" if all_issues else "ok"
@@ -233,7 +250,9 @@ class SectionReviewer:
             if not revised or not re.search(r"\[\d+\]", revised):
                 break
             current = revised
-        cleaned, removed = remove_flagged_sentences(current, [i.sentence for i in last])
+        # A wrong statement is removed; an opening that merely lacks its subject stays.
+        flagged = [i.sentence for i in last if i.problem != "dangling_reference"]
+        cleaned, removed = remove_flagged_sentences(current, flagged)
         return cleaned, SectionReview(
             verdict="trimmed", issues=all_issues, removed_sentences=removed, rounds=rounds
         )

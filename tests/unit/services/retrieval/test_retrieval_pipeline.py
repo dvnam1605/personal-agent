@@ -194,9 +194,7 @@ class TestExpansionDecision:
         )
 
     def test_explicit_none_override(self) -> None:
-        q = make_query(
-            search_query="ngay ban hanh van ban", expansion_policy=ExpansionPolicy.NONE
-        )
+        q = make_query(search_query="ngay ban hanh van ban", expansion_policy=ExpansionPolicy.NONE)
         assert resolve_expansion_policy(q) is ExpansionPolicy.NONE
 
 
@@ -301,9 +299,7 @@ class TestParentExpansion:
         provider = FakeProvider(rows)
         service = ExpansionService(provider)
         table_hit = chunk("t1", 0.95, parent=p1, node="TABLE_CHILD")
-        units = await service.build_units(
-            [table_hit], ExpansionPolicy.PARENT, make_query()
-        )
+        units = await service.build_units([table_hit], ExpansionPolicy.PARENT, make_query())
         assert len(units) == 1
         assert units[0].kind == "PARENT" and units[0].parent_id == p1
 

@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.core.http import llm_http_timeout
+from app.core.images import strip_images
 from app.domain.models.retrieval import EvidenceBundle
 from app.domain.models.retrieval.citation import Citation
 from app.domain.models.retrieval.sufficiency import SufficiencyStatus
@@ -36,6 +37,14 @@ from app.services.retrieval.citations import (
     strip_orphan_ids,
 )
 from app.services.retrieval.grounding import GroundingReport, check_answer
+from app.services.retrieval.images import (
+    MARKER,
+    ImageMarkers,
+    ImageRefs,
+    interleave,
+    is_step_by_step,
+    refs_in,
+)
 from app.services.retrieval.prompts import (
     SYNTHESIS_EXTERNAL_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -450,10 +459,12 @@ class PromptAnswerSynthesizer:
             )
 
         numberer = CitationNumberer(bundle)
-        cleaned_answer = numberer.rewrite(answer_text).strip()
+        markers = _image_markers(bundle)
+        cleaned_answer = markers.replace(numberer.rewrite(answer_text), numberer.cited_ids)
         # Only what the model actually cited — never a stand-in "top 3".
         citations = build_citations_from_bundle(numberer.cited_ids, bundle)
-        status = _uncited_status(cleaned_answer, citations, verdict_status)
+        status = _uncited_status(strip_images(cleaned_answer), citations, verdict_status)
+        cleaned_answer = _with_fallback_images(cleaned_answer, markers, bundle, numberer)
         if interrupted:
             return SynthesisResult(
                 answer=cleaned_answer + _INTERRUPTED_NOTE,
@@ -464,7 +475,7 @@ class PromptAnswerSynthesizer:
             )
         if not citations and status is SufficiencyStatus.PARTIAL:
             cleaned_answer += _UNCITED_NOTE
-        grounding = check_answer(cleaned_answer)
+        grounding = check_answer(strip_images(cleaned_answer))
         return SynthesisResult(
             answer=cleaned_answer,
             citations=citations,
@@ -515,6 +526,7 @@ class PromptAnswerSynthesizer:
         # Same numberer as the non-streaming path: identical [n] badges, and
         # labels absent from the bundle are dropped instead of numbered.
         numberer = CitationNumberer(bundle)
+        markers = _image_markers(bundle)
         streamed: list[str] = []
         buf = ""
 
@@ -536,7 +548,10 @@ class PromptAnswerSynthesizer:
                 close_pos = buf.find("]")
                 if close_pos != -1:
                     tag = buf[: close_pos + 1]
-                    if numberer.looks_like_citation(tag):
+                    if marker := MARKER.fullmatch(tag):
+                        if line := markers.resolve(marker.group(1), numberer.cited_ids):
+                            out += f"\n{line}\n"
+                    elif numberer.looks_like_citation(tag):
                         out += numberer.render_bracket(tag)
                     elif not numberer.mentions_evidence(tag):
                         out += tag
@@ -605,21 +620,47 @@ class PromptAnswerSynthesizer:
             }
 
         citations = build_citations_from_bundle(numberer.cited_ids, bundle)
-        grounding = check_answer("".join(streamed))
+        grounding = check_answer(strip_images("".join(streamed)))
         if failure is None:
             status = _uncited_status("".join(streamed), citations, status)
             if not citations and status is SufficiencyStatus.PARTIAL:
                 yield {"type": "token", "delta": _UNCITED_NOTE}
             status = _grounded_status(status, grounding)
 
+        # A step-by-step answer the model left without image markers gets its
+        # images placed afterwards; the client swaps the streamed text for it.
+        text = "".join(streamed)
+        with_images = _with_fallback_images(text, markers, bundle, numberer)
         yield {
             "type": "citations",
             "citations": [c.model_dump(mode="json") for c in citations],
+            **({"answer": with_images} if with_images != text else {}),
             "status": status.value,
             "unsupported_claims": grounding.unsupported,
             "retrieval_trace_id": bundle.retrieval_trace_id,
             "evidence": evidence_snapshot(bundle, numberer),
         }
+
+
+def _image_markers(bundle: EvidenceBundle) -> ImageMarkers:
+    return ImageMarkers([(item.evidence_id, item.content_raw or "") for item in bundle.items])
+
+
+def _with_fallback_images(
+    text: str, markers: ImageMarkers, bundle: EvidenceBundle, numberer: CitationNumberer
+) -> str:
+    """``text``, or with images aligned to its steps when the model placed none."""
+    if markers.shown or not is_step_by_step(text):
+        return text
+    return interleave(text, _images_lookup(bundle, numberer))
+
+
+def _images_lookup(
+    bundle: EvidenceBundle, numberer: CitationNumberer
+) -> Callable[[int], ImageRefs]:
+    """Images of the evidence behind citation number ``n``, in source order."""
+    by_eid = {item.evidence_id: refs_in(item.content_raw or "") for item in bundle.items}
+    return lambda n: by_eid.get(numberer.evidence_id_of(n) or "", [])
 
 
 _UNCITED_NOTE = (

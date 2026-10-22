@@ -569,6 +569,42 @@ class DocumentProfile(Base):
     )
 
 
+class DocumentRelation(Base):
+    """One relation stated by a document version (replaces, based on, signed by, awards…).
+
+    Like profiles, owner scope and ``is_active`` live only on ``documents``;
+    every query joins it. ``target_norm`` is the unaccented target text, so
+    OCR variants of the same name ("Đỗ Tiến Sỹ" / "Dõ Tiến Sỹ") collide.
+    """
+
+    __tablename__ = "document_relations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    logical_document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_text: Mapped[str] = mapped_column(Text, nullable=False)
+    target_norm: Mapped[str] = mapped_column(Text, nullable=False)
+    target_number_norm: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    attributes: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict, nullable=False)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    extractor_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_document_relations_document", "document_id"),
+        Index("ix_document_relations_type_number", "relation_type", "target_number_norm"),
+        Index("ix_document_relations_type_target", "relation_type", "target_norm"),
+    )
+
+
 class IngestionJobRecord(Base):
     """Durable ingestion job with worker-safe claims (spec P9D-3, P3 patterns)."""
 

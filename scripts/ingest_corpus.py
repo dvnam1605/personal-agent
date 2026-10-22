@@ -19,7 +19,6 @@ import sys
 import time
 from pathlib import Path, PureWindowsPath
 
-# Fix Windows console encoding
 sys.stdout.reconfigure(encoding="utf-8")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,15 +34,19 @@ from app.infrastructure.db.ingestion_repository import (  # noqa: E402
     SqlAlchemyUnitOfWork,
 )
 from app.infrastructure.db.profile_repository import SqlAlchemyProfileRepository  # noqa: E402
+from app.infrastructure.db.relation_repository import SqlAlchemyRelationRepository  # noqa: E402
 from app.infrastructure.db.session import get_engine, get_session_factory  # noqa: E402
 from app.services.ingestion.embedding import (  # noqa: E402
     EmbeddingContract,
     LocalEmbeddingService,
     TransformersPoolingBackend,
 )
+from app.services.ingestion.formulas import FormulaLatexRebuilder  # noqa: E402
+from app.services.ingestion.images import ImageDescriber  # noqa: E402
 from app.services.ingestion.jobs import SqlAlchemyIngestionJobStore  # noqa: E402
 from app.services.ingestion.orchestrator import IngestionOrchestrator  # noqa: E402
 from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
+from app.services.ingestion.relations import DocumentRelationExtractor  # noqa: E402
 from app.services.ingestion.source import build_local_source_document  # noqa: E402
 
 logging.basicConfig(
@@ -54,14 +57,13 @@ logging.basicConfig(
 logger = logging.getLogger("ingest_corpus")
 
 
-SUPPORTED_SUFFIXES = {".md", ".pdf", ".docx"}
+SUPPORTED_SUFFIXES = {".md", ".pdf", ".docx", ".xlsx"}
 DATA_ROOT = REPO_ROOT / "data"
 LEGACY_ROOT = DATA_ROOT / "QuyetDinh"
 
 
 def _source_id(path: Path) -> str:
-    """Deterministic id from the path; files under data/QuyetDinh keep their
-    historical ids (relative to that folder) so re-runs never duplicate them."""
+    """Deterministic id from the path; data/QuyetDinh keeps its historical ids."""
     resolved = path.resolve()
     base = LEGACY_ROOT if resolved.is_relative_to(LEGACY_ROOT.resolve()) else DATA_ROOT
     rel = (
@@ -69,16 +71,14 @@ def _source_id(path: Path) -> str:
         if resolved.is_relative_to(base.resolve())
         else resolved
     )
-    # Always hash the Windows spelling ("ChiThi\\x.md"): the corpus was first
-    # ingested on Windows, and a Linux run (e.g. inside the GPU container)
-    # must produce the same ids instead of duplicating every document.
+    # Always hash the Windows spelling so Linux runs produce the same ids.
     key = str(PureWindowsPath(*rel.parts))
     return "src-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=DATA_ROOT, help="folder to ingest")
+    parser.add_argument("--root", type=Path, default=DATA_ROOT, help="folder or file to ingest")
     parser.add_argument("--no-llm-profile", action="store_true", help="rules-only profiling")
     parser.add_argument("--force", action="store_true", help="re-index unchanged files")
     return parser.parse_args()
@@ -91,17 +91,19 @@ async def main() -> None:
         logger.error("Data directory not found: %s", data_dir)
         sys.exit(1)
 
-    md_files = sorted(
-        p for p in data_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+    md_files = (
+        [data_dir]
+        if data_dir.is_file()
+        else sorted(
+            p for p in data_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+        )
     )
     logger.info("Found %d supported files in %s", len(md_files), data_dir)
 
-    # 1. Ensure embedding model snapshot is downloaded and ready
     model_name = settings.embedding.model
     logger.info("Preparing embedding backend for model: %s", model_name)
     local_path = settings.embedding.local_path
     if local_path and (REPO_ROOT / local_path).exists():
-        # Same snapshot the backend container uses (./models) — no download.
         model_path = str(REPO_ROOT / local_path)
         logger.info("Embedding model from local snapshot: %s", model_path)
     else:
@@ -112,7 +114,6 @@ async def main() -> None:
             logger.error("Failed to prepare embedding model: %s", exc)
             sys.exit(1)
 
-    # 2. Build local embedding service with CLS pooling for Vietnamese embedding
     import torch
 
     device = settings.embedding.device
@@ -131,7 +132,6 @@ async def main() -> None:
         batch_size=settings.embedding.batch_size,
     )
 
-    # 3. Build database orchestrator
     session_factory = get_session_factory()
     repository = SqlAlchemyIngestionRepository(session_factory)
     transaction = SqlAlchemyUnitOfWork(session_factory)
@@ -143,9 +143,12 @@ async def main() -> None:
         heartbeat_callback=job_service.heartbeat,
         profiler=DocumentProfiler(use_llm=not args.no_llm_profile),
         profile_store=SqlAlchemyProfileRepository(session_factory),
+        relation_extractor=DocumentRelationExtractor(use_llm=not args.no_llm_profile),
+        relation_store=SqlAlchemyRelationRepository(session_factory),
+        formula_rebuilder=None if args.no_llm_profile else FormulaLatexRebuilder(),
+        image_describer=None if args.no_llm_profile else ImageDescriber(),
     )
 
-    # 4. Ingest each file
     total_start = time.perf_counter()
     success_count = 0
     fail_count = 0
@@ -211,7 +214,6 @@ async def main() -> None:
         f"Total time elapsed    : {total_duration:.2f}s (avg {total_duration / len(md_files):.2f}s/doc)"
     )
 
-    # 5. Query PostgreSQL to verify database contents
     async with session_factory() as session:
         res_docs = await session.execute(
             text("SELECT count(*) FROM documents WHERE is_active = true")
@@ -226,7 +228,6 @@ async def main() -> None:
         print(f"Chunks with pgvector   : {res_vectors.scalar()}")
         print("=" * 80 + "\n")
 
-    # Dispose engine
     engine = get_engine()
     await engine.dispose()
 

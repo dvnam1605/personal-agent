@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,9 +77,7 @@ from .parsing import (
 
 logger = logging.getLogger(__name__)
 
-# Live RAG knobs while the cross-encoder reranker is disabled. RRF order is
-# the final order, so keep the prompt to the strongest candidates: fewer,
-# better chunks cost fewer gateway tokens and give the LLM less noise.
+# With the reranker disabled RRF order is final, so keep only the strongest chunks.
 _RAG_TOP_K_DENSE = 50
 _RAG_TOP_K_SPARSE = 60
 _RAG_MAX_CANDIDATES = 16
@@ -86,14 +85,30 @@ _RAG_PER_DOCUMENT_CAP = 4
 _RAG_CONTEXT_TOKEN_BUDGET = 8192
 # Short replies that approve a pending document outline ("duyệt", "ok viết đi").
 _APPROVAL_RE = re.compile(
-    # At most two trailing words ("duyệt nhé", "ok viết đi") so a real
-    # question that merely starts with "ok" is never taken as approval.
+    # At most two trailing words, so a real question starting with "ok" is not approval.
     r"^(?:duyệt|duyet|đồng ý|dong y|ok|oke|okay|viết đi|viet di|bắt đầu|bat dau|"
     r"tiến hành|tien hanh|làm đi|lam di)\b[\s!.,]*(?:\w+[\s!.,]*){0,2}$",
     re.IGNORECASE,
 )
 # Profile-selected documents read together in one scoped RAG pass.
 _RAG_MAX_SCOPED_DOCUMENTS = 8
+
+
+# Per-request follow-up scope: (documents the previous answer cited, the line pointed at).
+_FOLLOWUP_SCOPE: ContextVar[tuple[list[str], str] | None] = ContextVar(
+    "_FOLLOWUP_SCOPE", default=None
+)
+
+
+def _mentions(text: str, target: str) -> bool:
+    """Whether ``text`` names ``target`` (accent/punctuation-insensitive prefix)."""
+    from app.core.text import unaccent_vietnamese
+
+    def norm(s: str) -> str:
+        return re.sub(r"[\W_]+", "", unaccent_vietnamese(s).lower())
+
+    key = norm(target)[:24]
+    return not key or key in norm(text)
 
 
 @dataclass
@@ -105,6 +120,8 @@ class _KnowledgeRoute:
     status: Any = None
     rag_query: Any = None
     prefix: str = ""
+    # Relation facts from SQL whose documents are read before answering.
+    relation: Any = None
 
 
 FOLLOWUP_PATTERNS: list[re.Pattern[str]] = [
@@ -137,9 +154,109 @@ def is_followup_query(query: str) -> bool:
     return False
 
 
-def condense_query_with_history(query: str, history: list[dict[str, str]]) -> str:
-    """Condense a follow-up query with the prior conversation subject/entities."""
-    if not history or not is_followup_query(query):
+# Function words of a follow-up request: they say *how* to answer, not *what*.
+_FOLLOWUP_STOPWORDS = frozenset(
+    "trinh bay chi tiet cho toi minh em ban hay giai thich ro hon them noi ve cai nay "
+    "do kia la gi the nao sao di nhe voi cua va cac nhung mot phan tich lam xem duoc "
+    "khong can muon biet ky tom tat mo ta cu the hoi tiep nua o tren duoi "
+    "ra hoat dong y nghia vai tro gom bao nhieu".split()
+)
+_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+
+def _folded_tokens(text: str) -> list[str]:
+    from app.core.text import unaccent_vietnamese
+
+    return _TOKEN.findall(unaccent_vietnamese(text).lower())
+
+
+def answer_anchor(query: str, history: list[dict[str, str]] | None) -> str | None:
+    """The lines of the previous answer this turn points at, if any.
+
+    Lines are scored by shared non-request word pairs; pairs with a number weigh more.
+    """
+    if not history:
+        return None
+    answer = next(
+        (m.get("content", "") for m in reversed(history) if m.get("role") == "assistant"), ""
+    )
+    if not answer:
+        return None
+    tokens = _folded_tokens(query)
+    # A turn naming what the answer never mentioned ("Office 2016", "lệnh") asks
+    # something new; one built from the answer's own words points into it.
+    answer_words = set(_folded_tokens(answer))
+    novel = [t for t in tokens if t not in _FOLLOWUP_STOPWORDS and t not in answer_words]
+    if any(t.isdigit() for t in novel) or len(novel) >= 2:
+        return None
+    pairs = [
+        (a, b)
+        for a, b in zip(tokens, tokens[1:], strict=False)
+        if not (a in _FOLLOWUP_STOPWORDS and b in _FOLLOWUP_STOPWORDS)
+    ]
+    if not pairs:
+        return None
+    scored: list[tuple[int, int, str]] = []
+    for idx, line in enumerate(answer.splitlines()):
+        clean = line.strip()
+        if not clean:
+            continue
+        words = _folded_tokens(clean)
+        line_pairs = set(zip(words, words[1:], strict=False))
+        score = sum(
+            2 if (a.isdigit() or b.isdigit()) else 1 for a, b in pairs if (a, b) in line_pairs
+        )
+        if score:
+            scored.append((score, -idx, clean))
+    if not scored:
+        return None
+    best = max(scored)[0]
+    lines = [
+        text for score, _, text in sorted(scored, key=lambda t: t[1], reverse=True) if score == best
+    ]
+    excerpt = " ".join(re.sub(r"[*_#>`]|\[\d+\]", "", ln).strip(" -") for ln in lines[:2])
+    return excerpt[:600] or None
+
+
+_STANDALONE_PROMPT = (
+    "Viết lại câu hỏi tiếp nối của người dùng thành MỘT câu hỏi độc lập, đầy đủ chủ thể, "
+    "bằng tiếng Việt, để tìm trong kho tài liệu. Dùng câu hỏi trước và đoạn câu trả lời mà "
+    "người dùng đang nhắc tới để nêu rõ họ hỏi về điều gì (tên khái niệm, tên phần, tên tài "
+    "liệu). Giữ yêu cầu của người dùng (trình bày chi tiết, so sánh…). Chỉ trả về câu hỏi."
+)
+
+
+async def standalone_followup(query: str, history: list[dict[str, str]], anchor: str) -> str:
+    """A self-contained question for a turn that points into the previous answer."""
+    previous = next(
+        (m.get("content", "").strip() for m in reversed(history) if m.get("role") == "user"), ""
+    )
+    fallback = f"{previous} — {anchor} ({query})" if previous else f"{anchor} ({query})"
+    try:
+        from app.core.llm import llm_text
+
+        rewritten = await llm_text(
+            _STANDALONE_PROMPT,
+            f"Câu hỏi trước: {previous}\nĐoạn được nhắc tới: {anchor}\nCâu hỏi tiếp nối: {query}",
+            timeout=15.0,
+            temperature=0.0,
+        )
+    except Exception:  # noqa: BLE001 - the deterministic condensation is fine
+        rewritten = None
+    rewritten = (rewritten or "").strip().strip('"')
+    if not rewritten or len(rewritten) > 400 or "\n" in rewritten:
+        return fallback
+    return rewritten
+
+
+def condense_query_with_history(
+    query: str, history: list[dict[str, str]], *, force: bool = False
+) -> str:
+    """Condense a follow-up query with the prior conversation subject/entities.
+
+    ``force`` condenses even when no follow-up phrase matched.
+    """
+    if not history or not (force or is_followup_query(query)):
         return query
 
     last_user_query = ""
@@ -151,9 +268,7 @@ def condense_query_with_history(query: str, history: list[dict[str, str]]) -> st
     if not last_user_query:
         return query
 
-    # Pronoun follow-ups ("ông ấy", "tài liệu đó") point at the person or
-    # document named in the previous question; substitute it in place so the
-    # rest of the new question (its own verb, date, document kind) is kept.
+    # Substitute the person from the previous question for the pronoun, keeping the rest.
     person = _PERSON_MENTION.search(last_user_query)
     if person and _PERSON_PRONOUN.search(query):
         return _PERSON_PRONOUN.sub(person.group(0).strip(), query, count=1)
@@ -184,9 +299,14 @@ class QueryOrchestrator:
         new_run_id: RunIdFn | None = None,
         summarize_emails_fn: SummarizeEmailsFn | None = None,
         metadata_service: Any | None = None,
+        relation_service: Any | None = None,
+        phrase_structured: bool = True,
         pipeline: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
+        self._relation_service = relation_service
+        # SQL answers are reworded by one short LLM call (facts verified).
+        self._phrase_structured = phrase_structured
         self._document_service: Any | None = None
         self._triage = triage or FastTriage()
         self._calendar_for_user = calendar_for_user
@@ -235,15 +355,8 @@ class QueryOrchestrator:
         """Persist a run, execute the routed specialist, and return a QueryResult."""
         started = time.perf_counter()
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query = query
-        if history and is_followup_query(query):
-            effective_query = condense_query_with_history(query, history)
-            logger.info(
-                "condensed_followup_query",
-                extra={"original": query, "condensed": effective_query},
-            )
-
-        decision = self._triage.triage(effective_query)
+        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        await self._set_followup_scope(session, conversation_id, anchor)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(
@@ -318,15 +431,8 @@ class QueryOrchestrator:
 
         started = time.perf_counter()
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query = query
-        if history and is_followup_query(query):
-            effective_query = condense_query_with_history(query, history)
-            logger.info(
-                "condensed_followup_query",
-                extra={"original": query, "condensed": effective_query},
-            )
-
-        decision = self._triage.triage(effective_query)
+        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        await self._set_followup_scope(session, conversation_id, anchor)
         route = route_info(decision)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
@@ -360,7 +466,7 @@ class QueryOrchestrator:
             if first_token_at is None:
                 first_token_at = now
             last_token_at = now
-            # Vietnamese / English token approximation: count non-whitespace word chunks
+            # Approximate tokens as whitespace-separated chunks.
             tok_count = max(1, len(re.findall(r"\S+", delta)))
             total_tokens += tok_count
             yield _sse("token", {"delta": delta})
@@ -368,11 +474,10 @@ class QueryOrchestrator:
         async def _stream_text(text: str) -> AsyncGenerator[str, None]:
             if not text:
                 return
-            # Split into chunks of word + trailing whitespace or standalone whitespace:
             chunks = re.findall(r"\S+|\s+", text)
             if not chunks:
                 return
-            # Adaptive delay: fast for long answers, comfortable typewriter pacing for short answers
+            # Fast pacing for long answers, typewriter pacing for short ones.
             delay = min(0.018, max(0.004, 3.2 / max(1, len(chunks))))
             for chunk in chunks:
                 async for sse_event in _yield_token(chunk):
@@ -435,7 +540,6 @@ class QueryOrchestrator:
                 done_payload.update(extra)
             return _sse("done", done_payload)
 
-        # 1. Yield route metadata event
         yield _sse(
             "metadata",
             {
@@ -486,7 +590,6 @@ class QueryOrchestrator:
 
             agent = decision.target_agent
             if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
-                # Real LLM token streaming from RAG pipeline with multi-turn conversation history
                 async for event in self._run_retrieval_stream(
                     effective_query, user_id, conversation_history=history
                 ):
@@ -511,12 +614,12 @@ class QueryOrchestrator:
                                 "citations": event.get("citations", []),
                                 "sufficiency": event.get("status"),
                                 "unsupported_claims": event.get("unsupported_claims", []),
+                                **({"answer": event["answer"]} if event.get("answer") else {}),
                             },
                         )
                 yield _emit_done("completed")
                 return
 
-            # For other routes (Calendar, Email, Workflows), execute specialist
             result: QueryResult
             if is_workflow_route(decision.route_type) or is_supervisor_route(decision.route_type):
                 handled = await self._handle_workflow(
@@ -573,12 +676,10 @@ class QueryOrchestrator:
                     route=route,
                 )
 
-            # Stream message
             if result.message:
                 async for item in _stream_text(result.message):
                     yield item
 
-            # Stream citations/data/approval
             if result.data or result.approval_id:
                 yield _sse(
                     "citations",
@@ -1151,6 +1252,84 @@ class QueryOrchestrator:
         )
         return CommunicationService.from_client(client)
 
+    @staticmethod
+    async def _set_followup_scope(
+        session: AsyncSession, conversation_id: str | None, anchor: str | None
+    ) -> None:
+        """Scope a follow-up's retrieval to what the previous answer cited."""
+        _FOLLOWUP_SCOPE.set(None)
+        if not anchor or not conversation_id:
+            return
+        try:
+            from app.infrastructure.db.models import Message, RunEvidence
+
+            message = (
+                await session.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id, Message.role == "assistant")
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if message is None:
+                return
+            data = (message.metadata_ or {}).get("data") or {}
+            ids = [
+                str(c.get("document_id"))
+                for c in data.get("citations") or []
+                if isinstance(c, dict) and c.get("document_id")
+            ]
+            if not ids and message.run_id:
+                ids = list(
+                    (
+                        await session.execute(
+                            select(RunEvidence.document_id).where(
+                                RunEvidence.run_id == message.run_id, RunEvidence.cited
+                            )
+                        )
+                    ).scalars()
+                )
+            ids = list(dict.fromkeys(i for i in ids if i))[:_RAG_MAX_SCOPED_DOCUMENTS]
+            if ids:
+                _FOLLOWUP_SCOPE.set((ids, anchor))
+        except Exception:  # noqa: BLE001 - an unscoped follow-up still works
+            logger.warning("followup_scope_failed", exc_info=True)
+
+    async def _triage_in_context(
+        self, query: str, history: list[dict[str, str]] | None
+    ) -> tuple[str, RouteDecision, str | None]:
+        """Route a turn with its conversation: resolve follow-ups, never ask twice.
+
+        A turn pointing into the previous answer becomes a standalone question; other
+        follow-ups and too-vague turns are condensed with the previous question.
+        """
+        effective_query = query
+        anchor = answer_anchor(query, history) if history else None
+        if history and anchor:
+            effective_query = await standalone_followup(query, history, anchor)
+            logger.info(
+                "followup_resolved_from_answer",
+                extra={"original": query, "standalone": effective_query},
+            )
+        elif history and is_followup_query(query):
+            effective_query = condense_query_with_history(query, history)
+            logger.info(
+                "condensed_followup_query",
+                extra={"original": query, "condensed": effective_query},
+            )
+        decision = self._triage.triage(effective_query)
+        if decision.route_type is RouteType.CLARIFICATION and history and effective_query == query:
+            condensed = condense_query_with_history(query, history, force=True)
+            if condensed != query:
+                retried = self._triage.triage(condensed)
+                if retried.route_type is not RouteType.CLARIFICATION:
+                    logger.info(
+                        "clarification_resolved_from_history",
+                        extra={"original": query, "condensed": condensed},
+                    )
+                    return condensed, retried, None
+        return effective_query, decision, anchor
+
     def _live_pipeline(self) -> Any:
         if self._pipeline is None:
             from app.services.retrieval.factory import build_retrieval_pipeline
@@ -1182,13 +1361,17 @@ class QueryOrchestrator:
             self._metadata_service = MetadataLookupService()
         return self._metadata_service
 
-    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
-        """Pick SQL-over-profiles, profile-scoped RAG, or corpus RAG for a question.
+    def _relations(self) -> Any:
+        if self._relation_service is None:
+            from app.services.retrieval.relations import RelationLookupService
 
-        Numbers and lists come from ``document_profiles`` (never paraphrased by
-        an LLM); a hard selector (number / person / date / "mới nhất") next to a
-        content question scopes RAG to the selected documents. Any failure here
-        degrades to plain corpus RAG.
+            self._relation_service = RelationLookupService()
+        return self._relation_service
+
+    async def _route_knowledge(self, query: str, user_id: str) -> _KnowledgeRoute:
+        """Pick SQL-over-relations, SQL-over-profiles, profile-scoped RAG, or corpus RAG.
+
+        Any failure in the structured routes degrades to plain corpus RAG.
         """
         from app.domain.models.retrieval import RetrievalMode
         from app.domain.models.retrieval.metadata_filter import KnowledgeIntent
@@ -1198,6 +1381,37 @@ class QueryOrchestrator:
 
         base_query = self._live_retrieval_query(query, user_id)
         requester = retrieval_requester_id(user_id)
+        scope = _FOLLOWUP_SCOPE.get()
+        if scope is not None:
+            # Search the cited documents with the previous answer's own words.
+            document_ids, anchor = scope
+            logger.info("knowledge_route_planned", extra={"intent": "followup_scope"})
+            return _KnowledgeRoute(
+                rag_query=base_query.model_copy(
+                    update={
+                        "mode": RetrievalMode.DOCUMENT_SEARCH,
+                        "document_ids": document_ids,
+                        "search_query": f"{anchor} {query}"[:600],
+                        "require_source_diversity": len(document_ids) > 1,
+                    }
+                )
+            )
+        try:
+            relation = await self._relations().answer(query, requester)
+            if relation is not None:
+                logger.info(
+                    "knowledge_route_planned", extra={"intent": "relation", **relation.trace}
+                )
+                if 0 < relation.total <= _RAG_MAX_SCOPED_DOCUMENTS:
+                    # Facts give the documents and who; their text supplies the details.
+                    return _KnowledgeRoute(rag_query=base_query, relation=relation)
+                return _KnowledgeRoute(
+                    answer=await self._phrase(query, relation.answer),
+                    citations=relation.citations,
+                    status=SufficiencyStatus.SUFFICIENT,
+                )
+        except Exception:  # noqa: BLE001 - the relation route must never break answering
+            logger.exception("knowledge_relation_route_failed")
         try:
             service = self._metadata()
             plan = await service.plan(query, requester)
@@ -1208,6 +1422,7 @@ class QueryOrchestrator:
             if plan.intent is KnowledgeIntent.METADATA:
                 result = await service.run(plan.spec, requester)
                 answer, citations = render_metadata_answer(plan.spec, result)
+                answer = await self._phrase(query, answer)
                 status = (
                     SufficiencyStatus.SUFFICIENT if result.total else SufficiencyStatus.INSUFFICIENT
                 )
@@ -1244,6 +1459,102 @@ class QueryOrchestrator:
             logger.exception("knowledge_metadata_route_failed")
         return _KnowledgeRoute(rag_query=base_query)
 
+    async def _phrase(self, question: str, draft: str) -> str:
+        """Natural wording for a SQL-backed answer (facts unchanged; draft on doubt)."""
+        if not self._phrase_structured:
+            return draft
+        from app.services.retrieval.verbalize import phrase_structured_answer
+
+        try:
+            return await phrase_structured_answer(question, draft)
+        except Exception:  # noqa: BLE001 - wording must never break answering
+            logger.exception("structured_phrasing_failed")
+            return draft
+
+    async def _answer_relation(
+        self,
+        query: str,
+        route: _KnowledgeRoute,
+        conversation_history: list[dict[str, str]] | None,
+    ) -> Any:
+        """Relation facts from SQL + the text of those documents → one LLM answer.
+
+        Facts go in the system prompt so grounding checks still judge the user's own
+        question; omitted targets are appended, and failures fall back to the fact list.
+        """
+        from app.domain.models.retrieval import RetrievalMode
+        from app.domain.models.retrieval.sufficiency import SufficiencyStatus
+        from app.services.retrieval.prompts import SYNTHESIS_SYSTEM_PROMPT
+        from app.services.retrieval.synthesis import SynthesisResult
+
+        relation = route.relation
+        # With signers plus another relation, the signers are what was asked.
+        types = {str(f["relation_type"]) for f in relation.facts}
+        asked = {"signed_by"} if "signed_by" in types and len(types) > 1 else types
+        targets = list(
+            dict.fromkeys(
+                str(f["target_text"]) for f in relation.facts if f["relation_type"] in asked
+            )
+        )
+        facts_text = re.sub(r"\s*\[\d+\]", "", relation.answer)
+        scoped = route.rag_query.model_copy(
+            update={
+                "mode": RetrievalMode.DOCUMENT_SEARCH,
+                "document_ids": [c.document_id for c in relation.citations],
+                "require_source_diversity": len(relation.citations) > 1,
+                "search_query": f"{query} {' '.join(targets)}"[:500],
+            }
+        )
+        system_prompt = (
+            f"{SYNTHESIS_SYSTEM_PROMPT}\n"
+            "DỮ KIỆN ĐÃ TRA CHÍNH XÁC TỪ CƠ SỞ DỮ LIỆU (đầy đủ cho câu hỏi này):\n"
+            f"{facts_text}\n\n"
+            "Yêu cầu thêm:\n"
+            "- Dữ kiện trên đã được xác minh từ văn bản gốc: NÊU TRỰC TIẾP kể cả khi đoạn "
+            "bằng chứng E# không chứa thông tin đó (khi ấy không cần nhãn [E#] cho câu đó). "
+            "Tuyệt đối không nói dữ kiện nào đó 'không có' hay 'chưa thể hiện'.\n"
+            "- Nêu ĐỦ mọi văn bản và mọi đối tượng trong dữ kiện trên, không bỏ sót.\n"
+            "- Trả lời đúng trọng tâm câu hỏi: chỉ thêm chi tiết từ bằng chứng E# (chức vụ, đơn "
+            "vị, ngày hiệu lực, lý do…) khi nó trực tiếp trả lời câu hỏi, gắn trích dẫn [E#].\n"
+            "- Văn phong tự nhiên như người trả lời đồng nghiệp: mở đầu bằng câu trả lời thẳng; "
+            "1–3 văn bản viết thành đoạn văn ngắn, nhiều hơn thì danh sách gạch đầu dòng gọn, "
+            "mỗi văn bản một dòng. Không dùng tiêu đề (#), không kẻ ngang (---), hạn chế in đậm; "
+            "không mở đầu kiểu 'Dựa trên các tài liệu được cung cấp', 'Dưới đây là'.\n"
+            "- Không nêu điều bằng chứng không có, không viết câu kiểu 'chưa có thông tin…'; "
+            "không nhắc tới 'dữ kiện' hay 'cơ sở dữ liệu'."
+        )
+        try:
+            result = await self._live_pipeline().run_with_synthesis(
+                scoped,
+                internal_only=True,
+                conversation_history=conversation_history,
+                system_prompt=system_prompt,
+            )
+        except Exception:  # noqa: BLE001 - fall back to the fact list
+            logger.exception("relation_content_answer_failed")
+            result = None
+        if result is None or not result.citations:
+            return SynthesisResult(
+                answer=await self._phrase(query, relation.answer),
+                citations=relation.citations,
+                status=SufficiencyStatus.SUFFICIENT,
+            )
+        missing = [t for t in targets if not _mentions(result.answer, t)]
+        if missing:
+            logger.info("relation_answer_missing_targets count=%d", len(missing))
+            result = result.model_copy(
+                update={
+                    "answer": result.answer.rstrip()
+                    + "\n\nNgoài ra, theo các văn bản trên còn có: "
+                    + "; ".join(missing)
+                    + "."
+                }
+            )
+        if result.status is not SufficiencyStatus.SUFFICIENT:
+            # The facts themselves are exact; missing detail is not missing answer.
+            result = result.model_copy(update={"status": SufficiencyStatus.SUFFICIENT})
+        return result
+
     async def _run_retrieval(
         self,
         query: str,
@@ -1255,6 +1566,8 @@ class QueryOrchestrator:
         from app.services.retrieval.synthesis import SynthesisResult
 
         route = await self._route_knowledge(query, user_id)
+        if route.relation is not None:
+            return await self._answer_relation(query, route, conversation_history)
         if route.answer is not None:
             return SynthesisResult(
                 answer=route.answer, citations=route.citations, status=route.status
@@ -1275,6 +1588,16 @@ class QueryOrchestrator:
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         route = await self._route_knowledge(query, user_id)
+        if route.relation is not None:
+            # Not streamed: the answer is checked for missing facts before it is shown.
+            result = await self._answer_relation(query, route, conversation_history)
+            yield {"type": "token", "delta": result.answer}
+            yield {
+                "type": "citations",
+                "citations": [c.model_dump(mode="json") for c in result.citations],
+                "status": result.status.value,
+            }
+            return
         if route.answer is not None:
             yield {"type": "token", "delta": route.answer}
             yield {

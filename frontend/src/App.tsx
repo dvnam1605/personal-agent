@@ -355,6 +355,7 @@ const AppContent: React.FC = () => {
             )
           },
           onCitations: async (citeData) => {
+            if (citeData.answer) accumulatedMessage = citeData.answer
             let pendingApproval: ApprovalRequestResponse | null = null
             const approvalId = citeData.approval_id
             if (approvalId) {
@@ -389,6 +390,7 @@ const AppContent: React.FC = () => {
                     ...turn,
                     result: {
                       ...turn.result,
+                      message: citeData.answer || turn.result.message,
                       data: mergedData,
                       approval_id: citeData.approval_id || turn.result.approval_id,
                     },

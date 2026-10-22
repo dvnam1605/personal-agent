@@ -14,6 +14,8 @@ services:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - assistant_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -31,6 +33,8 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - assistant_net
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 5s
@@ -68,11 +72,14 @@ services:
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh
       - ./.secrets:/app/.secrets
       - ./models:/app/models
+      - ./storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - assistant_net
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -90,6 +97,8 @@ services:
       - "5173:80"
     depends_on:
       - backend
+    networks:
+      - assistant_net
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
       interval: 10s
@@ -99,3 +108,14 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+# Explicit subnet so Docker never picks a range that collides with the LAN
+# (192.168.x.x) or with other projects' bridges on the host.
+networks:
+  assistant_net:
+    name: assistant_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.249.20.0/24
+          gateway: 10.249.20.1

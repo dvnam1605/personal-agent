@@ -34,8 +34,15 @@ _COMMON_RULES = (
     "   - Bảng biểu, dự toán, số liệu: giữ đủ các dòng/hạng mục và con số đúng như bằng chứng "
     "(ưu tiên bảng Markdown), nêu tổng nếu văn bản có ghi.\n"
     "4. FORMATTING (TRÌNH BÀY):\n"
-    "   - Trả lời bằng tiếng Việt chuẩn mực (trừ khi người dùng hỏi bằng ngôn ngữ khác), "
-    "Markdown rõ ràng: tiêu đề ###, gạch đầu dòng, in đậm tên riêng, số hiệu, mốc thời gian.\n"
+    "   - Trả lời bằng tiếng Việt chuẩn mực (trừ khi người dùng hỏi bằng ngôn ngữ khác), tự "
+    "nhiên như một chuyên viên trả lời đồng nghiệp: mở đầu bằng câu trả lời trực tiếp; nội dung "
+    "ngắn viết thành đoạn văn, liệt kê nhiều mục thì dùng gạch đầu dòng hoặc đánh số.\n"
+    "   - Chỉ dùng tiêu đề (###) khi câu trả lời dài, gồm nhiều phần riêng biệt; không kẻ ngang "
+    "(---); in đậm có chừng mực (tên văn bản, khái niệm chính); không mở đầu kiểu 'Dựa trên "
+    "các tài liệu được cung cấp', 'Dưới đây là'.\n"
+    "   - Không bình luận về phạm vi bằng chứng hay cách hệ thống truy xuất (ví dụ 'bằng chứng "
+    "hiện có chỉ trích xuất một số phần…', 'chưa có toàn văn…'). Chỉ nói thiếu thông tin khi "
+    "chính phần được hỏi không trả lời được, và nói ngắn gọn.\n"
     "5. CITATION RULES (TRÍCH DẪN):\n"
     "   - Mỗi bằng chứng có nhãn id dạng E1, E2, … Mọi câu chứa thông tin cụ thể (số liệu, ngày, "
     "tên, quy định, kết luận) phải kèm nhãn của bằng chứng đó trong ngoặc vuông, ví dụ [E2]; "
@@ -45,6 +52,13 @@ _COMMON_RULES = (
     "6. FOLLOW-UPS (HỎI TIẾP): khi có ngữ cảnh hội thoại, giữ nguyên chủ thể của câu trước "
     "(cùng người, cùng tài liệu, cùng chủ đề) và bổ sung phần chưa được nêu; không chuyển sang "
     "nội dung không liên quan.\n"
+    "6b. HÌNH ẢNH: bằng chứng có thể chứa hình dưới dạng (Hình N — mô tả tự động: …). Khi "
+    "trả lời theo từng bước thao tác hoặc cần chỉ ra giao diện, viết [Hình N] trên một dòng "
+    "riêng ngay sau bước mà hình đó minh họa; chỉ dùng số hình có trong bằng chứng, mỗi hình "
+    "một lần, không tả lại hình bằng lời. Câu trả lời không phải hướng dẫn thao tác (khẳng "
+    "định, phủ định, định nghĩa, số liệu) thì không chèn hình.\n"
+    "6c. CÔNG THỨC: ký hiệu toán trong câu viết dạng LaTeX giữa hai dấu $ (ví dụ $P_s$); "
+    "công thức đứng riêng viết trên một dòng: $$<LaTeX>$$ (số hiệu), chép từ bằng chứng.\n"
 )
 
 SYNTHESIS_SYSTEM_PROMPT = (
@@ -74,10 +88,6 @@ SYNTHESIS_EXTERNAL_SYSTEM_PROMPT = (
     f"{BOUNDARY_INSTRUCTIONS}\n"
 )
 
-# ---------------------------------------------------------------------------
-# User-message template
-# ---------------------------------------------------------------------------
-
 _QUESTION_HEADER = "## Question\n\n{question}\n\n## Retrieved Evidence\n\n"
 
 
@@ -99,7 +109,7 @@ def build_synthesis_user_message(
         for m in conversation_history[-4:]:
             role_label = "Người dùng" if m.get("role") == "user" else "Trợ lý"
             content = (m.get("content") or "").strip()
-            # Truncate assistant response if overly long so it doesn't consume all prompt budget
+            # Cap long turns so history does not eat the prompt budget.
             if len(content) > 1200:
                 content = content[:1200] + "... [phần tóm tắt phía trước]"
             history_lines.append(f"**{role_label}:** {content}\n")
@@ -124,7 +134,7 @@ def build_synthesis_user_message(
     else:
         for idx, item in enumerate(bundle.items):
             parts.append(sanitize_evidence_for_prompt(item, index=idx, label=evidence_label(idx)))
-            parts.append("")  # blank line separator
+            parts.append("")
 
     parts.append(
         "\n## Instructions\n\n"

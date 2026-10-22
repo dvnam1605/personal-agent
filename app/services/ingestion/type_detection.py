@@ -1,8 +1,7 @@
 """File type detection combining extension, declared MIME, and content sniffing.
 
 Detection never trusts a single signal and never raises for unsupported input;
-it returns a typed UNSUPPORTED result so one bad file cannot abort a batch
-(spec P9A-4).
+it returns a typed UNSUPPORTED result so one bad file cannot abort a batch.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _PDF_EXTENSIONS = {".pdf"}
 _DOCX_EXTENSIONS = {".docx"}
 _MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+_XLSX_EXTENSIONS = {".xlsx", ".xlsm"}
 
 _PDF_MIME_TYPES = {"application/pdf"}
 _DOCX_MIME_TYPES = {
@@ -31,6 +31,10 @@ _DOCX_MIME_TYPES = {
 _MARKDOWN_MIME_TYPES = {
     "text/markdown",
     "text/x-markdown",
+}
+_XLSX_MIME_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroenabled.12",
 }
 
 
@@ -65,11 +69,8 @@ def _vote(
 ) -> tuple[DetectedDocumentType | None, list[str]]:
     """Combine the three signals; magic bytes win ties, warnings note conflicts.
 
-    ZIP-derived DOCX and text-derived MARKDOWN sniffs are ambiguous (xlsx/
-    pptx/odt are all zips; any text decodes), so they only decide when an
-    independent extension or MIME signal corroborates them. The %PDF magic is
-    specific and stands alone. An ambiguous sniff that nothing corroborates
-    yields UNSUPPORTED instead of a guess (spec P9A-4).
+    ZIP and plain-text sniffs are ambiguous, so they only count when the name or
+    MIME agrees; otherwise the result is UNSUPPORTED rather than a guess.
     """
     extension = _extension_of(filename)
     warnings: list[str] = []
@@ -81,6 +82,8 @@ def _vote(
         ext_type = DetectedDocumentType.DOCX
     elif extension in _MARKDOWN_EXTENSIONS:
         ext_type = DetectedDocumentType.MARKDOWN
+    elif extension in _XLSX_EXTENSIONS:
+        ext_type = DetectedDocumentType.XLSX
 
     mime_type_normalized = (mime_type or "").split(";")[0].strip().lower()
     mime_doc: DetectedDocumentType | None = None
@@ -90,13 +93,16 @@ def _vote(
         mime_doc = DetectedDocumentType.DOCX
     elif mime_type_normalized in _MARKDOWN_MIME_TYPES:
         mime_doc = DetectedDocumentType.MARKDOWN
+    elif mime_type_normalized in _XLSX_MIME_TYPES:
+        mime_doc = DetectedDocumentType.XLSX
+
+    # A ZIP container is a workbook when its name or MIME says so.
+    if sniffed is DetectedDocumentType.DOCX and DetectedDocumentType.XLSX in (ext_type, mime_doc):
+        sniffed = DetectedDocumentType.XLSX
 
     if sniffed in (DetectedDocumentType.DOCX, DetectedDocumentType.MARKDOWN):
         agrees = sniffed in (ext_type, mime_doc)
         if not agrees:
-            # Ambiguous container/text sniff with no independent signal agreeing:
-            # either nothing else is known, or the name/MIME contradicts it.
-            # Either way, refuse to guess (typed UNSUPPORTED).
             warnings.append("ambiguous content sniff without name/MIME corroboration; ignored")
             return None, warnings
 
@@ -119,7 +125,7 @@ def detect_document_type(
     mime_type: str | None = None,
     content_head: bytes | str | None = None,
 ) -> TypeDetectionResult:
-    """Classify one file as PDF/DOCX/Markdown or typed-UNSUPPORTED."""
+    """Classify one file as PDF/DOCX/Markdown/XLSX or typed-UNSUPPORTED."""
     sniffed = _sniff(content_head)
     winner, warnings = _vote(filename, mime_type, sniffed)
     if winner is None:

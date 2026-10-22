@@ -2,8 +2,10 @@
 
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
 import structlog
+
 from app.core.config import settings
 from app.infrastructure.redis.client import redis_manager
 
@@ -185,7 +187,9 @@ class AuthRateLimiter:
             if reg_count >= MAX_IP_REGISTER_PER_HOUR:
                 ttl = await client.ttl(ip_key)
                 ttl = max(1, ttl) if ttl > 0 else 3600
-                logger.warning("auth.ip_register_throttled", client_ip=client_ip, reg_count=reg_count)
+                logger.warning(
+                    "auth.ip_register_throttled", client_ip=client_ip, reg_count=reg_count
+                )
                 return (
                     False,
                     "Bạn đã đăng ký quá nhiều tài khoản từ địa chỉ mạng này. Vui lòng thử lại sau 1 giờ.",
