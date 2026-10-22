@@ -39,7 +39,7 @@ from app.services.documents.writing.quality import (
     polish_style,
 )
 from app.services.documents.writing.review import SectionReviewer
-from app.services.retrieval.images import interleave, split_images
+from app.services.retrieval.images import restore_images, split_images
 
 logger = logging.getLogger(__name__)
 
@@ -697,7 +697,7 @@ class SectionWriter:
             )
         used = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
         if answer and images:
-            answer = interleave(answer, lambda n: images.get(n, []))
+            answer = restore_images(answer, images)
         if not answer or not used:
             return missing.model_copy(
                 update={"removed_meta": removed_meta, "removed_unverified": removed_unverified}

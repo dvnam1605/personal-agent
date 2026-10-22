@@ -6,7 +6,7 @@ import uuid
 
 from app.core.images import for_prompt, image_ref
 from app.domain.models.retrieval import Evidence, EvidenceBundle
-from app.services.retrieval.images import interleave, split_images
+from app.services.retrieval.images import interleave, restore_images, split_images
 from app.services.retrieval.synthesis import PromptAnswerSynthesizer
 
 KEY_A = "a" * 24
@@ -17,7 +17,7 @@ GUIDE = {
     1: [
         ("Hình 1 — mô tả tự động: tệp Dism++x64 trong File Explorer", KEY_A, "chọn Dism++x64."),
         ("Hình 2 — mô tả tự động: cửa sổ User Agreement", KEY_B, "Tiếp tục chọn Accept."),
-        ("Hình 3 — mô tả tự động: hộp thoại Tips", KEY_C, "Tiếp tục chọn Cancel."),
+        ("Hình 3 — mô tả tự động: hộp thoại Tips, nút Cancel", KEY_C, "Tiếp tục chọn Cancel."),
         ("Hình 4 — mô tả tự động: thư mục ActiveBackup", KEY_D, "Lưu vào Google Drive."),
     ]
 }
@@ -54,8 +54,13 @@ def test_screenshots_go_under_their_steps_not_under_the_intro() -> None:
         "3. Nếu hiện thông báo cập nhật, bấm Cancel [1].",
         ref(2),
     ]
-    # Matched no step: after the last line citing the evidence.
-    assert lines[-1] == ref(3)
+    # Matched no step: stays next to its neighbour.
+    assert lines[7:] == [ref(3), "4. Chọn OK để kết thúc [1]."]
+
+
+def test_an_answer_about_none_of_the_images_shows_none() -> None:
+    refusal = "Tài liệu hướng dẫn sao lưu [1] không nêu lệnh kiểm tra Office 2016."
+    assert interleave(refusal, guide) == refusal
 
 
 def test_each_image_once_and_uncited_evidence_shows_none() -> None:
@@ -69,8 +74,16 @@ def test_images_survive_a_rewrite_of_the_prose() -> None:
     written = interleave("1. Mở Dism++x64 [1].\n2. Bấm Accept [1].", guide)
     prose, images = split_images(written)
     assert "image:" not in prose
-    again = interleave(prose.replace("Mở", "Khởi chạy"), lambda n: images.get(n, []))
+    # A gate or review rewords a step; its screenshots stay under it.
+    again = restore_images(prose.replace("Mở", "Khởi chạy"), images)
     assert again == written.replace("Mở", "Khởi chạy")
+
+
+def test_images_of_a_removed_line_stay_in_order() -> None:
+    written = interleave("1. Mở Dism++x64 [1].\n2. Bấm Accept [1].", guide)
+    prose, images = split_images(written)
+    again = restore_images(prose.replace("1. Mở Dism++x64 [1].\n", ""), images)
+    assert again.index(KEY_A) < again.index(KEY_B)
 
 
 def _bundle() -> EvidenceBundle:

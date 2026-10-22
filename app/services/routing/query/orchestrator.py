@@ -158,7 +158,8 @@ def is_followup_query(query: str) -> bool:
 _FOLLOWUP_STOPWORDS = frozenset(
     "trinh bay chi tiet cho toi minh em ban hay giai thich ro hon them noi ve cai nay "
     "do kia la gi the nao sao di nhe voi cua va cac nhung mot phan tich lam xem duoc "
-    "khong can muon biet ky tom tat mo ta cu the hoi tiep nua o tren duoi".split()
+    "khong can muon biet ky tom tat mo ta cu the hoi tiep nua o tren duoi "
+    "ra hoat dong y nghia vai tro gom bao nhieu".split()
 )
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 
@@ -182,6 +183,12 @@ def answer_anchor(query: str, history: list[dict[str, str]] | None) -> str | Non
     if not answer:
         return None
     tokens = _folded_tokens(query)
+    # A turn naming what the answer never mentioned ("Office 2016", "lệnh") asks
+    # something new; one built from the answer's own words points into it.
+    answer_words = set(_folded_tokens(answer))
+    novel = [t for t in tokens if t not in _FOLLOWUP_STOPWORDS and t not in answer_words]
+    if any(t.isdigit() for t in novel) or len(novel) >= 2:
+        return None
     pairs = [
         (a, b)
         for a, b in zip(tokens, tokens[1:], strict=False)

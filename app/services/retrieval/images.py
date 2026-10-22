@@ -22,6 +22,10 @@ from app.core.text import unaccent_vietnamese
 MAX_IMAGES = 12
 CONTEXT_CHARS = 200
 ALT_WEIGHT = 3
+# A match needs a description word, or two words of the source sentence.
+MIN_SCORE = 2
+# Word overlap with its old line for an image group to go back under a line.
+RESTORE_MIN_SIMILARITY = 0.3
 _BADGE = re.compile(r"\[(\d+)\]")
 _WORD = re.compile(r"\w+", re.UNICODE)
 _STOP = frozenset(
@@ -51,13 +55,14 @@ def _align(scores: list[list[int]]) -> list[int | None]:
     """Line index for each image, non-decreasing in image order, maximising the shared words.
 
     ``scores[i][j]`` is image ``i`` against candidate line ``j``; an image
-    with no positive score anywhere on its path is left unassigned (None).
+    scoring below ``MIN_SCORE`` everywhere on its path is left unassigned (None).
     """
     k, m = len(scores), len(scores[0]) if scores else 0
     best = [[0] * (m + 1) for _ in range(k + 1)]
     for i in range(1, k + 1):
         for j in range(1, m + 1):
-            take = best[i - 1][j] + scores[i - 1][j - 1] if scores[i - 1][j - 1] > 0 else -1
+            score = scores[i - 1][j - 1]
+            take = best[i - 1][j] + score if score >= MIN_SCORE else -1
             best[i][j] = max(best[i][j - 1], best[i - 1][j], take)
     assigned: list[int | None] = [None] * k
     i, j = k, m
@@ -98,9 +103,12 @@ def interleave(text: str, images_for: Callable[[int], ImageRefs]) -> str:
                 for alt_words, context_words in described
             ]
         )
-        # Unmatched images stay with the next matched one, else the previous one,
-        # else after the last line citing the evidence.
-        fallback = len(candidates) - 1
+        # No line is about any of these images (a refusal citing the guide, an
+        # aside): show none. Otherwise unmatched images stay with the next
+        # matched one, else the previous one.
+        if all(slot is None for slot in assigned):
+            continue
+        fallback = max(slot for slot in assigned if slot is not None)
         for i in range(len(assigned) - 1, -1, -1):
             if assigned[i] is None:
                 assigned[i] = fallback
@@ -120,23 +128,54 @@ def interleave(text: str, images_for: Callable[[int], ImageRefs]) -> str:
     return "\n".join(out)
 
 
-def split_images(text: str) -> tuple[str, dict[int, ImageRefs]]:
-    """Text without its image lines, and those images keyed by the badge before them.
+def split_images(text: str) -> tuple[str, list[tuple[str, list[str]]]]:
+    """Text without its image lines, and each group of image lines with the line it followed.
 
     Lets a caller rewrite or filter the prose (quality gates, review) and put
-    the images back afterwards with :func:`interleave`.
+    the images back afterwards with :func:`restore_images`.
     """
-    by_number: dict[int, ImageRefs] = {}
+    groups: list[tuple[str, list[str]]] = []
     kept: list[str] = []
-    last_badge = 0
     for line in text.split("\n"):
         if IMAGE_LINE.match(line):
-            context = kept[-1] if kept else ""
-            by_number.setdefault(last_badge, []).extend(
-                (alt, key, context) for alt, key, _ in refs_in(line)
-            )
+            host = kept[-1] if kept else ""
+            if groups and groups[-1][0] == host:
+                groups[-1][1].append(line.strip())
+            else:
+                groups.append((host, [line.strip()]))
             continue
         kept.append(line)
-        if badges := _BADGE.findall(line):
-            last_badge = int(badges[0])
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip(), by_number
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip(), groups
+
+
+def restore_images(text: str, groups: list[tuple[str, list[str]]]) -> str:
+    """Put image groups back under the lines most like the ones they followed.
+
+    Searches forward only, so the images keep their order; a group whose line
+    is gone (removed by a gate or rewritten past recognition) goes under the
+    last placed group, or at the end.
+    """
+    if not groups:
+        return text
+    lines = text.split("\n")
+    words = [_words(line) for line in lines]
+    after: dict[int, list[str]] = {}
+    start = 0
+    for host, refs in groups:
+        host_words = _words(host)
+        best, best_score = None, 0.0
+        for j in range(start, len(lines)):
+            if host_words and words[j]:
+                score = len(host_words & words[j]) / len(host_words | words[j])
+                if score > best_score:
+                    best, best_score = j, score
+        slot = best if best is not None and best_score >= RESTORE_MIN_SIMILARITY else None
+        if slot is None:
+            slot = max(after) if after else len(lines) - 1
+        after.setdefault(slot, []).extend(refs)
+        start = slot
+    out: list[str] = []
+    for j, line in enumerate(lines):
+        out.append(line)
+        out.extend(after.get(j, []))
+    return "\n".join(out)

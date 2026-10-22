@@ -54,6 +54,12 @@ def test_new_unrelated_question_has_no_anchor() -> None:
     assert answer_anchor("trình bày chi tiết hơn cho tôi", HISTORY) is None  # request words only
 
 
+def test_new_question_on_the_same_topic_has_no_anchor() -> None:
+    # Shares "hệ thống đa tác tử" with the answer, but asks about what it never said.
+    assert answer_anchor("Chi phí triển khai hệ thống đa tác tử là bao nhiêu?", HISTORY) is None
+    assert answer_anchor("Giai đoạn 2027 của hệ thống là gì?", HISTORY) is None  # new number
+
+
 async def test_standalone_question_carries_the_subject() -> None:
     anchor = answer_anchor("trình bày chi tiết cho tôi giai đoạn 3 đi", HISTORY) or ""
     q = await standalone_followup("trình bày chi tiết cho tôi giai đoạn 3 đi", HISTORY, anchor)
