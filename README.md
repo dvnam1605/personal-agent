@@ -219,6 +219,8 @@ cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm ru
 
 Đo chất lượng trả lời trên bộ câu hỏi chuẩn (cần backend và LLM): `uv run python scripts/benchmarks/eval_rag.py`.
 
+Quy ước viết code và toàn bộ các bước CI cần chạy trước khi push (lint, kiểu, test + coverage, quét secret, lỗ hổng thư viện, bandit, Trivy) nằm trong [AGENTS.md](AGENTS.md). Trên GitHub còn chạy CodeQL và Dependabot.
+
 ## Stack
 
 FastAPI · React (Vite) · PostgreSQL 16 + pgvector · Redis 7 · Docling / PyMuPDF / openpyxl · embedding và rerank tiếng Việt · Google Calendar / Gmail / Drive · temml (MathML) · python-docx (công thức OMML).
