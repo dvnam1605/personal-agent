@@ -36,14 +36,14 @@ dependencies = [
 ]
 
 [tool.uv]
-# surya-ocr (optional `ocr-surya` extra) caps pillow<11 and paddleocr
-# (optional `ocr-paddle` extra) pins pyyaml==6.0.2 exactly. Left unchecked,
-# uv's universal resolution forces those old versions into EVERY split and
-# breaks CPython 3.13+/3.14 (no wheels, source build fails). Override both
-# caps globally; the OCR extras are isolated from the assistant runtime per
-# P9E-2 — they run on a separate strong-GPU machine and are never imported
-# by app/.
-override-dependencies = ["pillow>=11.0", "pyyaml>=6.0.3"]
+# surya-ocr (optional `ocr-surya` extra) caps pillow<11 and filelock<4, and
+# paddleocr (optional `ocr-paddle` extra) pins pyyaml==6.0.2 exactly. Left
+# unchecked, uv's universal resolution forces those old versions into EVERY
+# split: no wheels for CPython 3.13+/3.14, and filelock<4 has known CVEs
+# (fixed in 4.2.1). Override the caps globally; the OCR extras are isolated
+# from the assistant runtime per P9E-2 — they run on a separate strong-GPU
+# machine and are never imported by app/.
+override-dependencies = ["pillow>=11.0", "pyyaml>=6.0.3", "filelock>=4.2.1"]
 
 [project.optional-dependencies]
 # Local embedding/rerank backends (embedding.py, rerank.py) import these lazily.

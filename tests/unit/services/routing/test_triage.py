@@ -402,3 +402,31 @@ def test_real_calendar_action_with_docs_stays_supervisor() -> None:
     assert decision.route_type == RouteType.SUPERVISOR_DAG
     assert Domain.CALENDAR in decision.domains
     assert Domain.KNOWLEDGE_RESEARCH in decision.domains
+
+
+def test_relative_date_alone_is_not_calendar(monkeypatch) -> None:
+    """'ngày mai' is also a TIME_SIGNAL_TIGHT word, but it must not qualify itself."""
+    monkeypatch.setattr("app.services.routing.triage.classify_with_llm", lambda _query: None)
+    triage = FastTriage()
+
+    assert triage.triage("Thời tiết ngày mai thế nào?").route_type == RouteType.CASUAL_RESPONSE
+    assert triage.triage("Ngày mai nhé").reason_code == "AMBIGUOUS_QUERY_CLARIFICATION"
+
+
+def test_relative_date_with_clock_time_or_inquiry_stays_calendar() -> None:
+    """A clock time or a schedule question still makes a relative date a calendar request."""
+    triage = FastTriage()
+
+    for query in ("Ngày mai lúc 9h", "Tuần sau tôi có rảnh không"):
+        decision = triage.triage(query)
+        assert decision.target_agent == "CalendarAgent", query
+
+
+def test_budget_plan_with_relative_date_is_knowledge() -> None:
+    """'kế hoạch ngân sách' is a document, even next to 'tháng sau' (not a schedule inquiry)."""
+    triage = FastTriage()
+    decision = triage.triage("Kế hoạch ngân sách tháng sau")
+
+    assert decision.route_type == RouteType.DIRECT_SPECIALIST
+    assert decision.target_agent == "KnowledgeResearchAgent"
+    assert decision.domains == [Domain.KNOWLEDGE_RESEARCH]
