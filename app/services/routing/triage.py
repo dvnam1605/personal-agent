@@ -152,9 +152,11 @@ class FastTriage:
         unaccented_cal = unaccent_vietnamese(_ACCENTED_HOP.sub("hopx", normalized))
         unaccented_cal = NON_CALENDAR_KE_HOACH.sub("", NON_MEETING_HOP.sub("", unaccented_cal))
         has_calendar_core = bool(CALENDAR_CORE.search(unaccented_cal))
-        has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented))
+        has_cal_inquiry = bool(CALENDAR_INQUIRY.search(unaccented_cal))
         has_cal_relative = bool(CALENDAR_RELATIVE.search(unaccented))
         has_time_signal = bool(TIME_SIGNAL_TIGHT.search(unaccented))
+        # TIME_SIGNAL_TIGHT repeats the relative-date words, so they cannot qualify themselves.
+        has_clock_time = bool(TIME_SIGNAL_TIGHT.search(CALENDAR_RELATIVE.sub(" ", unaccented)))
         has_calendar_signal = (
             has_calendar_core or has_cal_inquiry or has_cal_relative or has_time_signal
         )
@@ -170,7 +172,7 @@ class FastTriage:
         has_weekday = has_standard_weekday or has_wednesday
 
         has_cal_rel_valid = has_cal_relative and (
-            has_calendar_core or has_cal_inquiry or has_time_signal
+            has_calendar_core or has_cal_inquiry or has_clock_time
         )
         has_cal_inquiry_with_time = has_cal_inquiry and (has_time_signal or has_cal_relative)
         has_calendar = (
