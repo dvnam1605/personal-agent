@@ -101,17 +101,17 @@ async def test_oauth_state_is_pkce_bound_and_single_use() -> None:
         state_store=store,
     )
 
-    url = await service.start("user-1")
+    url = await service.start("user-1", "binding-1")
     query = parse_qs(urlparse(url).query)
     assert query["state"]
     assert query["code_challenge"]
     assert query["code_challenge_method"] == ["S256"]
     assert "client-secret" not in url
 
-    record = await store.consume(query["state"][0], "user-1")
+    record = await store.consume(query["state"][0], "binding-1")
     assert record.user_id == "user-1"
     with pytest.raises(AuthenticationError):
-        await store.consume(query["state"][0], "user-1")
+        await store.consume(query["state"][0], "binding-1")
 
 
 def test_fernet_encryption_does_not_store_plaintext(tmp_path: Path) -> None:
@@ -153,9 +153,9 @@ async def test_callback_persists_encrypted_tokens_refreshes_and_disconnects(
         clock=lambda: now[0],
     )
 
-    authorization_url = await service.start("user-1")
+    authorization_url = await service.start("user-1", "binding-1")
     state = parse_qs(urlparse(authorization_url).query)["state"][0]
-    connected = await service.callback(async_session, "user-1", "one-time-code", state)
+    connected = await service.callback(async_session, "one-time-code", state, "binding-1")
     await async_session.commit()
 
     assert connected.connected is True
@@ -197,11 +197,42 @@ async def test_callback_rejects_authorization_response_with_missing_scopes(
         settings,
         client=GoogleOAuthClient(settings, transport=transport),
     )
-    authorization_url = await service.start("user-3")
+    authorization_url = await service.start("user-3", "binding-3")
     state = parse_qs(urlparse(authorization_url).query)["state"][0]
 
     with pytest.raises(ValidationError, match="missing required scopes"):
-        await service.callback(async_session, "user-3", "one-time-code", state)
+        await service.callback(async_session, "one-time-code", state, "binding-3")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("presented_binding", [None, "", "another-browser"])
+async def test_callback_from_a_browser_that_did_not_start_the_flow_stores_nothing(
+    async_session: AsyncSession, presented_binding: str | None
+) -> None:
+    """A victim completing an attacker-started state cannot attach their Google account to it."""
+    settings = make_settings()
+    service = GoogleOAuthService(
+        settings,
+        client=GoogleOAuthClient(settings, transport=FakeGoogleTransport(settings.scopes)),
+    )
+    authorization_url = await service.start("attacker-1", "attacker-browser")
+    state = parse_qs(urlparse(authorization_url).query)["state"][0]
+
+    with pytest.raises(AuthenticationError):
+        await service.callback(async_session, "victim-code", state, presented_binding)
+
+    assert (await async_session.execute(select(GoogleIntegration))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_start_requires_a_browser_binding() -> None:
+    settings = make_settings()
+    service = GoogleOAuthService(
+        settings,
+        client=GoogleOAuthClient(settings, transport=FakeGoogleTransport(settings.scopes)),
+    )
+    with pytest.raises(ValueError, match="bound to the browser"):
+        await service.start("user-1", "")
 
 
 @pytest.mark.asyncio

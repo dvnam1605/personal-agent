@@ -316,7 +316,7 @@ def blocked_message(exc: Any) -> str:
     details = getattr(exc, "details", None) or {}
     if details.get("missing_scopes"):
         return (
-            "Google chưa cấp quyền Gmail. Mở GET /auth/google/start để cấp lại scope, rồi thử lại."
+            "Google chưa cấp quyền Gmail. Bấm “Kết nối lại Google” để cấp lại quyền, rồi thử lại."
         )
     text = (getattr(exc, "message", "") or "").casefold()
     code = getattr(exc, "code", "")

@@ -72,8 +72,12 @@ export const Header: React.FC<HeaderProps> = ({
     }
   }, [])
 
-  const handleConnectGoogle = () => {
-    window.location.href = apiClient.getGoogleConnectUrl()
+  const handleConnectGoogle = async () => {
+    try {
+      await apiClient.startGoogleConnect()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.')
+    }
   }
 
   const isConnected = Boolean(googleStatus?.connected && googleStatus?.healthy)
