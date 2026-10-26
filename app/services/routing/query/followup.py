@@ -7,6 +7,7 @@ follow-ups are condensed with the previous question before triage.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from contextvars import ContextVar
@@ -24,6 +25,9 @@ logger = logging.getLogger("app.services.routing.query.orchestrator")
 
 # Profile-selected documents read together in one scoped RAG pass.
 _RAG_MAX_SCOPED_DOCUMENTS = 8
+
+# Longest stored turn fed back into follow-up rewriting and triage (prompts cut further).
+_HISTORY_CHARS = 4000
 
 # Per-request follow-up scope: (documents the previous answer cited, the line pointed at).
 _FOLLOWUP_SCOPE: ContextVar[tuple[list[str], str] | None] = ContextVar(
@@ -192,7 +196,11 @@ _PERSON_PRONOUN = re.compile(r"\b(?:ông|bà|anh|chị|người)\s+(?:ấy|đó|
 
 
 class FollowupMixin(OrchestratorBase):
-    """Conversation history and follow-up handling for ``QueryOrchestrator``."""
+    """Conversation history and follow-up handling for ``QueryOrchestrator``.
+
+    The client supplies ``conversation_id``, so every read here is bound to the
+    caller: a conversation owned by someone else contributes no history and no scope.
+    """
 
     @staticmethod
     async def _load_conversation_history(
@@ -201,39 +209,51 @@ class FollowupMixin(OrchestratorBase):
         user_id: str,
         limit: int = 6,
     ) -> list[dict[str, str]]:
+        """The caller's own recent turns, each cut to a bounded length."""
         if not conversation_id:
             return []
         try:
-            from app.infrastructure.db.models import Message
+            from app.infrastructure.db.models import Conversation, Message
 
             stmt = (
                 select(Message)
-                .where(Message.conversation_id == conversation_id)
+                .join(Conversation, Conversation.id == Message.conversation_id)
+                .where(Message.conversation_id == conversation_id, Conversation.user_id == user_id)
                 .order_by(Message.created_at.desc())
                 .limit(limit)
             )
             res = await session.execute(stmt)
             msgs = list(reversed(res.scalars().all()))
-            return [{"role": m.role, "content": m.content} for m in msgs]
+            return [{"role": m.role, "content": m.content[:_HISTORY_CHARS]} for m in msgs]
         except Exception:
             logger.warning("load_conversation_history_failed", exc_info=True)
             return []
 
     @staticmethod
     async def _set_followup_scope(
-        session: AsyncSession, conversation_id: str | None, anchor: str | None
+        session: AsyncSession, conversation_id: str | None, user_id: str, anchor: str | None
     ) -> None:
-        """Scope a follow-up's retrieval to what the previous answer cited."""
+        """Scope a follow-up's retrieval to what the caller's previous answer cited."""
         _FOLLOWUP_SCOPE.set(None)
         if not anchor or not conversation_id:
             return
         try:
-            from app.infrastructure.db.models import Message, RunEvidence
+            from app.infrastructure.db.models import (
+                AssistantRun,
+                Conversation,
+                Message,
+                RunEvidence,
+            )
 
             message = (
                 await session.execute(
                     select(Message)
-                    .where(Message.conversation_id == conversation_id, Message.role == "assistant")
+                    .join(Conversation, Conversation.id == Message.conversation_id)
+                    .where(
+                        Message.conversation_id == conversation_id,
+                        Message.role == "assistant",
+                        Conversation.user_id == user_id,
+                    )
                     .order_by(Message.created_at.desc())
                     .limit(1)
                 )
@@ -250,8 +270,12 @@ class FollowupMixin(OrchestratorBase):
                 ids = list(
                     (
                         await session.execute(
-                            select(RunEvidence.document_id).where(
-                                RunEvidence.run_id == message.run_id, RunEvidence.cited
+                            select(RunEvidence.document_id)
+                            .join(AssistantRun, AssistantRun.id == RunEvidence.run_id)
+                            .where(
+                                RunEvidence.run_id == message.run_id,
+                                RunEvidence.cited,
+                                AssistantRun.user_id == user_id,
                             )
                         )
                     ).scalars()
@@ -284,11 +308,12 @@ class FollowupMixin(OrchestratorBase):
                 "condensed_followup_query",
                 extra={"original": query, "condensed": effective_query},
             )
-        decision = self._triage.triage(effective_query)
+        # Triage is CPU-bound regex work and may make a blocking LLM call; keep it off the event loop.
+        decision = await asyncio.to_thread(self._triage.triage, effective_query)
         if decision.route_type is RouteType.CLARIFICATION and history and effective_query == query:
             condensed = condense_query_with_history(query, history, force=True)
             if condensed != query:
-                retried = self._triage.triage(condensed)
+                retried = await asyncio.to_thread(self._triage.triage, condensed)
                 if retried.route_type is not RouteType.CLARIFICATION:
                     logger.info(
                         "clarification_resolved_from_history",

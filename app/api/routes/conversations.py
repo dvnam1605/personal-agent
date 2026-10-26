@@ -52,21 +52,35 @@ class UpdateConversationRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
 
 
+# Same bound as QueryRequest.query; a saved question is replayed into follow-up triage.
+MAX_USER_TURN_CHARS = 4000
+# Generated reports stream into the chat, so answers may be long, but never unbounded.
+MAX_ASSISTANT_TURN_CHARS = 200_000
+
+
 class AppendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role: str = Field(..., max_length=32)
-    content: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1, max_length=MAX_ASSISTANT_TURN_CHARS)
     metadata: dict[str, Any] = Field(default_factory=dict)
     run_id: str | None = Field(default=None, max_length=36)
 
 
 class SaveTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    user_query: str = Field(..., min_length=1)
-    assistant_response: str = Field(default="")
+    user_query: str = Field(..., min_length=1, max_length=MAX_USER_TURN_CHARS)
+    assistant_response: str = Field(default="", max_length=MAX_ASSISTANT_TURN_CHARS)
     turn_id: str | None = Field(default=None, max_length=64)
     run_id: str | None = Field(default=None, max_length=36)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+async def _owned_run_id(session: AsyncSession, user_id: str, run_id: str | None) -> str | None:
+    """The client-sent run id, kept only when that run belongs to the caller."""
+    if not run_id:
+        return None
+    run = await session.get(AssistantRun, run_id)
+    return run_id if run is not None and run.user_id == user_id else None
 
 
 async def _server_side_citations(
@@ -314,12 +328,13 @@ async def save_turn(
         conv.title = trimmed[:42] + ("..." if len(trimmed) > 42 else "")
 
     conv.updated_at = now
+    run_id = await _owned_run_id(session, user_id, body.run_id)
 
     # 1. User message
     user_msg = Message(
         id=str(uuid.uuid4()),
         conversation_id=conv.id,
-        run_id=body.run_id,
+        run_id=run_id,
         role="user",
         content=body.user_query,
         metadata_={"turn_id": body.turn_id} if body.turn_id else {},
@@ -332,7 +347,7 @@ async def save_turn(
         assistant_msg = Message(
             id=str(uuid.uuid4()),
             conversation_id=conv.id,
-            run_id=body.run_id,
+            run_id=run_id,
             role="assistant",
             content=body.assistant_response,
             metadata_=await _server_side_citations(session, user_id, body),

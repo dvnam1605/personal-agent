@@ -29,7 +29,6 @@ from app.services.routing.triage_rules import (
     DOC_DURATION_PATTERN,
     DOC_READ_PATTERN,
     DOC_TITLE_CALENDAR_NOISE_PATTERN,
-    FOLLOWUP_AFTER_MEETING,
     INVITATION_PATTERN,
     NON_CALENDAR_KE_HOACH,
     NON_MEETING_HOP,
@@ -42,6 +41,7 @@ from app.services.routing.triage_rules import (
     STAGE2_MESSAGING,
     TIM_PREFIX_PATTERN,
     TIME_SIGNAL_TIGHT,
+    is_followup_after_meeting,
 )
 from app.services.routing.workflow_registry import (
     StaticWorkflowRegistry,
@@ -179,7 +179,7 @@ class FastTriage:
             has_calendar_core or has_weekday or has_cal_rel_valid or has_cal_inquiry_with_time
         )
 
-        is_meeting_followup = bool(FOLLOWUP_AFTER_MEETING.search(unaccented))
+        is_meeting_followup = is_followup_after_meeting(unaccented)
         is_invitation_comm = bool(INVITATION_PATTERN.search(unaccented))
         has_comm = (
             bool(COMMUNICATION_PATTERN.search(unaccented))

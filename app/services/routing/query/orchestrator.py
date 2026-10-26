@@ -77,7 +77,7 @@ class QueryOrchestrator(StreamMixin):
         started = time.perf_counter()
         history = await self._load_conversation_history(session, conversation_id, user_id)
         effective_query, decision, anchor = await self._triage_in_context(query, history)
-        await self._set_followup_scope(session, conversation_id, anchor)
+        await self._set_followup_scope(session, conversation_id, user_id, anchor)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(

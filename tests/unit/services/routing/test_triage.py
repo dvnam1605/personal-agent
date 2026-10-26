@@ -430,3 +430,17 @@ def test_budget_plan_with_relative_date_is_knowledge() -> None:
     assert decision.route_type == RouteType.DIRECT_SPECIALIST
     assert decision.target_agent == "KnowledgeResearchAgent"
     assert decision.domains == [Domain.KNOWLEDGE_RESEARCH]
+
+
+def test_followup_after_meeting_matcher_is_linear_on_long_input() -> None:
+    """The former single regex took ~0.5 s on 8 KB of 'gui thu '; the matcher must stay fast."""
+    from app.services.routing.triage_rules import is_followup_after_meeting
+
+    assert is_followup_after_meeting("soan follow-up sau cuoc hop sang nay")
+    assert is_followup_after_meeting("meeting notes roi gui thu")
+    assert not is_followup_after_meeting("gui thu")
+    assert not is_followup_after_meeting("follow up\nsau cuoc hop")
+
+    started = time.perf_counter()
+    assert not is_followup_after_meeting("gui thu " * 8000)
+    assert time.perf_counter() - started < 0.1
