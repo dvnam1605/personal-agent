@@ -42,53 +42,67 @@ class AuthRateLimiter:
             del self._memory_store[k]
 
     async def check_login_allowed(self, email: str, client_ip: str) -> tuple[bool, str | None, int]:
-        """Check if login attempt is allowed for the given email and client IP.
+        """Admit one login attempt for ``email`` from ``client_ip``, or refuse it.
+
+        The per-IP throttle is checked first. The account attempt is then reserved
+        atomically before the password is verified (INCR in Redis; a single step on the
+        event loop for the memory fallback), so concurrent requests can never evaluate
+        more than MAX_FAILED_LOGIN_ATTEMPTS guesses per lockout window. A successful
+        login clears the counter.
 
         Returns:
             (is_allowed, error_message, retry_after_seconds)
         """
-        clean_email = email.strip().lower()
-        now = time.time()
+        throttled = await self._check_ip_login(client_ip)
+        if throttled is not None:
+            return throttled
 
-        # 1. Check Account Lockout
+        clean_email = email.strip().lower()
         failed_key = f"{self._get_key_prefix()}:failed:{clean_email}"
+        attempts, ttl = await self._reserve_login_attempt(failed_key)
+        if attempts > MAX_FAILED_LOGIN_ATTEMPTS:
+            logger.warning(
+                "auth.lockout_blocked",
+                email=clean_email,
+                client_ip=client_ip,
+                failed_count=attempts,
+                ttl=ttl,
+            )
+            mins = max(1, round(ttl / 60))
+            return (
+                False,
+                f"Tài khoản đang bị tạm khóa do nhập sai quá {MAX_FAILED_LOGIN_ATTEMPTS} lần liên tiếp. "
+                f"Vui lòng thử lại sau {mins} phút.",
+                ttl,
+            )
+        return True, None, 0
+
+    async def _reserve_login_attempt(self, failed_key: str) -> tuple[int, int]:
+        """Count one more attempt in the lockout window; return (attempts, seconds left)."""
         try:
             client = await redis_manager.get_client()
-            failed_count_raw = await client.get(failed_key)
-            failed_count = int(failed_count_raw) if failed_count_raw else 0
-            if failed_count >= MAX_FAILED_LOGIN_ATTEMPTS:
-                ttl = await client.ttl(failed_key)
-                ttl = max(1, ttl) if ttl > 0 else LOCKOUT_DURATION_SECONDS
-                mins = max(1, round(ttl / 60))
-                logger.warning(
-                    "auth.lockout_blocked",
-                    email=clean_email,
-                    client_ip=client_ip,
-                    failed_count=failed_count,
-                    ttl=ttl,
-                )
-                return (
-                    False,
-                    f"Tài khoản đang bị tạm khóa do nhập sai quá {MAX_FAILED_LOGIN_ATTEMPTS} lần liên tiếp. "
-                    f"Vui lòng thử lại sau {mins} phút.",
-                    ttl,
-                )
+            attempts = int(await client.incr(failed_key))
+            ttl = int(await client.ttl(failed_key))
+            if attempts == 1 or ttl < 0:
+                await client.expire(failed_key, LOCKOUT_DURATION_SECONDS)
+                ttl = LOCKOUT_DURATION_SECONDS
+            return attempts, max(1, ttl)
         except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
-            logger.warning("auth.ratelimit_redis_fallback", action="check_lockout", error=str(exc))
-            # Fallback to memory
+            logger.warning(
+                "auth.ratelimit_redis_fallback", action="reserve_attempt", error=str(exc)
+            )
+            now = time.time()
             self._clean_memory_store()
-            bucket = self._memory_store.get(failed_key)
-            if bucket and bucket.expires_at > now and bucket.count >= MAX_FAILED_LOGIN_ATTEMPTS:
-                ttl = max(1, int(bucket.expires_at - now))
-                mins = max(1, round(ttl / 60))
-                return (
-                    False,
-                    f"Tài khoản đang bị tạm khóa do nhập sai quá {MAX_FAILED_LOGIN_ATTEMPTS} lần liên tiếp. "
-                    f"Vui lòng thử lại sau {mins} phút.",
-                    ttl,
-                )
+            bucket = self._memory_store[failed_key]
+            if bucket.expires_at <= now:
+                bucket.count = 0
+                bucket.expires_at = now + LOCKOUT_DURATION_SECONDS
+            bucket.count += 1
+            return bucket.count, max(1, int(bucket.expires_at - now))
 
-        # 2. Check IP Throttling for Login
+    async def _check_ip_login(self, client_ip: str) -> tuple[bool, str | None, int] | None:
+        """Per-IP login throttle; returns the refusal, or None when the attempt may proceed."""
+        now = time.time()
         ip_key = f"{self._get_key_prefix()}:ip_login:{client_ip}"
         try:
             client = await redis_manager.get_client()
@@ -103,7 +117,6 @@ class AuthRateLimiter:
                     "Quá nhiều lượt thử đăng nhập từ địa chỉ mạng của bạn. Vui lòng thử lại sau.",
                     ttl,
                 )
-            # Increment IP counter
             pipe = client.pipeline()
             pipe.incr(ip_key)
             pipe.expire(ip_key, 60)
@@ -124,40 +137,20 @@ class AuthRateLimiter:
                         "Quá nhiều lượt thử đăng nhập từ địa chỉ mạng của bạn. Vui lòng thử lại sau.",
                         ttl,
                     )
+        return None
 
-        return True, None, 0
-
-    async def record_login_failure(self, email: str, client_ip: str) -> int:
-        """Record a failed login attempt for the given email and return total consecutive failures."""
+    async def login_failure_count(self, email: str) -> int:
+        """Attempts counted in the current lockout window (each was reserved before verifying)."""
         clean_email = email.strip().lower()
-        now = time.time()
         failed_key = f"{self._get_key_prefix()}:failed:{clean_email}"
-
         try:
             client = await redis_manager.get_client()
-            pipe = client.pipeline()
-            pipe.incr(failed_key)
-            pipe.expire(failed_key, LOCKOUT_DURATION_SECONDS)
-            res = await pipe.execute()
-            new_count = int(res[0])
-            logger.info(
-                "auth.login_failure_recorded",
-                email=clean_email,
-                client_ip=client_ip,
-                failed_count=new_count,
-            )
-            return new_count
+            raw = await client.get(failed_key)
+            return int(raw) if raw else 0
         except Exception as exc:  # noqa: BLE001 - any Redis failure falls back to memory
-            logger.warning("auth.ratelimit_redis_fallback", action="record_failure", error=str(exc))
-            self._clean_memory_store()
-            bucket = self._memory_store[failed_key]
-            if bucket.expires_at <= now:
-                bucket.count = 1
-                bucket.expires_at = now + LOCKOUT_DURATION_SECONDS
-            else:
-                bucket.count += 1
-                bucket.expires_at = now + LOCKOUT_DURATION_SECONDS
-            return bucket.count
+            logger.warning("auth.ratelimit_redis_fallback", action="failure_count", error=str(exc))
+            bucket = self._memory_store.get(failed_key)
+            return bucket.count if bucket and bucket.expires_at > time.time() else 0
 
     async def clear_login_failures(self, email: str) -> None:
         """Reset consecutive failed login counter upon successful login."""

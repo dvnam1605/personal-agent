@@ -128,11 +128,37 @@ COMMUNICATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-FOLLOWUP_AFTER_MEETING = re.compile(
-    r"\b(follow[\s-]*up|soan\s+follow[\s-]*up|gui\s+thu|gui\s+mail|lien\s+he)\b.*\b(after\s+the\s+meeting|sau\s+cuoc\s+hop|sau\s+hop|with\s+\w+|cho\s+\w+|voi\s+\w+|meeting\s+notes|ghi\s+chu\s+hop|bien\s+ban\s+hop|noi\s+dung\s+hop|notes)\b|"
-    r"\b(meeting\s+notes|ghi\s+chu\s+hop|bien\s+ban\s+hop|noi\s+dung\s+hop)\b.*\b(follow[\s-]*up|soan\s+follow[\s-]*up|gui\s+thu|gui\s+mail|lien\s+he)\b",
+_FOLLOWUP_ACTION = re.compile(
+    r"\b(follow[\s-]*up|soan\s+follow[\s-]*up|gui\s+thu|gui\s+mail|lien\s+he)\b",
     re.IGNORECASE,
 )
+_FOLLOWUP_CONTEXT = re.compile(
+    r"\b(after\s+the\s+meeting|sau\s+cuoc\s+hop|sau\s+hop|with\s+\w+|cho\s+\w+|voi\s+\w+|meeting\s+notes|ghi\s+chu\s+hop|bien\s+ban\s+hop|noi\s+dung\s+hop|notes)\b",
+    re.IGNORECASE,
+)
+_MEETING_RECORD = re.compile(
+    r"\b(meeting\s+notes|ghi\s+chu\s+hop|bien\s+ban\s+hop|noi\s+dung\s+hop)\b",
+    re.IGNORECASE,
+)
+
+
+def is_followup_after_meeting(text: str) -> bool:
+    """True when a line has a follow-up action followed by meeting context, or meeting notes
+    followed by a follow-up action.
+
+    Each part is searched once, starting where the previous one ended, so the cost stays
+    linear in the input; a single regex with ``.*`` between the alternations was quadratic
+    on long text. Both parts must sit on one line, as the former ``.*`` required.
+    """
+    for line in text.split("\n"):
+        action = _FOLLOWUP_ACTION.search(line)
+        if action and _FOLLOWUP_CONTEXT.search(line, action.end()):
+            return True
+        record = _MEETING_RECORD.search(line)
+        if record and _FOLLOWUP_ACTION.search(line, record.end()):
+            return True
+    return False
+
 
 INVITATION_PATTERN = re.compile(
     r"\b(thu\s+moi|email\s+moi|mail\s+moi|soan\s+thu\s+moi|gui\s+thu\s+moi|phan\s+hoi\s+email\s+moi|moi\s+tham\s+du)\b",

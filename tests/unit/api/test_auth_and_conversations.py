@@ -112,3 +112,42 @@ async def test_auth_service_register_and_login():
             )
 
     await engine.dispose()
+
+
+def test_saved_turns_are_length_bounded() -> None:
+    """A stored question is replayed into follow-up triage, so it cannot be unbounded."""
+    from pydantic import ValidationError
+
+    from app.api.routes.conversations import MAX_USER_TURN_CHARS, SaveTurnRequest
+
+    SaveTurnRequest(user_query="x" * MAX_USER_TURN_CHARS)
+    with pytest.raises(ValidationError):
+        SaveTurnRequest(user_query="x" * (MAX_USER_TURN_CHARS + 1))
+
+
+@pytest.mark.asyncio
+async def test_saved_turn_drops_a_run_id_owned_by_someone_else():
+    from app.api.routes.conversations import _owned_run_id
+    from app.infrastructure.db.models import AssistantRun, User
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        session.add_all([User(id="owner", email="o@x.local"), User(id="other", email="p@x.local")])
+        session.add(
+            AssistantRun(
+                id="run-owner",
+                user_id="owner",
+                correlation_id="run-owner",
+                request="q",
+                route_type="DIRECT_SPECIALIST",
+                complexity="DIRECT",
+            )
+        )
+        await session.commit()
+
+        assert await _owned_run_id(session, "owner", "run-owner") == "run-owner"
+        assert await _owned_run_id(session, "other", "run-owner") is None
+        assert await _owned_run_id(session, "owner", "missing") is None
+    await engine.dispose()

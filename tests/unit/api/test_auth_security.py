@@ -43,24 +43,21 @@ async def test_rate_limiter_direct_logic() -> None:
 
     await auth_rate_limiter.clear_login_failures(email)
 
-    # 1. Allowed initially
-    allowed, msg, ttl = await auth_rate_limiter.check_login_allowed(email, ip)
-    assert allowed is True
-    assert msg is None
+    # 1. Each admitted attempt is counted before the password is verified
+    for attempt in range(1, MAX_FAILED_LOGIN_ATTEMPTS + 1):
+        allowed, msg, ttl = await auth_rate_limiter.check_login_allowed(email, ip)
+        assert allowed is True
+        assert msg is None
+        assert await auth_rate_limiter.login_failure_count(email) == attempt
 
-    # 2. Record 5 failures
-    for i in range(1, MAX_FAILED_LOGIN_ATTEMPTS + 1):
-        count = await auth_rate_limiter.record_login_failure(email, ip)
-        assert count == i
-
-    # 3. Check now locked
+    # 2. The next attempt is refused
     allowed, msg, ttl = await auth_rate_limiter.check_login_allowed(email, ip)
     assert allowed is False
     assert msg is not None
     assert "tạm khóa" in msg.lower()
     assert ttl > 0
 
-    # 4. Clear failures
+    # 3. Clear failures
     await auth_rate_limiter.clear_login_failures(email)
     allowed, msg, ttl = await auth_rate_limiter.check_login_allowed(email, ip)
     assert allowed is True

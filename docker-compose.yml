@@ -1,5 +1,7 @@
-# Local secrets must be supplied via the environment (see .env.example).
+# Local development stack. Secrets come from the environment (see .env.example);
 # Compose refuses to start if POSTGRES_PASSWORD / REDIS_PASSWORD are unset (H6).
+# The backend is pinned to ENVIRONMENT=development (relaxed auth, debug pages), so every
+# port is published on 127.0.0.1 only: nothing here is reachable from other machines.
 
 services:
   postgres:
@@ -11,7 +13,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -30,7 +32,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -50,7 +52,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     # Requires NVIDIA Container Toolkit + Docker GPU support (GTX 1650 / etc.).
     # Without toolkit, compose still starts but torch.cuda.is_available() stays False.
     gpus: all
@@ -64,6 +66,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - WINDOWS_HOST_IP=${WINDOWS_HOST_IP:-}
+      # Only the nginx container may set X-Forwarded-For for rate limiting.
+      - 'SECURITY__TRUSTED_PROXIES=["10.249.20.10/32"]'
     # host-gateway tracks host IP dynamically, or falls back to WINDOWS_HOST_IP in WSL
     extra_hosts:
       - "host.docker.internal:${WINDOWS_HOST_IP:-host-gateway}"
@@ -94,11 +98,12 @@ services:
     container_name: assistant_frontend
     restart: unless-stopped
     ports:
-      - "5173:8080"
+      - "127.0.0.1:5173:8080"
     depends_on:
       - backend
     networks:
-      - assistant_net
+      assistant_net:
+        ipv4_address: 10.249.20.10
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
       interval: 10s
