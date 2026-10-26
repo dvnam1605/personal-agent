@@ -55,8 +55,12 @@ export const SettingsWorkspace: React.FC = () => {
     showToast('Đã lưu cấu hình tài khoản.', 'success')
   }
 
-  const handleConnectGoogle = () => {
-    window.location.href = apiClient.getGoogleConnectUrl()
+  const handleConnectGoogle = async () => {
+    try {
+      await apiClient.startGoogleConnect()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.', 'error')
+    }
   }
 
   const isConnected = Boolean(googleStatus?.connected && googleStatus?.healthy)

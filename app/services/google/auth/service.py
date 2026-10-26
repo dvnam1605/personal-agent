@@ -61,13 +61,14 @@ class GoogleOAuthService:
         )
         self._cipher = cipher
 
-    async def start(self, user_id: str) -> str:
-        """Create state and return the provider authorization URL."""
+    async def start(self, user_id: str, browser_binding: str) -> str:
+        """Create state owned by ``user_id`` and bound to the starting browser; return the provider URL."""
         self._validate_configuration()
         record = await self.state_store.issue(
             user_id=user_id,
             redirect_uri=self.settings.redirect_uri,
             scopes=self.settings.scopes,
+            browser_binding=browser_binding,
         )
         return self.client.authorization_url(
             state=record.state,
@@ -79,16 +80,19 @@ class GoogleOAuthService:
     async def callback(
         self,
         session: AsyncSession,
-        user_id: str,
         code: str | None,
         state: str,
+        browser_binding: str | None,
         error: str | None = None,
     ) -> GoogleIntegrationStatus:
-        """Consume OAuth state, exchange the code, validate scopes, and persist encrypted tokens."""
-        record = await self.state_store.consume(state, user_id)
-        effective_user_id = (
-            record.user_id if record.user_id and record.user_id != "default-user" else user_id
-        )
+        """Consume OAuth state, exchange the code, validate scopes, and persist encrypted tokens.
+
+        The grant is stored for the principal that started the flow. The state is accepted
+        only with the binding of the browser that started it, so a link opened in another
+        browser cannot attach that browser's Google account to the starter.
+        """
+        record = await self.state_store.consume(state, browser_binding)
+        effective_user_id = record.user_id
         if error:
             raise AuthenticationError("Google authorization was denied.")
         if not code or not code.strip():

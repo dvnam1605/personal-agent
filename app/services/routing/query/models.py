@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.routing.triage import RouteDecision
 
 GOOGLE_CONNECT_HINT = (
-    "Google chưa được kết nối hoặc token không còn hiệu lực. Mở GET /auth/google/start rồi thử lại."
+    "Google chưa được kết nối hoặc token không còn hiệu lực. Bấm “Kết nối lại Google” rồi thử lại."
 )
 
 

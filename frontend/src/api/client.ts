@@ -20,6 +20,7 @@ import type {
   GeneratedDocumentSummary,
   GeneratedDocumentView,
   GoogleDisconnectResponse,
+  GoogleStartResponse,
   GoogleIntegrationStatus,
   HealthResponse,
   QueryRequest,
@@ -398,12 +399,12 @@ class ApiClient {
   }
 
   /* 4. Google Workspace Integration */
-  getGoogleConnectUrl(): string {
-    const token = this.getToken()
-    if (token) {
-      return `/auth/google/start?token=${encodeURIComponent(token)}`
-    }
-    return '/auth/google/start'
+  /** Start Google OAuth with the session header (never a token in the URL), then open Google's consent page. */
+  async startGoogleConnect(): Promise<void> {
+    const { authorization_url } = await this.request<GoogleStartResponse>('/auth/google/start', {
+      method: 'POST',
+    })
+    window.location.assign(authorization_url)
   }
 
   async getGoogleStatus(): Promise<GoogleIntegrationStatus> {

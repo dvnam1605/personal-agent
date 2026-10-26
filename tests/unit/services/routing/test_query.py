@@ -296,7 +296,7 @@ async def test_orchestrator_blocks_when_google_disconnected(db_session: AsyncSes
     )
     result = await orchestrator.handle(db_session, "user_bob", "Lịch ngày mai?")
     assert result.status == "blocked"
-    assert "auth/google/start" in result.message
+    assert "Kết nối lại Google" in result.message
 
 
 @pytest.mark.asyncio

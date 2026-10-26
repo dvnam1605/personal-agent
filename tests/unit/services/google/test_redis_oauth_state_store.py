@@ -1,5 +1,7 @@
 """Unit tests for the Redis-backed single-use OAuth state store."""
 
+import json
+
 import pytest
 
 from app.domain.errors import AuthenticationError
@@ -33,30 +35,61 @@ async def test_issue_and_consume_roundtrip_is_single_use() -> None:
     store = _store(client)
 
     record = await store.issue(
-        "user-1", "http://localhost:8000/auth/google/callback", ["s1", "s1 ", "s2"]
+        "user-1", "http://localhost:8000/auth/google/callback", ["s1", "s1 ", "s2"], "binding-1"
     )
     assert record.user_id == "user-1"
     assert record.scopes == ("s1", "s2")
+    stored = json.loads(client.data[store._key(record.state)][0])
+    assert "binding-1" not in json.dumps(stored)
 
-    consumed = await store.consume(record.state, "user-1")
+    consumed = await store.consume(record.state, "binding-1")
     assert consumed.code_verifier == record.code_verifier
+    assert consumed.user_id == "user-1"
     # Second consumption must fail: the state was deleted atomically.
     with pytest.raises(AuthenticationError):
-        await store.consume(record.state, "user-1")
+        await store.consume(record.state, "binding-1")
 
 
 @pytest.mark.asyncio
-async def test_consume_rejects_unknown_or_mismatched_state() -> None:
+@pytest.mark.parametrize("presented_binding", [None, "", "another-browser"])
+async def test_consume_rejects_a_state_without_its_browser_binding(
+    presented_binding: str | None,
+) -> None:
+    """Completing an owner's state from another browser fails, whatever identity it claims."""
     store = _store(FakeAsyncRedis())
+    record = await store.issue("owner", "http://redirect", ["scope"], "owner-browser")
 
     with pytest.raises(AuthenticationError):
-        await store.consume("missing-state", "user-1")
+        await store.consume(record.state, presented_binding)
+    # The rejected attempt still consumed the state, so it cannot be retried.
+    with pytest.raises(AuthenticationError):
+        await store.consume(record.state, "owner-browser")
 
+
+@pytest.mark.asyncio
+async def test_consume_rejects_unknown_state_and_unbound_legacy_records() -> None:
     client = FakeAsyncRedis()
-    store2 = _store(client)
-    record = await store2.issue("owner", "http://redirect", ["scope"])
+    store = _store(client)
+
     with pytest.raises(AuthenticationError):
-        await store2.consume(record.state, "attacker")
+        await store.consume("missing-state", "binding")
+
+    legacy = {
+        "user_id": "owner",
+        "code_verifier": "verifier",
+        "redirect_uri": "http://redirect",
+        "scopes": ["scope"],
+        "issued_at": utc_now().isoformat(),
+    }
+    client.data[store._key("legacy-state")] = (json.dumps(legacy), 600)
+    with pytest.raises(AuthenticationError):
+        await store.consume("legacy-state", "binding")
+
+
+@pytest.mark.asyncio
+async def test_issue_requires_a_browser_binding() -> None:
+    with pytest.raises(ValueError):
+        await _store(FakeAsyncRedis()).issue("owner", "http://redirect", ["scope"], "")
 
 
 @pytest.mark.asyncio
@@ -66,7 +99,7 @@ async def test_ttl_is_positive_and_validated() -> None:
 
     client = FakeAsyncRedis()
     store = _store(client, ttl=120)
-    record = await store.issue("u", "http://r", ["s"])
+    record = await store.issue("u", "http://r", ["s"], "b")
     _, stored_ttl = client.data[store._key(record.state)]
     assert stored_ttl == 120
 
@@ -90,10 +123,10 @@ async def test_expired_state_is_rejected_by_clock() -> None:
         clock=clock,  # type: ignore[arg-type]
     )
     clock.offset_seconds = 3600.0
-    record = await store.issue("u", "http://r", ["s"])
+    record = await store.issue("u", "http://r", ["s"], "b")
     clock.offset_seconds = 0.0
     with pytest.raises(AuthenticationError):
-        await store.consume(record.state, "u")
+        await store.consume(record.state, "b")
 
 
 def _factory(client: FakeAsyncRedis):

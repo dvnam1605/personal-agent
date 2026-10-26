@@ -209,6 +209,9 @@
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .btn-reconnect-google:hover {

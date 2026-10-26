@@ -27,9 +27,30 @@ def _code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
+def _binding_digest(browser_binding: str) -> str:
+    """Hash of the browser-binding cookie value; the value itself is never stored."""
+    return hashlib.sha256(browser_binding.encode("utf-8")).hexdigest()
+
+
+def _require_binding(browser_binding: str) -> str:
+    if not browser_binding:
+        raise ValueError("An OAuth state must be bound to the browser that starts the flow.")
+    return _binding_digest(browser_binding)
+
+
+def _binding_matches(record: OAuthStateRecord, browser_binding: str | None) -> bool:
+    if not browser_binding:
+        return False
+    return secrets.compare_digest(record.browser_binding_hash, _binding_digest(browser_binding))
+
+
 @dataclass(frozen=True, slots=True)
 class OAuthStateRecord:
-    """Opaque pending OAuth request data kept server-side."""
+    """Opaque pending OAuth request data kept server-side.
+
+    ``browser_binding_hash`` ties the state to the browser that started the flow: the
+    callback is accepted only when that browser presents the matching binding cookie.
+    """
 
     state: str
     user_id: str
@@ -37,16 +58,17 @@ class OAuthStateRecord:
     redirect_uri: str
     scopes: tuple[str, ...]
     issued_at: datetime
+    browser_binding_hash: str
 
 
 class OAuthStateStore(Protocol):
-    """Storage contract for single-use OAuth state records."""
+    """Storage contract for single-use, browser-bound OAuth state records."""
 
     async def issue(
-        self, user_id: str, redirect_uri: str, scopes: Iterable[str]
+        self, user_id: str, redirect_uri: str, scopes: Iterable[str], browser_binding: str
     ) -> OAuthStateRecord: ...
 
-    async def consume(self, state: str, user_id: str) -> OAuthStateRecord: ...
+    async def consume(self, state: str, browser_binding: str | None) -> OAuthStateRecord: ...
 
 
 class InMemoryOAuthStateStore:
@@ -54,7 +76,8 @@ class InMemoryOAuthStateStore:
 
     A multi-worker deployment can provide a Redis-backed implementation of the same
     protocol without changing the OAuth service. State is never encoded into a URL
-    in a way that exposes the local user ID or PKCE verifier.
+    in a way that exposes the local user ID or PKCE verifier, and a state is consumed
+    only together with the browser binding it was issued for.
     """
 
     def __init__(self, ttl_seconds: int = 600, clock: Clock = utc_now) -> None:
@@ -65,8 +88,9 @@ class InMemoryOAuthStateStore:
         self._states: dict[str, OAuthStateRecord] = {}
 
     async def issue(
-        self, user_id: str, redirect_uri: str, scopes: Iterable[str]
+        self, user_id: str, redirect_uri: str, scopes: Iterable[str], browser_binding: str
     ) -> OAuthStateRecord:
+        binding_hash = _require_binding(browser_binding)
         now = _as_utc(self._clock())
         self._purge(now)
         state = secrets.token_urlsafe(32)
@@ -78,17 +102,18 @@ class InMemoryOAuthStateStore:
             redirect_uri=redirect_uri,
             scopes=tuple(GoogleScopeValidator.normalize(scopes)),
             issued_at=now,
+            browser_binding_hash=binding_hash,
         )
         self._states[state] = record
         return record
 
-    async def consume(self, state: str, user_id: str) -> OAuthStateRecord:
+    async def consume(self, state: str, browser_binding: str | None) -> OAuthStateRecord:
         now = _as_utc(self._clock())
         self._purge(now)
         record = self._states.pop(state, None)
         if record is None:
             raise AuthenticationError("Invalid or expired Google OAuth state.")
-        if user_id and user_id != "default-user" and record.user_id != user_id:
+        if not _binding_matches(record, browser_binding):
             raise AuthenticationError("Invalid or expired Google OAuth state.")
         if now - record.issued_at > self._ttl:
             raise AuthenticationError("Invalid or expired Google OAuth state.")
@@ -131,8 +156,9 @@ class RedisOAuthStateStore(OAuthStateStore):
         return f"assistant:oauth-state:{state}"
 
     async def issue(
-        self, user_id: str, redirect_uri: str, scopes: Iterable[str]
+        self, user_id: str, redirect_uri: str, scopes: Iterable[str], browser_binding: str
     ) -> OAuthStateRecord:
+        binding_hash = _require_binding(browser_binding)
         now = _as_utc(self._clock())
         state = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
@@ -143,6 +169,7 @@ class RedisOAuthStateStore(OAuthStateStore):
             redirect_uri=redirect_uri,
             scopes=tuple(GoogleScopeValidator.normalize(scopes)),
             issued_at=now,
+            browser_binding_hash=binding_hash,
         )
         payload = {
             "user_id": record.user_id,
@@ -150,12 +177,13 @@ class RedisOAuthStateStore(OAuthStateStore):
             "redirect_uri": record.redirect_uri,
             "scopes": list(record.scopes),
             "issued_at": record.issued_at.isoformat(),
+            "browser_binding_hash": record.browser_binding_hash,
         }
         client = await self._client_factory()
         await client.set(self._key(state), json.dumps(payload), ex=self._ttl_seconds)
         return record
 
-    async def consume(self, state: str, user_id: str) -> OAuthStateRecord:
+    async def consume(self, state: str, browser_binding: str | None) -> OAuthStateRecord:
         client = await self._client_factory()
         raw = await client.getdel(self._key(state))
         if not raw:
@@ -169,10 +197,11 @@ class RedisOAuthStateStore(OAuthStateStore):
                 redirect_uri=str(payload["redirect_uri"]),
                 scopes=tuple(GoogleScopeValidator.normalize(payload.get("scopes", []))),
                 issued_at=datetime.fromisoformat(str(payload["issued_at"])),
+                browser_binding_hash=str(payload["browser_binding_hash"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise AuthenticationError("Invalid or expired Google OAuth state.") from exc
-        if user_id and user_id != "default-user" and record.user_id != user_id:
+        if not _binding_matches(record, browser_binding):
             raise AuthenticationError("Invalid or expired Google OAuth state.")
         if _as_utc(self._clock()) - _as_utc(record.issued_at) > self._ttl:
             raise AuthenticationError("Invalid or expired Google OAuth state.")

@@ -145,6 +145,10 @@ export interface GoogleDisconnectResponse {
   disconnected: boolean;
 }
 
+export interface GoogleStartResponse {
+  authorization_url: string;
+}
+
 /* Health & Diagnostics */
 export interface HealthResponse {
   status: string;

@@ -242,9 +242,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           {result?.status === 'blocked' && (
             <div className="assistant-blocked-box">
               <p>Google Workspace cần được cấp quyền bổ sung để thực hiện yêu cầu này.</p>
-              <a href="/auth/google/start" className="btn-reconnect-google">
+              <button
+                type="button"
+                className="btn-reconnect-google"
+                onClick={() => {
+                  apiClient.startGoogleConnect().catch((err: unknown) => {
+                    window.alert(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.')
+                  })
+                }}
+              >
                 Kết nối lại Google
-              </a>
+              </button>
             </div>
           )}
 
