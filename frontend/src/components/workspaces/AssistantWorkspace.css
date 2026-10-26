@@ -1,0 +1,215 @@
+/* Assistant Workspace */
+
+/* Executive Cockpit Split Layout */
+.executive-cockpit-layout {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+.cockpit-main-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.assistant-feed-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--space-4);
+}
+
+.assistant-composer-wrapper {
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-6) var(--space-4);
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+
+
+/* Cockpit Welcome View (Empty State replacement) */
+.cockpit-welcome-view {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.cockpit-hero-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hero-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  width: fit-content;
+}
+
+.hero-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-primary);
+}
+
+.cockpit-hero-title {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.cockpit-hero-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  max-width: 680px;
+}
+
+/* 4 Capabilities Cards Grid */
+.cockpit-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.cockpit-action-card {
+  background-color: var(--color-surface-glass-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-glass);
+  border-radius: 16px;
+  padding: var(--space-4);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: transform 0.28s var(--ease-bouncy), box-shadow 0.28s var(--ease-bouncy), border-color 0.2s ease;
+  box-shadow: var(--glass-specular), 0 4px 16px rgba(0, 0, 0, 0.06);
+  will-change: transform;
+}
+
+.cockpit-action-card:hover {
+  /* Nổi lên cao hơn rõ rệt (-7px) kèm scale nhẹ tạo cảm giác bubble bồng bềnh */
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: var(--shadow-card-hover), var(--glass-specular-hover);
+  transform: translateY(-7px) scale(1.015);
+}
+
+.cockpit-action-card:active {
+  transform: translateY(-2px) scale(0.99);
+}
+
+.cockpit-action-card:hover .action-card-icon-wrap {
+  transform: scale(1.1) rotate(-4deg);
+  border-color: var(--color-primary-border);
+  color: var(--color-primary);
+  background-color: var(--color-primary-subtle);
+}
+
+.cockpit-action-card:hover .action-card-prompt-badge {
+  color: var(--color-primary);
+  border-color: var(--color-primary-border);
+  background-color: var(--color-primary-subtle);
+}
+
+.action-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.action-card-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--color-surface-glass-pill);
+  border: 1px solid var(--color-border-glass);
+  color: var(--color-primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--glass-specular);
+  transition: transform 0.28s var(--ease-bouncy), color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.action-card-launch-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-dim);
+  transition: color var(--transition-fast);
+}
+
+.cockpit-action-card:hover .action-card-launch-hint {
+  color: var(--color-primary);
+}
+
+.action-card-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.action-card-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.action-card-footer {
+  margin-top: var(--space-2);
+}
+
+.action-card-prompt-badge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  color: var(--color-text-dim);
+  background-color: var(--color-surface-elevated);
+  border: 1px solid var(--color-border-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .cockpit-briefing-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .cockpit-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}

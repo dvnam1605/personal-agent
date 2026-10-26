@@ -12,7 +12,9 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { RAGCitation } from '../../types/api'
+import { Hint } from '../ui/Hint'
 import './Workspaces.css'
+import './MeetingsWorkspace.css'
 
 interface MeetingsWorkspaceProps {
   onSelectCitation: (citation: RAGCitation) => void
@@ -102,15 +104,16 @@ export const MeetingsWorkspace: React.FC<MeetingsWorkspaceProps> = ({
         </div>
 
         <div className="toolbar-right">
-          <button
-            className="toolbar-btn"
-            onClick={fetchMeetingPrep}
-            disabled={isLoading}
-            title="Làm mới hồ sơ họp"
-          >
-            <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
-            <span>Tổng hợp lại</span>
-          </button>
+          <Hint label="Làm mới hồ sơ họp">
+            <button
+              className="toolbar-btn"
+              onClick={fetchMeetingPrep}
+              disabled={isLoading}
+            >
+              <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
+              <span>Tổng hợp lại</span>
+            </button>
+          </Hint>
         </div>
       </div>
 

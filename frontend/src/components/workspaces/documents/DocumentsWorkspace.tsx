@@ -24,6 +24,7 @@ import { MarkdownContent } from '../../ui/MarkdownContent'
 import { DocumentReviewPanel } from './DocumentReviewPanel'
 import { TableOutlineEditor } from './TableOutlineEditor'
 import { TablePreview } from './TablePreview'
+import { Hint } from '../../ui/Hint'
 import '../Workspaces.css'
 import './DocumentsWorkspace.css'
 
@@ -219,9 +220,11 @@ export const DocumentsWorkspace: React.FC = () => {
         <div className="docgen-history">
           <div className="docgen-history__head">
             <span>Tài liệu đã tạo</span>
-            <button className="docgen-icon-btn" onClick={refreshHistory} title="Làm mới">
-              <RefreshCw size={13} />
-            </button>
+            <Hint label="Làm mới">
+              <button className="docgen-icon-btn" onClick={refreshHistory} aria-label="Làm mới">
+                <RefreshCw size={13} />
+              </button>
+            </Hint>
           </div>
           {history.length === 0 ? (
             <p className="docgen-muted">Chưa có tài liệu nào.</p>
@@ -322,19 +325,25 @@ export const DocumentsWorkspace: React.FC = () => {
                     />
                   </div>
                   <div className="docgen-section__actions">
-                    <button className="docgen-icon-btn" onClick={() => moveSection(idx, -1)} title="Lên">
-                      <ArrowUp size={13} />
-                    </button>
-                    <button className="docgen-icon-btn" onClick={() => moveSection(idx, 1)} title="Xuống">
-                      <ArrowDown size={13} />
-                    </button>
-                    <button
-                      className="docgen-icon-btn docgen-icon-btn--danger"
-                      onClick={() => setSections((prev) => prev.filter((_, i) => i !== idx))}
-                      title="Xoá mục"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <Hint label="Lên">
+                      <button className="docgen-icon-btn" onClick={() => moveSection(idx, -1)} aria-label="Lên">
+                        <ArrowUp size={13} />
+                      </button>
+                    </Hint>
+                    <Hint label="Xuống">
+                      <button className="docgen-icon-btn" onClick={() => moveSection(idx, 1)} aria-label="Xuống">
+                        <ArrowDown size={13} />
+                      </button>
+                    </Hint>
+                    <Hint label="Xoá mục">
+                      <button
+                        className="docgen-icon-btn docgen-icon-btn--danger"
+                        onClick={() => setSections((prev) => prev.filter((_, i) => i !== idx))}
+                        aria-label="Xoá mục"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </Hint>
                   </div>
                 </li>
               ))}

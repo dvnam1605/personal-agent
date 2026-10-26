@@ -87,7 +87,7 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-glass);
   overflow: hidden;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   display: flex;
   flex-direction: column;
 }
@@ -129,4 +129,11 @@
 .slash-menu-item__desc {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .composer-controls > button {
+    min-height: 40px;
+    padding-inline: var(--space-4);
+  }
 }

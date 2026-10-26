@@ -16,7 +16,9 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { CalendarEvent } from '../../types/api'
+import { Hint } from '../ui/Hint'
 import './Workspaces.css'
+import './CalendarWorkspace.css'
 
 interface CalendarWorkspaceProps {
   onScheduleMeeting: (prompt: string) => void
@@ -159,15 +161,16 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
         </div>
 
         <div className="toolbar-right">
-          <button
-            className="toolbar-btn"
-            onClick={reloadCalendar}
-            disabled={isLoading}
-            title="Làm mới lịch trình"
-          >
-            <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
-            <span>Làm mới</span>
-          </button>
+          <Hint label="Làm mới lịch trình">
+            <button
+              className="toolbar-btn"
+              onClick={reloadCalendar}
+              disabled={isLoading}
+            >
+              <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
+              <span>Làm mới</span>
+            </button>
+          </Hint>
           <a
             href="https://calendar.google.com"
             target="_blank"
@@ -229,14 +232,16 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
             />
 
             {inputValue.trim() && (
-              <button
-                type="button"
-                className="omnibar-clear-btn"
-                onClick={() => setInputValue('')}
-                title="Xóa nội dung"
-              >
-                <X size={14} />
-              </button>
+              <Hint label="Xóa nội dung">
+                <button
+                  type="button"
+                  className="omnibar-clear-btn"
+                  onClick={() => setInputValue('')}
+                  aria-label="Xóa nội dung"
+                >
+                  <X size={14} />
+                </button>
+              </Hint>
             )}
           </div>
 
@@ -373,31 +378,33 @@ export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onSchedule
 
                   {/* Smart Actions on each Calendar Card */}
                   <div className="calendar-card-actions">
-                    <button
-                      className="calendar-action-btn calendar-action-btn--prep"
-                      onClick={() =>
-                        handleQuickPrompt(
-                          `Chuẩn bị cuộc họp: ${evt.summary || 'Cuộc họp sắp tới'}`
-                        )
-                      }
-                      title="Yêu cầu Trợ lý chuẩn bị hồ sơ cuộc họp này"
-                    >
-                      <Sparkles size={12} />
-                      <span>Chuẩn bị họp</span>
-                    </button>
+                    <Hint label="Yêu cầu Trợ lý chuẩn bị hồ sơ cuộc họp này">
+                      <button
+                        className="calendar-action-btn calendar-action-btn--prep"
+                        onClick={() =>
+                          handleQuickPrompt(
+                            `Chuẩn bị cuộc họp: ${evt.summary || 'Cuộc họp sắp tới'}`
+                          )
+                        }
+                      >
+                        <Sparkles size={12} />
+                        <span>Chuẩn bị họp</span>
+                      </button>
+                    </Hint>
 
-                    <button
-                      className="calendar-action-btn calendar-action-btn--email"
-                      onClick={() =>
-                        handleQuickPrompt(
-                          `Soạn email gửi người tham dự cuộc họp "${evt.summary}" để thông báo chuẩn bị tài liệu`
-                        )
-                      }
-                      title="Soạn thư gửi các thành viên tham dự"
-                    >
-                      <Mail size={12} />
-                      <span>Gửi email</span>
-                    </button>
+                    <Hint label="Soạn thư gửi các thành viên tham dự">
+                      <button
+                        className="calendar-action-btn calendar-action-btn--email"
+                        onClick={() =>
+                          handleQuickPrompt(
+                            `Soạn email gửi người tham dự cuộc họp "${evt.summary}" để thông báo chuẩn bị tài liệu`
+                          )
+                        }
+                      >
+                        <Mail size={12} />
+                        <span>Gửi email</span>
+                      </button>
+                    </Hint>
                   </div>
                 </div>
 

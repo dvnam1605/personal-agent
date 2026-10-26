@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import type { RAGCitation } from '../../types/api'
 import './DomainCards.css'
+import '../workspaces/MeetingsWorkspace.css'
 
 interface MeetingDossierCardProps {
   meeting: {

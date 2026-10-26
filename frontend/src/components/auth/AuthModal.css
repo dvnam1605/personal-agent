@@ -1,51 +1,26 @@
 /* Auth Modal Styles - Liquid Glass & Calibrated Typography */
 
 .auth-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
+  z-index: var(--z-modal);
   background-color: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  animation: authOverlayFade 0.25s ease-out;
-}
-
-@keyframes authOverlayFade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 .auth-modal-card {
-  width: 100%;
+  z-index: var(--z-modal);
+  width: calc(100% - 2 * var(--space-4));
   max-width: 420px;
   background-color: var(--color-surface-elevated);
   border: 1px solid var(--color-border-elevated);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.4), var(--glass-specular);
   padding: var(--space-6);
-  position: relative;
   display: flex;
   flex-direction: column;
-  animation: authCardPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes authCardPop {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  gap: 0;
+  color: var(--color-text);
+  font-size: inherit;
 }
 
 .auth-modal-close {
@@ -244,4 +219,17 @@
 
 .auth-switch-btn:hover {
   color: var(--color-primary);
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .auth-modal-close {
+    width: 40px;
+    height: 40px;
+    top: var(--space-2);
+    right: var(--space-2);
+  }
+
+  .auth-switch-btn {
+    padding: 10px 4px;
+  }
 }

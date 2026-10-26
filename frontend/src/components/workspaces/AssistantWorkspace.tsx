@@ -12,6 +12,7 @@ import { MessageList } from '../conversation/MessageList'
 import { Composer } from '../conversation/Composer'
 import { NammLogo } from '../common/NammLogo'
 import './Workspaces.css'
+import './AssistantWorkspace.css'
 
 interface AssistantWorkspaceProps {
   turns: ChatTurn[]

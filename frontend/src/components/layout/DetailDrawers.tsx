@@ -1,17 +1,25 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { FileText, Mail, ExternalLink } from 'lucide-react'
 import { Drawer } from '../ui/Drawer'
 import type { GmailMessage, RAGCitation } from '../../types/api'
+
+/** Keeps the last non-null value so a closing drawer still has content to animate out. */
+function useRetained<T>(value: T | null): T | null {
+  const [kept, setKept] = useState(value)
+  if (value !== null && value !== kept) setKept(value)
+  return value ?? kept
+}
 
 interface CitationDrawerProps {
   citation: RAGCitation | null
   onClose: () => void
 }
 
-export const CitationDrawer: React.FC<CitationDrawerProps> = ({ citation: selectedCitation, onClose }) => {
+export const CitationDrawer: React.FC<CitationDrawerProps> = ({ citation, onClose }) => {
+  const selectedCitation = useRetained(citation)
   return (
     <Drawer
-      isOpen={Boolean(selectedCitation)}
+      isOpen={Boolean(citation)}
       onClose={onClose}
       title={selectedCitation?.title || 'Dẫn chứng tài liệu'}
       subtitle={
@@ -59,10 +67,11 @@ interface EmailDrawerProps {
   onClose: () => void
 }
 
-export const EmailDrawer: React.FC<EmailDrawerProps> = ({ email: selectedEmail, onClose }) => {
+export const EmailDrawer: React.FC<EmailDrawerProps> = ({ email, onClose }) => {
+  const selectedEmail = useRetained(email)
   return (
     <Drawer
-      isOpen={Boolean(selectedEmail)}
+      isOpen={Boolean(email)}
       onClose={onClose}
       title={selectedEmail?.subject || 'Chi tiết email'}
       subtitle={`Từ: ${selectedEmail?.from}`}

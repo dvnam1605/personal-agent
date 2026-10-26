@@ -1,6 +1,7 @@
 import React from 'react'
 import { Sparkles, FileText, Eye, CheckCircle2 } from 'lucide-react'
 import { INTERNAL_DOCUMENTS, type InternalDoc } from './internalDocuments'
+import { Hint } from '../../ui/Hint'
 
 interface KnowledgeCatalogProps {
   docs: InternalDoc[]
@@ -89,23 +90,25 @@ export const KnowledgeCatalog: React.FC<KnowledgeCatalogProps> = ({
 
             {/* Actions on Document Card */}
             <div className="doc-card-actions">
-              <button
-                className="doc-action-btn doc-action-btn--primary"
-                onClick={() => onRunQuery(doc.samplePrompt)}
-                title="Yêu cầu Trợ lý AI tra cứu văn bản này"
-              >
-                <Sparkles size={13} />
-                <span>Tra cứu quy định</span>
-              </button>
+              <Hint label="Yêu cầu Trợ lý AI tra cứu văn bản này">
+                <button
+                  className="doc-action-btn doc-action-btn--primary"
+                  onClick={() => onRunQuery(doc.samplePrompt)}
+                >
+                  <Sparkles size={13} />
+                  <span>Tra cứu quy định</span>
+                </button>
+              </Hint>
 
-              <button
-                className="doc-action-btn doc-action-btn--secondary"
-                onClick={() => onRunQuery(`Tóm tắt nội dung văn bản ${doc.title}`)}
-                title="Tóm tắt văn bản này"
-              >
-                <Eye size={13} />
-                <span>Tóm tắt</span>
-              </button>
+              <Hint label="Tóm tắt văn bản này">
+                <button
+                  className="doc-action-btn doc-action-btn--secondary"
+                  onClick={() => onRunQuery(`Tóm tắt nội dung văn bản ${doc.title}`)}
+                >
+                  <Eye size={13} />
+                  <span>Tóm tắt</span>
+                </button>
+              </Hint>
             </div>
           </div>
         ))}

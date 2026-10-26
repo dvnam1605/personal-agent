@@ -9,8 +9,9 @@ import {
   Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
-import type { WorkspaceType } from './Header'
+import { WORKSPACE_TABS, type WorkspaceType } from './workspaces'
 import { NammLogo } from '../common/NammLogo'
+import { Hint } from '../ui/Hint'
 import './Sidebar.css'
 
 interface SidebarProps {
@@ -88,19 +89,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* 1. New Conversation Button */}
         <div className="sidebar-section">
-          <button
-            className="sidebar-new-chat-btn"
-            onClick={() => {
-              onNewSession()
-              onSelectWorkspace('assistant')
-              if (window.innerWidth < 1024) onClose()
-            }}
-            title="Tạo phiên hội thoại mới"
-          >
-            <MessageSquarePlus size={16} />
-            {!isCollapsed && <span>Hội thoại mới</span>}
-          </button>
+          <Hint label="Tạo phiên hội thoại mới" side="right">
+            <button
+              className="sidebar-new-chat-btn"
+              onClick={() => {
+                onNewSession()
+                onSelectWorkspace('assistant')
+                if (window.innerWidth < 1024) onClose()
+              }}
+            >
+              <MessageSquarePlus size={16} />
+              {!isCollapsed && <span>Hội thoại mới</span>}
+            </button>
+          </Hint>
         </div>
+
+        {/* Workspace menu: only shown below 1024px, where the header tabs are hidden */}
+        <nav className="sidebar-section sidebar-section--workspaces" aria-label="Không gian làm việc">
+          <span className="sidebar-section-title sidebar-workspaces-title">Không gian làm việc</span>
+          {WORKSPACE_TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              className={clsx('sidebar-footer-item', activeWorkspace === id && 'sidebar-footer-item--active')}
+              aria-current={activeWorkspace === id ? 'page' : undefined}
+              onClick={() => {
+                onSelectWorkspace(id)
+                onClose()
+              }}
+            >
+              <Icon size={15} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
 
         {/* 2. Chat History & Sessions */}
         <div className="sidebar-section sidebar-section--recent">
@@ -150,17 +171,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {!isCollapsed && <span className="recent-item-text">{session.title}</span>}
                     </button>
                     {!isCollapsed && onDeleteSession && (
-                      <button
-                        className="sidebar-recent-item__delete"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onDeleteSession(session.id)
-                        }}
-                        title="Xóa cuộc trò chuyện"
-                        aria-label={`Xóa cuộc trò chuyện ${session.title}`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      <Hint label="Xóa cuộc trò chuyện" side="right">
+                        <button
+                          className="sidebar-recent-item__delete"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDeleteSession(session.id)
+                          }}
+                          aria-label={`Xóa cuộc trò chuyện ${session.title}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </Hint>
                     )}
                   </div>
                 )
@@ -171,31 +193,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* 3. Footer: Settings & Collapse Toggle */}
         <div className="sidebar-footer">
-          <button
-            className={clsx(
-              'sidebar-footer-item',
-              activeWorkspace === 'settings' && 'sidebar-footer-item--active'
-            )}
-            onClick={() => {
-              onSelectWorkspace('settings')
-              if (window.innerWidth < 1024) onClose()
-            }}
-            title="Cài đặt & Tài khoản"
-          >
-            <Settings size={15} />
-            {!isCollapsed && <span>Cài đặt hệ thống</span>}
-          </button>
+          <Hint label="Cài đặt & Tài khoản" side="right">
+            <button
+              className={clsx(
+                'sidebar-footer-item',
+                activeWorkspace === 'settings' && 'sidebar-footer-item--active'
+              )}
+              onClick={() => {
+                onSelectWorkspace('settings')
+                if (window.innerWidth < 1024) onClose()
+              }}
+            >
+              <Settings size={15} />
+              {!isCollapsed && <span>Cài đặt hệ thống</span>}
+            </button>
+          </Hint>
 
           {/* Desktop collapse rail toggle */}
-          <button
-            className="sidebar-collapse-toggle"
-            onClick={onToggleCollapse}
-            title={isCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
-            aria-label={isCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
-          >
-            {isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-            {!isCollapsed && <span>Thu gọn</span>}
-          </button>
+          <Hint label={isCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'} side="right">
+            <button
+              className="sidebar-collapse-toggle"
+              onClick={onToggleCollapse}
+              aria-label={isCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+            >
+              {isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+              {!isCollapsed && <span>Thu gọn</span>}
+            </button>
+          </Hint>
         </div>
       </aside>
     </>

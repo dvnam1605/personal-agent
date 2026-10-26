@@ -7,6 +7,7 @@ import { KnowledgeSearchHero } from './KnowledgeSearchHero'
 import { KnowledgeResults } from './KnowledgeResults'
 import { KnowledgeCatalog } from './KnowledgeCatalog'
 import '../Workspaces.css'
+import './KnowledgeWorkspace.css'
 
 interface KnowledgeWorkspaceProps {
   onSelectCitation: (citation: RAGCitation) => void

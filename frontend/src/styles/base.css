@@ -6,6 +6,47 @@
   padding: 0;
 }
 
+/*
+ * Tailwind's preflight (loaded for the shadcn components) strips browser defaults this app was
+ * styled against. Plain elements get those defaults back; utility classes on shadcn components
+ * and the app's component CSS still win because they sit in later layers. Button backgrounds and
+ * borders stay reset, since shadcn's ghost buttons rely on that.
+ */
+h1, h2, h3, h4, h5, h6 {
+  font-size: revert;
+}
+
+ul, ol {
+  list-style: revert;
+}
+
+img, svg, video, canvas, audio, iframe, embed, object {
+  display: revert;
+  vertical-align: revert;
+}
+
+table {
+  border-collapse: revert;
+  border-color: revert;
+  text-indent: revert;
+}
+
+hr {
+  height: revert;
+  color: revert;
+  border: revert;
+}
+
+code, kbd, samp, pre {
+  font-size: revert;
+}
+
+button, input, select, textarea {
+  font-size: revert;
+  font-weight: revert;
+  line-height: revert;
+}
+
 html, body {
   height: 100%;
   width: 100%;
