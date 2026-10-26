@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { LogIn, UserPlus, X, Mail, Lock, User, AlertCircle, ShieldAlert } from 'lucide-react'
+import { Dialog as DialogPrimitive } from '@animate-ui/react/primitives/radix-ui'
+import { Dialog, DialogClose, DialogContent } from '@/components/shadcn/dialog'
 import { apiClient } from '../../api/client'
 import type { UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
@@ -19,8 +21,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const [error, setError] = useState<string | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-
-  if (!isOpen) return null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -58,26 +58,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   }
 
   return (
-    <div className="auth-modal-overlay">
-      <div className="auth-modal-card">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
+      <DialogContent
+        from="top"
+        showCloseButton={false}
+        overlayClassName="auth-modal-overlay"
+        className="auth-modal-card"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => !onClose && e.preventDefault()}
+      >
         {onClose && (
-          <button className="auth-modal-close" onClick={onClose} aria-label="Đóng">
-            <X size={18} />
-          </button>
+          <DialogClose asChild>
+            <button className="auth-modal-close" aria-label="Đóng">
+              <X size={18} />
+            </button>
+          </DialogClose>
         )}
 
         <div className="auth-modal-header">
           <div className="auth-brand-logo">
             <NammLogo size={28} />
           </div>
-          <h2 className="auth-modal-title">
-            {isRegister ? 'Tạo tài khoản Naot' : 'Đăng nhập Naot'}
-          </h2>
-          <p className="auth-modal-subtitle">
-            {isRegister
-              ? 'Đăng ký tài khoản để đồng bộ và bảo mật lịch sử hội thoại của bạn'
-              : 'Đăng nhập để xem và quản lý các phiên làm việc của bạn'}
-          </p>
+          <DialogPrimitive.Title asChild>
+            <h2 className="auth-modal-title">
+              {isRegister ? 'Tạo tài khoản Naot' : 'Đăng nhập Naot'}
+            </h2>
+          </DialogPrimitive.Title>
+          <DialogPrimitive.Description asChild>
+            <p className="auth-modal-subtitle">
+              {isRegister
+                ? 'Đăng ký tài khoản để đồng bộ và bảo mật lịch sử hội thoại của bạn'
+                : 'Đăng nhập để xem và quản lý các phiên làm việc của bạn'}
+            </p>
+          </DialogPrimitive.Description>
         </div>
 
         {error && (
@@ -187,7 +200,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             </span>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

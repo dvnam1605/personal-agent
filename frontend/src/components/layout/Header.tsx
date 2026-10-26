@@ -1,10 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Calendar,
-  Mail,
-  Users,
-  FileText,
-  FilePlus2,
   ExternalLink,
   Menu,
   User,
@@ -18,16 +13,12 @@ import {
 import { apiClient } from '../../api/client'
 import type { GoogleIntegrationStatus, UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
+import { Hint } from '../ui/Hint'
+import { useToast } from '../ui/toastContext'
+import { WORKSPACE_TABS, type WorkspaceType } from './workspaces'
 import './Header.css'
 
-export type WorkspaceType =
-  | 'assistant'
-  | 'calendar'
-  | 'email'
-  | 'meetings'
-  | 'knowledge'
-  | 'documents'
-  | 'settings'
+export type { WorkspaceType } from './workspaces'
 
 interface HeaderProps {
   onToggleSidebar: () => void
@@ -51,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   onLogout,
 }) => {
+  const { showToast } = useToast()
   const [googleStatus, setGoogleStatus] = useState<GoogleIntegrationStatus | null>(null)
 
   useEffect(() => {
@@ -76,59 +68,60 @@ export const Header: React.FC<HeaderProps> = ({
     try {
       await apiClient.startGoogleConnect()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.')
+      showToast(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.', 'error')
     }
   }
 
   const isConnected = Boolean(googleStatus?.connected && googleStatus?.healthy)
   const hasMissingScopes = Boolean(googleStatus?.missing_scopes && googleStatus.missing_scopes.length > 0)
 
-  const workspaceTabs: { id: WorkspaceType; label: string; icon: React.ReactNode }[] = [
-    { id: 'assistant', label: 'Trợ lý điều hành', icon: <NammLogo size={14} /> },
-    { id: 'calendar', label: 'Lịch Google', icon: <Calendar size={14} /> },
-    { id: 'email', label: 'Hộp thư Gmail', icon: <Mail size={14} /> },
-    { id: 'meetings', label: 'Hồ sơ họp WF-05', icon: <Users size={14} /> },
-    { id: 'knowledge', label: 'Kho tri thức', icon: <FileText size={14} /> },
-    { id: 'documents', label: 'Tạo tài liệu', icon: <FilePlus2 size={14} /> },
-  ]
-
   return (
     <header className="executive-header">
       <div className="header-left">
-        <button
-          className="header-sidebar-toggle"
-          onClick={onToggleSidebar}
-          aria-label="Mở hoặc thu gọn menu bên"
-          title="Mở hoặc thu gọn menu bên"
-        >
-          <Menu size={18} />
-        </button>
+        <Hint label="Mở hoặc thu gọn menu bên">
+          <button
+            className="header-sidebar-toggle"
+            onClick={onToggleSidebar}
+            aria-label="Mở hoặc thu gọn menu bên"
+          >
+            <Menu size={18} />
+          </button>
+        </Hint>
 
-        <div className="header-brand-badge" onClick={() => onNavigate('assistant')} title="Trợ lý Noat">
-          <div className="header-brand-gem">
+        <button
+          type="button"
+          className="header-brand-badge"
+          onClick={() => onNavigate('assistant')}
+          aria-label="Về trang Trợ lý Noat"
+        >
+          <span className="header-brand-gem">
             <NammLogo size={18} />
-          </div>
-          <div className="header-brand-text">
+          </span>
+          <span className="header-brand-text">
             <span className="brand-main-name">Noat</span>
             {/* <span className="brand-sub-name">Executive AI</span> */}
-          </div>
-        </div>
+          </span>
+        </button>
       </div>
 
       {/* Center Segmented Workspace Tabs */}
       <nav className="header-center-tabs">
-        {workspaceTabs.map((tab) => {
+        {WORKSPACE_TABS.map((tab) => {
           const isActive = activeWorkspace === tab.id
+          const Icon = tab.icon
           return (
-            <button
-              key={tab.id}
-              className={`header-tab-pill ${isActive ? 'header-tab-pill--active' : ''}`}
-              onClick={() => onNavigate(tab.id)}
-            >
-              <span className="tab-pill-icon">{tab.icon}</span>
-              <span className="tab-pill-label">{tab.label}</span>
-              {isActive && <span className="tab-pill-glow" />}
-            </button>
+            <Hint key={tab.id} label={tab.label}>
+              <button
+                className={`header-tab-pill ${isActive ? 'header-tab-pill--active' : ''}`}
+                onClick={() => onNavigate(tab.id)}
+                aria-label={tab.label}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <span className="tab-pill-icon"><Icon size={14} /></span>
+                <span className="tab-pill-label">{tab.label}</span>
+                {isActive && <span className="tab-pill-glow" />}
+              </button>
+            </Hint>
           )
         })}
       </nav>
@@ -147,14 +140,15 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="google-status-label">
                 {hasMissingScopes ? 'Cần cấp quyền' : 'Chưa kết nối'}
               </span>
-              <button
-                className="btn-connect-google"
-                onClick={handleConnectGoogle}
-                title="Cấp quyền liên kết Google Workspace"
-              >
-                <span>Kết nối</span>
-                <ExternalLink size={11} />
-              </button>
+              <Hint label="Cấp quyền liên kết Google Workspace">
+                <button
+                  className="btn-connect-google"
+                  onClick={handleConnectGoogle}
+                >
+                  <span>Kết nối</span>
+                  <ExternalLink size={11} />
+                </button>
+              </Hint>
             </div>
           )}
         </div>
@@ -169,37 +163,41 @@ export const Header: React.FC<HeaderProps> = ({
               {currentUser.full_name || currentUser.email.split('@')[0]}
             </span>
             {onLogout && (
-              <button
-                className="header-logout-btn"
-                onClick={onLogout}
-                title="Đăng xuất khỏi tài khoản"
-                aria-label="Đăng xuất"
-              >
-                <LogOut size={13} />
-              </button>
+              <Hint label="Đăng xuất khỏi tài khoản">
+                <button
+                  className="header-logout-btn"
+                  onClick={onLogout}
+                  aria-label="Đăng xuất"
+                >
+                  <LogOut size={13} />
+                </button>
+              </Hint>
             )}
           </div>
         ) : (
-          <button
-            className="header-login-btn"
-            onClick={onOpenAuth}
-            title="Đăng nhập tài khoản"
-          >
-            <LogIn size={13} />
-            <span>Đăng nhập</span>
-          </button>
+          <Hint label="Đăng nhập tài khoản">
+            <button
+              className="header-login-btn"
+              onClick={onOpenAuth}
+              aria-label="Đăng nhập"
+            >
+              <LogIn size={13} />
+              <span>Đăng nhập</span>
+            </button>
+          </Hint>
         )}
 
         {/* Theme Toggle (Light / Dark) */}
         {onToggleTheme && (
-          <button
-            className="header-theme-toggle"
-            onClick={onToggleTheme}
-            title={theme === 'dark' ? 'Chuyển sang giao diện Sáng (Light Mode)' : 'Chuyển sang giao diện Tối (Dark Mode)'}
-            aria-label="Chuyển chế độ sáng tối"
-          >
-            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
+          <Hint label={theme === 'dark' ? 'Chuyển sang giao diện Sáng (Light Mode)' : 'Chuyển sang giao diện Tối (Dark Mode)'}>
+            <button
+              className="header-theme-toggle"
+              onClick={onToggleTheme}
+              aria-label="Chuyển chế độ sáng tối"
+            >
+              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            </button>
+          </Hint>
         )}
       </div>
     </header>

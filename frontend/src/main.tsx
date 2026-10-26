@@ -1,7 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { MotionConfig } from 'motion/react'
 import './index.css'
 import App from './App.tsx'
+import { TooltipProvider } from './components/shadcn/tooltip'
 
 // Ensure local dev backend uses default-user to maintain 200 OK authentication
 const storedUser = localStorage.getItem('personal_ai_user_id')
@@ -12,6 +14,10 @@ if (storedUser && storedUser !== 'default-user' && !localStorage.getItem('person
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider delayDuration={300}>
+        <App />
+      </TooltipProvider>
+    </MotionConfig>
   </StrictMode>,
 )

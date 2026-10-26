@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { ChevronDown, ChevronRight, PenLine, RefreshCw, Send, X } from 'lucide-react'
 import type { GeneratedDocumentSection, SectionReview } from '../../../types/api'
+import { Hint } from '../../ui/Hint'
 
 const VERDICT: Record<string, { label: string; tone: string }> = {
   ok: { label: 'Đạt', tone: 'ok' },
@@ -89,17 +90,19 @@ export const DocumentReviewPanel: React.FC<Props> = ({
                 {review && review.rounds > 1 && (
                   <span className="docgen-muted">{review.rounds} lượt</span>
                 )}
-                <button
-                  className="docgen-icon-btn"
-                  onClick={() => {
-                    setEditing(editing === index ? null : index)
-                    setFeedback('')
-                  }}
-                  disabled={disabled}
-                  title="Viết lại mục này kèm góp ý"
-                >
-                  {isRewriting ? <RefreshCw size={13} className="spin-anim" /> : <PenLine size={13} />}
-                </button>
+                <Hint label="Viết lại mục này kèm góp ý">
+                  <button
+                    className="docgen-icon-btn"
+                    onClick={() => {
+                      setEditing(editing === index ? null : index)
+                      setFeedback('')
+                    }}
+                    disabled={disabled}
+                    aria-label="Viết lại mục này kèm góp ý"
+                  >
+                    {isRewriting ? <RefreshCw size={13} className="spin-anim" /> : <PenLine size={13} />}
+                  </button>
+                </Hint>
               </div>
 
               {isOpen && review && (

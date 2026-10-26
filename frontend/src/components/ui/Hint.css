@@ -1,0 +1,4 @@
+.app-hint {
+  z-index: var(--z-tooltip);
+  font-size: var(--text-xs);
+}

@@ -12,7 +12,7 @@
   justify-content: space-between;
   padding: 0 var(--space-5);
   flex-shrink: 0;
-  z-index: 20;
+  z-index: var(--z-header);
   gap: var(--space-4);
   position: relative;
 }
@@ -54,6 +54,10 @@
   gap: var(--space-2);
   cursor: pointer;
   padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   border-radius: var(--radius-sm);
   transition: background-color var(--transition-fast);
 }
@@ -102,12 +106,10 @@
   font-weight: 500;
 }
 
-/* Center Segmented Liquid Glass Workspace Tabs (Mathematically Centered) */
+/* Center Segmented Liquid Glass Workspace Tabs: in normal flow so they can never overlap the side clusters. */
 .header-center-tabs {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   background-color: var(--header-track-bg);
@@ -117,7 +119,7 @@
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-border-glass);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-  z-index: 5;
+  z-index: var(--z-raised);
   white-space: nowrap;
 }
 
@@ -351,8 +353,70 @@
 }
 
 /* Responsive */
-@media (max-width: 1060px) {
+/* Laptops: the labelled tabs need ~1300px, so they collapse to icons below 1440px. */
+@media (max-width: 1439px) {
+  .tab-pill-label {
+    display: none;
+  }
+
+  .header-tab-pill {
+    padding-inline: 10px;
+  }
+}
+
+@media (max-width: 1023px) {
   .header-center-tabs {
     display: none;
+  }
+}
+
+/* Phones: the right cluster collapses to icons so nothing is pushed off-screen. */
+@media (max-width: 640px) {
+  .executive-header {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .header-left,
+  .header-right {
+    gap: var(--space-2);
+  }
+
+  .header-right {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .header-brand-text,
+  .google-status-label,
+  .header-user-name,
+  .header-login-btn span {
+    display: none;
+  }
+
+  .header-login-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* Touch screens: at least a 40px target for the icon buttons. */
+@media (max-width: 640px), (pointer: coarse) {
+  .header-sidebar-toggle,
+  .header-theme-toggle {
+    width: 40px;
+    height: 40px;
+  }
+
+  .btn-connect-google {
+    min-height: 32px;
+    padding: 4px 10px;
+  }
+
+  .header-logout-btn {
+    min-width: 32px;
+    min-height: 32px;
   }
 }

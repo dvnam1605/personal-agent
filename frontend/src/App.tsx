@@ -341,7 +341,9 @@ const AppContent: React.FC = () => {
 
           {activeWorkspace === 'documents' && <DocumentsWorkspace />}
 
-          {activeWorkspace === 'settings' && <SettingsWorkspace />}
+          {activeWorkspace === 'settings' && (
+            <SettingsWorkspace theme={theme} onToggleTheme={toggleTheme} />
+          )}
         </main>
       </div>
 

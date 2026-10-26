@@ -1,5 +1,6 @@
 import React from 'react'
 import { Search, Sparkles } from 'lucide-react'
+import { Hint } from '../../ui/Hint'
 
 const SAMPLE_QUERIES = [
   'Quy chế làm việc của Đài TNVN',
@@ -41,14 +42,16 @@ export const KnowledgeSearchHero: React.FC<KnowledgeSearchHeroProps> = ({
             onChange={(e) => onQueryChange(e.target.value)}
           />
           {searchQuery && (
-            <button
-              type="button"
-              className="knowledge-clear-btn"
-              onClick={() => onQueryChange('')}
-              title="Xóa tìm kiếm"
-            >
-              ✕
-            </button>
+            <Hint label="Xóa tìm kiếm">
+              <button
+                type="button"
+                className="knowledge-clear-btn"
+                onClick={() => onQueryChange('')}
+                aria-label="Xóa tìm kiếm"
+              >
+                ✕
+              </button>
+            </Hint>
           )}
         </div>
         <button

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Calendar, Clock, MapPin, ExternalLink } from 'lucide-react'
 import type { CalendarEvent } from '../../types/api'
+import { Hint } from '../ui/Hint'
 import './DomainCards.css'
 
 interface CalendarCardProps {
@@ -49,15 +50,17 @@ export const CalendarCard: React.FC<CalendarCardProps> = ({ events, window }) =>
               )}
             </div>
             {event.html_link && (
-              <a
-                href={event.html_link}
-                target="_blank"
-                rel="noreferrer"
-                className="calendar-event-item__link"
-                title="Mở trong Google Calendar"
-              >
-                <ExternalLink size={14} />
-              </a>
+              <Hint label="Mở trong Google Calendar">
+                <a
+                  href={event.html_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="calendar-event-item__link"
+                  aria-label="Mở trong Google Calendar"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </Hint>
             )}
           </div>
         ))}

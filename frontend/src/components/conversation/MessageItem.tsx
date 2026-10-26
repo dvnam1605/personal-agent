@@ -24,6 +24,7 @@ import { MeetingDossierCard } from '../domain/MeetingDossierCard'
 import { ApprovalCard } from '../safety/ApprovalCard'
 import { QuestionPlaneCard } from '../safety/QuestionPlaneCard'
 import { MarkdownContent } from '../ui/MarkdownContent'
+import { useToast } from '../ui/toastContext'
 import { NammLogo } from '../common/NammLogo'
 import './MessageItem.css'
 
@@ -59,6 +60,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onClarifyAnswer,
   onRetry,
 }) => {
+  const { showToast } = useToast()
   const result = turn.result
   const domains = result?.route?.domains || []
   const data = result?.data || {}
@@ -247,7 +249,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 className="btn-reconnect-google"
                 onClick={() => {
                   apiClient.startGoogleConnect().catch((err: unknown) => {
-                    window.alert(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.')
+                    showToast(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối Google.', 'error')
                   })
                 }}
               >

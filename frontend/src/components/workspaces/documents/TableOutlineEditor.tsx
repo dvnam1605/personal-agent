@@ -1,6 +1,7 @@
 import React from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import type { DocumentOutlineColumn } from '../../../types/api'
+import { Hint } from '../../ui/Hint'
 
 const COLUMN_SOURCES: { value: string; label: string }[] = [
   { value: 'content', label: 'Trích từ nội dung' },
@@ -99,19 +100,25 @@ export const TableOutlineEditor: React.FC<Props> = ({
               />
             </div>
             <div className="docgen-section__actions">
-              <button className="docgen-icon-btn" onClick={() => move(idx, -1)} title="Sang trái">
-                <ArrowUp size={13} />
-              </button>
-              <button className="docgen-icon-btn" onClick={() => move(idx, 1)} title="Sang phải">
-                <ArrowDown size={13} />
-              </button>
-              <button
-                className="docgen-icon-btn docgen-icon-btn--danger"
-                onClick={() => onColumns(columns.filter((_, i) => i !== idx))}
-                title="Xoá cột"
-              >
-                <Trash2 size={13} />
-              </button>
+              <Hint label="Sang trái">
+                <button className="docgen-icon-btn" onClick={() => move(idx, -1)} aria-label="Sang trái">
+                  <ArrowUp size={13} />
+                </button>
+              </Hint>
+              <Hint label="Sang phải">
+                <button className="docgen-icon-btn" onClick={() => move(idx, 1)} aria-label="Sang phải">
+                  <ArrowDown size={13} />
+                </button>
+              </Hint>
+              <Hint label="Xoá cột">
+                <button
+                  className="docgen-icon-btn docgen-icon-btn--danger"
+                  onClick={() => onColumns(columns.filter((_, i) => i !== idx))}
+                  aria-label="Xoá cột"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </Hint>
             </div>
           </li>
         ))}

@@ -15,7 +15,9 @@ import {
 } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { GmailMessage } from '../../types/api'
+import { Hint } from '../ui/Hint'
 import './Workspaces.css'
+import './EmailWorkspace.css'
 
 interface EmailWorkspaceProps {
   onSelectEmail: (msg: GmailMessage) => void
@@ -115,15 +117,16 @@ export const EmailWorkspace: React.FC<EmailWorkspaceProps> = ({
         </div>
 
         <div className="toolbar-right">
-          <button
-            className="toolbar-btn"
-            onClick={fetchEmails}
-            disabled={isLoading}
-            title="Làm mới hộp thư"
-          >
-            <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
-            <span>Làm mới</span>
-          </button>
+          <Hint label="Làm mới hộp thư">
+            <button
+              className="toolbar-btn"
+              onClick={fetchEmails}
+              disabled={isLoading}
+            >
+              <RefreshCw size={14} className={isLoading ? 'spin-anim' : ''} />
+              <span>Làm mới</span>
+            </button>
+          </Hint>
           <a
             href="https://mail.google.com"
             target="_blank"
@@ -185,14 +188,16 @@ export const EmailWorkspace: React.FC<EmailWorkspaceProps> = ({
             />
 
             {inputValue.trim() && (
-              <button
-                type="button"
-                className="omnibar-clear-btn"
-                onClick={() => setInputValue('')}
-                title="Xóa nội dung"
-              >
-                <X size={14} />
-              </button>
+              <Hint label="Xóa nội dung">
+                <button
+                  type="button"
+                  className="omnibar-clear-btn"
+                  onClick={() => setInputValue('')}
+                  aria-label="Xóa nội dung"
+                >
+                  <X size={14} />
+                </button>
+              </Hint>
             )}
           </div>
 
@@ -311,40 +316,43 @@ export const EmailWorkspace: React.FC<EmailWorkspaceProps> = ({
 
                   {/* Multi-action Bar on each Email Card */}
                   <div className="email-card-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="email-card-btn email-card-btn--summarize"
-                      onClick={() =>
-                        handleQuickPrompt(
-                          `Tóm tắt nội dung email từ ${msg.from} với tiêu đề "${msg.subject}": ${msg.snippet}`
-                        )
-                      }
-                      title="Tóm tắt email này với Trợ lý AI"
-                    >
-                      <Sparkles size={12} />
-                      <span>Tóm tắt</span>
-                    </button>
+                    <Hint label="Tóm tắt email này với Trợ lý AI">
+                      <button
+                        className="email-card-btn email-card-btn--summarize"
+                        onClick={() =>
+                          handleQuickPrompt(
+                            `Tóm tắt nội dung email từ ${msg.from} với tiêu đề "${msg.subject}": ${msg.snippet}`
+                          )
+                        }
+                      >
+                        <Sparkles size={12} />
+                        <span>Tóm tắt</span>
+                      </button>
+                    </Hint>
 
-                    <button
-                      className="email-card-btn email-card-btn--reply"
-                      onClick={() =>
-                        handleQuickPrompt(
-                          `Soạn email trả lời thư của ${msg.from} về chủ đề "${msg.subject}"`
-                        )
-                      }
-                      title="Soạn thư trả lời nhanh với AI"
-                    >
-                      <Reply size={12} />
-                      <span>Trả lời với AI</span>
-                    </button>
+                    <Hint label="Soạn thư trả lời nhanh với AI">
+                      <button
+                        className="email-card-btn email-card-btn--reply"
+                        onClick={() =>
+                          handleQuickPrompt(
+                            `Soạn email trả lời thư của ${msg.from} về chủ đề "${msg.subject}"`
+                          )
+                        }
+                      >
+                        <Reply size={12} />
+                        <span>Trả lời với AI</span>
+                      </button>
+                    </Hint>
 
-                    <button
-                      className="email-card-btn email-card-btn--view"
-                      onClick={() => onSelectEmail(msg)}
-                      title="Mở ngăn kéo xem toàn bộ nội dung"
-                    >
-                      <Eye size={12} />
-                      <span>Xem chi tiết</span>
-                    </button>
+                    <Hint label="Mở ngăn kéo xem toàn bộ nội dung">
+                      <button
+                        className="email-card-btn email-card-btn--view"
+                        onClick={() => onSelectEmail(msg)}
+                      >
+                        <Eye size={12} />
+                        <span>Xem chi tiết</span>
+                      </button>
+                    </Hint>
                   </div>
                 </div>
               </div>
