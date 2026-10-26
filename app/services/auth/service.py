@@ -1,19 +1,26 @@
 """Authentication and session token service with secure password hashing."""
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
 import uuid
 from typing import Any
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.settings.paths import PROJECT_ROOT
+from app.domain.errors import ConfigurationError
 from app.infrastructure.db.models import User
+
+logger = structlog.get_logger(__name__)
 
 # PBKDF2 parameters (OWASP recommended floor)
 HASH_ALGORITHM = "sha256"
@@ -21,14 +28,54 @@ ITERATIONS = 100_000
 SALT_BYTES = 16
 TOKEN_EXPIRY_SECONDS = 30 * 86400  # 30 days
 
+MIN_SIGNING_KEY_BYTES = 32
+_SESSION_KEY_CONTEXT = b"session-token-v1"
+_LOCAL_SESSION_SECRET = PROJECT_ROOT / ".secrets" / "session_signing.key"
+
 
 def _get_signing_key() -> bytes:
-    """Retrieve secret key for HMAC token signing."""
-    key = settings.security.approval_signing_key or ""
-    if len(key.strip()) >= 32:
-        return key.strip().encode("utf-8")
-    # Fallback to deterministic key in local dev
-    return b"naot-assistant-secure-session-signing-key-32b!"
+    """HMAC key for session tokens, derived from ``SECURITY__APPROVAL_SIGNING_KEY``.
+
+    The configured secret is used under exactly the rule the startup validator enforces
+    (at least 32 UTF-8 bytes, taken as given), and a session-specific subkey is derived
+    from it so session and approval tokens are never interchangeable. Without such a
+    secret, staging/production refuse to sign; development and testing use a random
+    local secret, never a value published in source.
+    """
+    configured = (settings.security.approval_signing_key or "").encode("utf-8")
+    if len(configured) >= MIN_SIGNING_KEY_BYTES:
+        secret = configured
+    elif settings.auth_enforced:
+        raise ConfigurationError("SECURITY__APPROVAL_SIGNING_KEY must be at least 32 bytes.")
+    else:
+        secret = _local_session_secret()
+    return hmac.new(secret, _SESSION_KEY_CONTEXT, hashlib.sha256).digest()
+
+
+@functools.cache
+def _local_session_secret() -> bytes:
+    """Random secret for local runs without a configured key.
+
+    Kept in the git-ignored ``.secrets/`` directory so sessions survive ``--reload``
+    restarts; if that file cannot be written, a per-process secret is used instead.
+    """
+    try:
+        _LOCAL_SESSION_SECRET.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with _LOCAL_SESSION_SECRET.open("xb") as handle:
+                handle.write(secrets.token_urlsafe(48).encode("ascii"))
+            if os.name != "nt":
+                _LOCAL_SESSION_SECRET.chmod(0o600)
+            logger.warning("session_signing_key_generated", path=str(_LOCAL_SESSION_SECRET))
+        except FileExistsError:
+            pass
+        stored = _LOCAL_SESSION_SECRET.read_bytes().strip()
+        if len(stored) >= MIN_SIGNING_KEY_BYTES:
+            return stored
+    except OSError:
+        pass
+    logger.warning("session_signing_key_ephemeral", path=str(_LOCAL_SESSION_SECRET))
+    return secrets.token_bytes(MIN_SIGNING_KEY_BYTES)
 
 
 def hash_password(password: str) -> str:

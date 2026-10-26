@@ -1,5 +1,6 @@
 """Authentication routes for user registration, login, and profile lookup."""
 
+import ipaddress
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -7,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
+from app.core.config import settings
 from app.infrastructure.db.session import get_db_session
 from app.services.auth.rate_limiter import MAX_FAILED_LOGIN_ATTEMPTS, auth_rate_limiter
 from app.services.auth.service import AuthService
@@ -16,17 +18,32 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _is_trusted_proxy(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(
+        ip in ipaddress.ip_network(network, strict=False)
+        for network in settings.security.trusted_proxies
+    )
+
+
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP address considering reverse proxies."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "127.0.0.1"
+    """Return the address that keys the per-IP rate limits.
+
+    The peer address is used unless the peer is a configured trusted proxy. Then the
+    X-Forwarded-For chain is walked from the right and the first hop that is not a
+    trusted proxy is used, so a client-supplied leftmost entry never picks the key.
+    """
+    peer = request.client.host if request.client and request.client.host else "unknown"
+    if not _is_trusted_proxy(peer):
+        return peer
+    hops = [hop.strip() for hop in request.headers.get("X-Forwarded-For", "").split(",")]
+    for hop in reversed([hop for hop in hops if hop]):
+        if not _is_trusted_proxy(hop):
+            return hop
+    return peer
 
 
 class RegisterRequest(BaseModel):
@@ -155,7 +172,7 @@ async def login(
             ),
         )
     except ValueError as err:
-        failed_count = await auth_rate_limiter.record_login_failure(body.email, client_ip)
+        failed_count = await auth_rate_limiter.login_failure_count(body.email)
         if failed_count >= MAX_FAILED_LOGIN_ATTEMPTS:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

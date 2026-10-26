@@ -1,5 +1,7 @@
 """Infrastructure settings: database, Redis, LangSmith tracing and HTTP-boundary security."""
 
+import ipaddress
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -68,6 +70,22 @@ class SecuritySettings(BaseModel):
         ],
         description="Explicit CORS origin allowlist; never use '*' together with credentials.",
     )
+    trusted_proxies: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Addresses or CIDR ranges of reverse proxies (e.g. the nginx container network) "
+            "whose X-Forwarded-For header is honoured when deriving the client address for "
+            "rate limits. Empty: forwarding headers are ignored and the peer address is used."
+        ),
+    )
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def validate_trusted_proxies(cls, value: list[str]) -> list[str]:
+        """Reject malformed entries at startup instead of silently trusting nothing."""
+        for entry in value:
+            ipaddress.ip_network(entry, strict=False)
+        return value
 
     @field_validator("cors_allowed_origins")
     @classmethod
