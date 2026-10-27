@@ -570,3 +570,23 @@ async def test_orchestrator_handles_communication_with_summarizer(
     assert "Tóm tắt thông minh cho 1 email" in result.message
     assert result.data["count"] == 1
     assert len(result.data["messages"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("query", "start", "title"),
+    [
+        ("thêm cho tôi tối nay 9h đi đá bóng", "2026-10-27 21:00", "Đi đá bóng"),
+        ("them cho toi toi nay 9h di da bong", "2026-10-27 21:00", "Di da bong"),
+        ("Tạo lịch tối nay 11h đêm gọi điện cho mẹ", "2026-10-27 23:00", "Gọi điện cho mẹ"),
+        ("đặt lịch cho mình 3h chiều mai họp team", "2026-10-28 15:00", "Họp team"),
+        ("tạo lịch 9h tối thứ 6 xem phim", "2026-10-30 21:00", "Xem phim"),
+    ],
+)
+def test_create_event_reads_period_before_time_and_keeps_title(
+    query: str, start: str, title: str
+) -> None:
+    now = datetime(2026, 10, 27, 17, 43, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
+    assert calendar_mutation_kind(query) == "create_event"
+    window = parse_event_times(query, now=now)
+    assert window is not None and window[0].strftime("%Y-%m-%d %H:%M") == start
+    assert infer_event_summary(query) == title
