@@ -222,6 +222,15 @@ class StreamMixin(SpecialistMixin):
                 yield _emit_done(web_result.status)
                 return
 
+            analysis_result = await self._maybe_handle_analysis(
+                session, user_id, query, run_id, decision
+            )
+            if analysis_result is not None:
+                async for item in _stream_text(analysis_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
             minutes_result = await self._maybe_handle_minutes(
                 session, user_id, query, run_id, decision
             )
