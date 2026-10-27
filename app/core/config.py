@@ -32,6 +32,7 @@ from app.core.settings.knowledge import (
 )
 from app.core.settings.llm import LLMMode, LLMProviderSettings
 from app.core.settings.paths import PROJECT_ROOT, resolve_project_path
+from app.core.settings.proactive import ProactiveSettings
 
 __all__ = [
     "PROJECT_ROOT",
@@ -45,6 +46,7 @@ __all__ = [
     "LLMProviderSettings",
     "LangSmithSettings",
     "ParsingSettings",
+    "ProactiveSettings",
     "ProfilingSettings",
     "ReActBudgetSettings",
     "RedisSettings",
@@ -119,6 +121,7 @@ class Settings(BaseSettings):
     llm_budget: LLMBudgetSettings = Field(default_factory=LLMBudgetSettings)
     timeouts: TimeoutsSettings = Field(default_factory=TimeoutsSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    proactive: ProactiveSettings = Field(default_factory=ProactiveSettings)
 
     @property
     def auth_enforced(self) -> bool:

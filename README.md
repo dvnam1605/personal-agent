@@ -13,6 +13,12 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
 - **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
 
+**Tự chủ động**
+
+- **Bản tin sáng** — mỗi sáng (mặc định 7:30) gom lịch hôm nay và email chưa đọc trong 24 giờ qua.
+- **Tự chuẩn bị họp** — khoảng 30 phút trước mỗi cuộc họp có khách mời, tự dựng hồ sơ họp (email gần đây của khách mời, tài liệu nội bộ liên quan).
+- Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề. Trợ lý chỉ đọc; không tự gửi hay sửa gì.
+
 **Kho tài liệu nội bộ**
 
 - **Trả lời có dẫn chứng** — mỗi ý gắn trích dẫn tới đúng văn bản, mục và trang; không đủ căn cứ thì nói rõ thiếu gì.
@@ -86,6 +92,7 @@ app/
     documents/        templates, writing/ (planner, writer, review, formulas, figures),
                       tables/, rendering/ (docx, xlsx, markdown)
     google/, workflows/, approvals/, context/ …   lịch, mail, Drive, kịch bản, duyệt, bộ nhớ
+    proactive/        worker nền: bản tin sáng, tự chuẩn bị họp, thông báo
   agents/, harness/, tools/, integrations/        agent chuyên trách, supervisor, công cụ Google
 frontend/src/
   components/workspaces/   assistant, calendar, email, meetings, settings,
@@ -115,6 +122,8 @@ cp .env.example .env
 - mật khẩu `POSTGRES_*`, `REDIS_PASSWORD`
 - cổng LLM: `ROUTER_BASE_URL`, `ROUTER_API_KEY`, `ROUTER_MODEL` (mô hình cần đọc được ảnh để mô tả hình khi nạp tài liệu)
 - nếu dùng Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+
+Tùy chọn cho phần chủ động (đều có mặc định): `PROACTIVE__ENABLED`, `PROACTIVE__BRIEFING_TIME` (ví dụ `07:30`), `PROACTIVE__MEETING_PREP_LEAD_MINUTES`, `PROACTIVE__TIMEZONE`.
 
 Không commit `.env`.
 

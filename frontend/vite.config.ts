@@ -34,6 +34,7 @@ export default defineConfig({
       '/conversations': 'http://127.0.0.1:8000',
       '/documents': 'http://127.0.0.1:8000',
       '/runs': 'http://127.0.0.1:8000',
+      '/notifications': 'http://127.0.0.1:8000',
       '/health': 'http://127.0.0.1:8000',
       '/ready': 'http://127.0.0.1:8000',
       '/api': 'http://127.0.0.1:8000',

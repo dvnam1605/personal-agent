@@ -7,6 +7,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.google_auth import router as google_auth_router
 from app.api.routes.health import router as health_router
+from app.api.routes.notifications import router as notifications_router
 from app.api.routes.query import router as query_router
 from app.api.routes.questions import router as questions_router
 
@@ -17,6 +18,7 @@ api_router.include_router(conversations_router)
 api_router.include_router(google_auth_router)
 api_router.include_router(approvals_router)
 api_router.include_router(questions_router)
+api_router.include_router(notifications_router)
 api_router.include_router(query_router)
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "conversations_router",
     "google_auth_router",
     "health_router",
+    "notifications_router",
     "query_router",
     "questions_router",
 ]

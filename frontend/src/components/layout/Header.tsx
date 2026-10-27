@@ -14,6 +14,7 @@ import { apiClient } from '../../api/client'
 import type { GoogleIntegrationStatus, UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
 import { Hint } from '../ui/Hint'
+import { NotificationBell } from './NotificationBell'
 import { useToast } from '../ui/toastContext'
 import { WORKSPACE_TABS, type WorkspaceType } from './workspaces'
 import './Header.css'
@@ -152,6 +153,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+
+        <NotificationBell enabled={Boolean(currentUser)} />
 
         {/* User Identity Chip or Login Button */}
         {currentUser ? (

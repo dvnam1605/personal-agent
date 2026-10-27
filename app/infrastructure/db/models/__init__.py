@@ -36,6 +36,7 @@ from app.infrastructure.db.models.documents import (
     GeneratedDocument,
     IngestionJobRecord,
 )
+from app.infrastructure.db.models.notifications import Notification
 from app.infrastructure.db.models.users import Entity, GoogleIntegration, Memory, Skill, User
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "LLMExecution",
     "Memory",
     "Message",
+    "Notification",
     "RunEvidence",
     "Skill",
     "TimestampMixin",

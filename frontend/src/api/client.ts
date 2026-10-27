@@ -23,6 +23,8 @@ import type {
   GoogleStartResponse,
   GoogleIntegrationStatus,
   HealthResponse,
+  NotificationListResponse,
+  NotificationReadResponse,
   QueryRequest,
   QueryResult,
   ReadinessResponse,
@@ -415,6 +417,22 @@ class ApiClient {
     return this.request<GoogleDisconnectResponse>('/auth/google/disconnect', {
       method: 'POST',
     })
+  }
+
+  /* Proactive notifications (morning briefing, meeting dossiers) */
+  async getNotifications(limit: number = 20): Promise<NotificationListResponse> {
+    return this.request<NotificationListResponse>(`/notifications?limit=${limit}`)
+  }
+
+  async markNotificationRead(notificationId: string): Promise<NotificationReadResponse> {
+    return this.request<NotificationReadResponse>(
+      `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST' }
+    )
+  }
+
+  async markAllNotificationsRead(): Promise<NotificationReadResponse> {
+    return this.request<NotificationReadResponse>('/notifications/read-all', { method: 'POST' })
   }
 
   /* 5. Health & Diagnostics */

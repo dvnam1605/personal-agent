@@ -82,6 +82,25 @@ async def run_meeting_prep(
             data={"window": {"start": window_start.isoformat(), "end": window_end.isoformat()}},
         )
 
+    message, data = await build_meeting_dossier(
+        meeting, query, search_messages=search_messages, retrieve=retrieve
+    )
+    return QueryResult(run_id=run_id, status="completed", message=message, route=route, data=data)
+
+
+async def build_meeting_dossier(
+    meeting: Any,
+    query: str = "",
+    *,
+    search_messages: SearchMessagesFn,
+    retrieve: RetrieveFn,
+) -> tuple[str, dict[str, Any]]:
+    """Build the briefing text and data for one known meeting.
+
+    Recent mail from each attendee and the internal documents matching the meeting
+    title are gathered read-only; shared by the interactive workflow and the
+    proactive worker, which already knows which meeting to prepare.
+    """
     attendees = _attendee_emails(meeting)
     discussions: list[str] = []
     for email in attendees[:5]:
@@ -90,8 +109,8 @@ async def run_meeting_prep(
             snippet = getattr(item, "snippet", "") or getattr(item, "subject", "") or ""
             discussions.append(f"{email}: {snippet}".strip())
 
-    topics = [getattr(meeting, "summary", "") or query]
-    synthesis = await retrieve(topics[0] or query)
+    topic = getattr(meeting, "summary", "") or query
+    synthesis = await retrieve(topic) if topic else None
     answer = str(getattr(synthesis, "answer", "") or "")
     docs = [
         citation.model_dump(mode="json")
@@ -111,22 +130,17 @@ async def run_meeting_prep(
         lines.append("Tài liệu nội bộ:")
         lines.append(answer[:800])
     message = "\n".join(item for item in lines if item)
-    return QueryResult(
-        run_id=run_id,
-        status="completed",
-        message=message,
-        route=route,
-        data={
-            "meeting": {
-                "id": getattr(meeting, "id", ""),
-                "summary": title,
-                "when": when,
-                "attendees": attendees,
-            },
-            "discussions": discussions,
-            "documents": docs,
+    data = {
+        "meeting": {
+            "id": getattr(meeting, "id", ""),
+            "summary": title,
+            "when": when,
+            "attendees": attendees,
         },
-    )
+        "discussions": discussions,
+        "documents": docs,
+    }
+    return message, data
 
 
 async def run_meeting_followup(
@@ -489,4 +503,9 @@ async def run_supervisor_dag(
     )
 
 
-__all__ = ["run_meeting_followup", "run_meeting_prep", "run_supervisor_dag"]
+__all__ = [
+    "build_meeting_dossier",
+    "run_meeting_followup",
+    "run_meeting_prep",
+    "run_supervisor_dag",
+]

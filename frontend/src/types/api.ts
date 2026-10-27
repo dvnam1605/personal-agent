@@ -149,6 +149,28 @@ export interface GoogleStartResponse {
   authorization_url: string;
 }
 
+/* Proactive notifications */
+export type NotificationKind = 'morning_briefing' | 'meeting_prep' | string;
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationListResponse {
+  items: NotificationItem[];
+  unread_count: number;
+}
+
+export interface NotificationReadResponse {
+  updated: number;
+}
+
 /* Health & Diagnostics */
 export interface HealthResponse {
   status: string;
