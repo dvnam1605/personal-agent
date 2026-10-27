@@ -240,6 +240,7 @@ def create_app() -> FastAPI:
     from app.api.routes.query import router as query_router
     from app.api.routes.questions import router as questions_router
     from app.api.routes.runs import router as runs_router
+    from app.api.routes.tasks import router as tasks_router
     from app.api.routes.telegram import router as telegram_router
 
     app.include_router(auth_router, prefix="")
@@ -251,6 +252,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router, prefix="")
     app.include_router(memories_router, prefix="")
     app.include_router(telegram_router, prefix="")
+    app.include_router(tasks_router, prefix="")
     app.include_router(query_router, prefix="")
     app.include_router(api_router, prefix=settings.api_prefix)
 

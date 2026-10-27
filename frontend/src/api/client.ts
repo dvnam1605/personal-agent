@@ -24,6 +24,9 @@ import type {
   GoogleIntegrationStatus,
   HealthResponse,
   MemoryView,
+  TaskItem,
+  TaskProposalRequest,
+  TaskProposalResponse,
   TelegramLinkCode,
   TelegramStatus,
   NotificationListResponse,
@@ -420,6 +423,19 @@ class ApiClient {
   async disconnectGoogle(): Promise<GoogleDisconnectResponse> {
     return this.request<GoogleDisconnectResponse>('/auth/google/disconnect', {
       method: 'POST',
+    })
+  }
+
+  /* Google Tasks */
+  async listTasks(): Promise<TaskItem[]> {
+    return this.request<TaskItem[]>('/tasks')
+  }
+
+  /** Create the approval for adding or completing a task; nothing is written until approved. */
+  async proposeTask(body: TaskProposalRequest): Promise<TaskProposalResponse> {
+    return this.request<TaskProposalResponse>('/tasks/propose', {
+      method: 'POST',
+      body: JSON.stringify(body),
     })
   }
 

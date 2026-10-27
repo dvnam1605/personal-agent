@@ -171,6 +171,29 @@ export interface NotificationReadResponse {
   updated: number;
 }
 
+/* Google Tasks */
+export interface TaskItem {
+  id: string;
+  title: string;
+  notes: string | null;
+  status: string;
+  due: string | null;
+  completed_at: string | null;
+  web_link: string | null;
+}
+
+export interface TaskProposalRequest {
+  action: 'create' | 'complete';
+  title?: string;
+  due?: string | null;
+  task_id?: string;
+}
+
+export interface TaskProposalResponse {
+  approval_id: string;
+  description: string;
+}
+
 /* Telegram channel */
 export interface TelegramStatus {
   enabled: boolean;

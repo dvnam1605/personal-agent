@@ -360,9 +360,9 @@
 }
 
 /* Responsive */
-/* The labelled tabs need ~800px between two side clusters of ~400px, so they collapse
-   to icons below 1680px; the centred grid would otherwise squeeze the side clusters. */
-@media (max-width: 1679px) {
+/* The seven labelled tabs need ~900px between two side clusters of up to ~480px, so they
+   collapse to icons below 1920px; the centred grid would otherwise overlap the clusters. */
+@media (max-width: 1919px) {
   .tab-pill-label {
     display: none;
   }
