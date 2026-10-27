@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.specialist.calendar import DEFAULT_TIMEZONE
 from app.domain.enums import ActionRiskLevel, RouteType
+from app.domain.errors import PermissionDeniedError
 from app.domain.models import ProposedAction
 from app.domain.models.routing.route import RouteDecision
 from app.integrations.google_tasks import TASKS_SCOPE, TaskItem, TasksAdapter
@@ -21,6 +22,11 @@ from .clarification import ClarificationMixin
 from .models import QueryResult, route_info
 
 MAX_LISTED = 20
+TASKS_DENIED = (
+    "Google từ chối truy cập Google Tasks. Thường là do Google Tasks API chưa được bật trong "
+    "project Google Cloud của OAuth client (APIs & Services → Library → Google Tasks API → "
+    "Enable), hoặc tài khoản chưa cấp quyền Tasks — khi đó bấm «Kết nối» lại."
+)
 
 
 class TaskMixin(ClarificationMixin):
@@ -57,19 +63,28 @@ class TaskMixin(ClarificationMixin):
         if command is None:
             return None
         route = route_info(decision)
-        adapter = await self._tasks(session, user_id)
-        if command.kind == "list":
-            items = await adapter.list_tasks()
-            return QueryResult(
-                run_id=run_id,
-                status="completed",
-                message=_list_message(items, today),
-                route=route,
-                data={"tasks": [item.model_dump(mode="json") for item in items[:MAX_LISTED]]},
-            )
         if command.kind == "create":
             return await self._propose_create(session, run_id, route, command)
-        return await self._propose_complete(session, run_id, route, command, adapter)
+        try:
+            adapter = await self._tasks(session, user_id)
+            if command.kind == "complete":
+                return await self._propose_complete(session, run_id, route, command, adapter)
+            items = await adapter.list_tasks()
+        except PermissionDeniedError:
+            return QueryResult(
+                run_id=run_id,
+                status="blocked",
+                message=TASKS_DENIED,
+                route=route,
+                data={"error_code": "PERMISSION_DENIED"},
+            )
+        return QueryResult(
+            run_id=run_id,
+            status="completed",
+            message=_list_message(items, today),
+            route=route,
+            data={"tasks": [item.model_dump(mode="json") for item in items[:MAX_LISTED]]},
+        )
 
     async def _propose_create(
         self, session: AsyncSession, run_id: str, route: Any, command: TaskCommand

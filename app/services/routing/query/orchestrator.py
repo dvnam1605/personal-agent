@@ -108,55 +108,19 @@ class QueryOrchestrator(StreamMixin):
                 route=route_info(decision),
             )
 
-        memory_result = await self._maybe_handle_memory(session, user_id, query, run_id, decision)
-        if memory_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return memory_result
-        web_result = await self._maybe_handle_web(query, run_id, decision)
-        if web_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return web_result
-        routine_result = await self._maybe_handle_routines(
-            session, user_id, query, run_id, decision
-        )
-        if routine_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return routine_result
-        analysis_result = await self._maybe_handle_analysis(
-            session, user_id, query, run_id, decision
-        )
-        if analysis_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return analysis_result
-        minutes_result = await self._maybe_handle_minutes(session, user_id, query, run_id, decision)
-        if minutes_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return minutes_result
-        goal_result = await self._maybe_handle_goals(session, user_id, query, run_id, decision)
-        if goal_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return goal_result
-        task_result = await self._maybe_handle_tasks(session, user_id, query, run_id, decision)
-        if task_result is not None:
-            if task_result.status != "needs_approval":
-                await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return task_result
-        document_result = await self._maybe_handle_document(
-            session, user_id, query, effective_query, run_id, decision, conversation_id
-        )
-        if document_result is not None:
-            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
-            return document_result
-
         try:
-            result = await self._dispatch(
-                session,
-                user_id,
-                effective_query,
-                run_id,
-                decision,
-                conversation_history=history,
+            result = await self._handle_command(
+                session, user_id, query, effective_query, run_id, decision, conversation_id
             )
+            if result is None:
+                result = await self._dispatch(
+                    session,
+                    user_id,
+                    effective_query,
+                    run_id,
+                    decision,
+                    conversation_history=history,
+                )
         except (
             AuthenticationError,
             ExternalServiceError,
@@ -185,6 +149,40 @@ class QueryOrchestrator(StreamMixin):
         if result.status != "needs_approval":
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
         return result
+
+    async def _handle_command(
+        self,
+        session: AsyncSession,
+        user_id: str,
+        query: str,
+        effective_query: str,
+        run_id: str,
+        decision: RouteDecision,
+        conversation_id: str | None,
+    ) -> QueryResult | None:
+        """Run the first chat command the turn is (memory, web, routine, analysis, minutes,
+        goal, task, document); ``None`` when it is an ordinary request for routing.
+
+        Commands run inside the same error handling as routed requests, so a provider that
+        refuses (an API not enabled, a revoked grant) becomes a "blocked" answer, not a 500.
+        """
+        handlers = (
+            lambda: self._maybe_handle_memory(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_web(query, run_id, decision),
+            lambda: self._maybe_handle_routines(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_analysis(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_minutes(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_goals(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_tasks(session, user_id, query, run_id, decision),
+            lambda: self._maybe_handle_document(
+                session, user_id, query, effective_query, run_id, decision, conversation_id
+            ),
+        )
+        for handler in handlers:
+            result = await handler()
+            if result is not None:
+                return result
+        return None
 
     async def _dispatch(
         self,

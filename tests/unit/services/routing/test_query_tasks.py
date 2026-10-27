@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.dependencies import get_current_user_id
 from app.api.routes.approvals import get_approval_execution_service
 from app.api.routes.approvals import router as approvals_router
+from app.domain.errors import ExternalServiceError, PermissionDeniedError
+from app.domain.models.google.calendar import CalendarEventPage
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import User
 from app.infrastructure.db.session import get_db_session
@@ -21,6 +23,7 @@ from app.integrations.google_tasks import TaskItem
 from app.services.approvals.execution import ApprovalExecutionService
 from app.services.routing.query import QueryOrchestrator
 from app.tools.google_tasks import GoogleTasksTools
+from tests.unit.services.proactive._fakes import local, make_event
 
 NOW = datetime(2026, 10, 27, 2, 0, tzinfo=UTC)  # 09:00 Tuesday in Hanoi
 
@@ -128,3 +131,35 @@ async def test_stream_path_offers_the_approval(db_session: AsyncSession) -> None
     ]
     assert any(chunk.startswith("event: citations") and "approval_id" in chunk for chunk in chunks)
     assert '"status": "needs_approval"' in chunks[-1]
+
+
+async def test_google_refusals_become_blocked_answers(db_session: AsyncSession) -> None:
+    class DeniedTasks:
+        async def list_tasks(self, **_kwargs: Any) -> list[TaskItem]:
+            raise PermissionDeniedError("Google denied access to this resource.")
+
+    async def tasks_for_user(*_args: Any) -> DeniedTasks:
+        return DeniedTasks()
+
+    orchestrator = QueryOrchestrator(tasks_for_user=tasks_for_user, clock=lambda: NOW)
+    listed = await orchestrator.handle(db_session, "user_a", "việc cần làm?")
+    assert listed.status == "blocked" and "Google Tasks API" in listed.message
+    done = await orchestrator.handle(db_session, "user_a", "xong việc gọi anh Nam")
+    assert done.status == "blocked"
+
+    async def broken_drive(*_args: Any) -> Any:
+        raise ExternalServiceError("Drive is down")
+
+    class OneMeeting:
+        async def list_events(self, *_args: Any, **_kwargs: Any) -> Any:
+            return CalendarEventPage(
+                items=[make_event("e", local(2026, 10, 27, 7), attendees=["a@x.vn"])]
+            )
+
+    async def calendar_for_user(*_args: Any) -> OneMeeting:
+        return OneMeeting()
+
+    minutes = await QueryOrchestrator(
+        calendar_for_user=calendar_for_user, drive_for_user=broken_drive, clock=lambda: NOW
+    ).handle(db_session, "user_a", "biên bản cuộc họp hôm nay")
+    assert minutes.status == "blocked"
