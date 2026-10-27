@@ -116,6 +116,12 @@ class QueryOrchestrator(StreamMixin):
         if web_result is not None:
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
             return web_result
+        routine_result = await self._maybe_handle_routines(
+            session, user_id, query, run_id, decision
+        )
+        if routine_result is not None:
+            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return routine_result
         analysis_result = await self._maybe_handle_analysis(
             session, user_id, query, run_id, decision
         )

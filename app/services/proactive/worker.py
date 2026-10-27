@@ -21,6 +21,7 @@ from app.services.proactive.mail_watch import MailWatchJob
 from app.services.proactive.meeting_prep import MeetingPrepJob
 from app.services.proactive.minutes import MeetingMinutesJob
 from app.services.proactive.notifications import NotificationService
+from app.services.proactive.routines import RoutineJob
 from app.services.proactive.sources import ProactiveSources
 from app.services.proactive.watcher import WatcherJob
 
@@ -82,6 +83,7 @@ class ProactiveWorker:
             MailWatchJob(sources, settings),
             WatcherJob(sources, settings),
             GoalReminderJob(settings),
+            RoutineJob(sources, settings),
         ]
         return cls(session_factory, jobs, settings)
 

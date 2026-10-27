@@ -128,6 +128,8 @@ class FakeSources:
         self.retrieved: list[str] = []
         self.tasks_service = tasks
         self.drive_service = drive
+        self.asked: list[str] = []
+        self.ask_result: Any = None
 
     async def calendar(self, session: AsyncSession, user_id: str) -> FakeCalendar:
         return self.calendar_service
@@ -150,3 +152,7 @@ class FakeSources:
         if self.drive_service is None:
             raise NotFoundError("Drive is not granted.")
         return self.drive_service
+
+    async def ask(self, session: AsyncSession, user_id: str, query: str) -> Any:
+        self.asked.append(query)
+        return self.ask_result

@@ -28,6 +28,14 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - «Đặt mục tiêu: chuẩn bị hội thảo trước 15/12» — trợ lý chia thành các bước có hạn, nhắc mỗi sáng khi có bước đến hạn; «tiến độ mục tiêu», «xong bước 2 của mục tiêu hội thảo».
 - «Báo tôi khi nam@congty.vn trả lời», «theo dõi email có «hợp đồng»», «báo khi có tài liệu mới về quy chế chi tiêu» — trợ lý chỉ báo vào chuông thông báo, không tự làm gì; «đang theo dõi gì?», «dừng theo dõi …».
 
+**Quy trình tự động (skill của bạn)**
+
+- «Tạo quy trình mỗi thứ 6 lúc 17h: tổng hợp email tuần này», «tạo quy trình ngày làm việc 7h: lịch hôm nay?» — trợ lý chạy đúng câu lệnh đó theo lịch, như chính bạn hỏi, và gửi kết quả vào chuông thông báo; việc cần ghi vẫn chờ duyệt. «Các quy trình của tôi», «xóa quy trình 2».
+
+**Phân tích bảng tính**
+
+- «Phân tích file Doanh thu 2026: tổng doanh thu theo khu vực» — đọc Google Sheets / Excel trong Drive, mô hình chỉ lập *kế hoạch truy vấn* (lọc, nhóm, tổng, đếm, sắp xếp), hệ thống tự tính và trả bảng; không chạy code do mô hình viết.
+
 **Bộ nhớ dài hạn**
 
 - Nói «nhớ rằng chữ ký của tôi là …», «quên số điện thoại cũ», «bạn nhớ gì về tôi?» ngay trong chat.
@@ -257,6 +265,8 @@ cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm ru
 Đo chất lượng trả lời trên bộ câu hỏi chuẩn (cần backend và LLM): `uv run python scripts/benchmarks/eval_rag.py`.
 
 Đo hành vi của agent (định tuyến, chặn thao tác ghi, hỏi lại giữa chừng, bộ nhớ, chống chèn lệnh từ mail, việc cần làm, web) trên bộ kịch bản chuẩn, chạy offline không cần backend hay LLM: `uv run python scripts/benchmarks/eval_agent.py`. Bộ này cũng chạy trong pytest.
+
+Tìm các luồng ReAct đã đủ ổn định để chuyển thành graph tĩnh (≥ 50 lượt, ≥ 90% theo cùng chuỗi tool), theo `docs/architecture/loop-vs-graph.md`: `uv run python scripts/benchmarks/hardening_report.py`.
 
 Quy ước viết code và toàn bộ các bước CI cần chạy trước khi push (lint, kiểu, test + coverage, quét secret, lỗ hổng thư viện, bandit, Trivy) nằm trong [AGENTS.md](AGENTS.md). Trên GitHub còn chạy CodeQL và Dependabot.
 

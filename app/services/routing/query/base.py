@@ -3,7 +3,7 @@
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
 KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → TaskMixin →
 GoalMixin → MinutesMixin → AnalysisMixin →
-SpecialistMixin →
+RoutineMixin → SpecialistMixin →
 StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
 the parts before it.
 """

@@ -38,6 +38,7 @@ from app.infrastructure.db.models.documents import (
 )
 from app.infrastructure.db.models.goals import Goal, WatchRule
 from app.infrastructure.db.models.notifications import Notification
+from app.infrastructure.db.models.routines import Routine
 from app.infrastructure.db.models.telegram import TelegramLink
 from app.infrastructure.db.models.users import Entity, GoogleIntegration, Memory, Skill, User
 
@@ -62,6 +63,7 @@ __all__ = [
     "Memory",
     "Message",
     "Notification",
+    "Routine",
     "RunEvidence",
     "Skill",
     "TelegramLink",

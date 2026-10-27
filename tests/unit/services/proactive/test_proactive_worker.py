@@ -131,6 +131,7 @@ async def test_default_jobs_and_stop_event(
         "mail_watch",
         "watcher",
         "goal_reminder",
+        "routine",
     ]
 
     stop = asyncio.Event()

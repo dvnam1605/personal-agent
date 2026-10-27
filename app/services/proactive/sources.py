@@ -24,6 +24,8 @@ class ProactiveSources(Protocol):
 
     async def drive(self, session: AsyncSession, user_id: str) -> Any: ...
 
+    async def ask(self, session: AsyncSession, user_id: str, query: str) -> Any: ...
+
 
 class OrchestratorSources:
     """Sources backed by the query orchestrator, so jobs see exactly what a query sees.
@@ -49,3 +51,6 @@ class OrchestratorSources:
 
     async def drive(self, session: AsyncSession, user_id: str) -> Any:
         return await self._orchestrator._drive(session, user_id)
+
+    async def ask(self, session: AsyncSession, user_id: str, query: str) -> Any:
+        return await self._orchestrator.handle(session, user_id, query)
