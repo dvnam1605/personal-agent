@@ -54,6 +54,7 @@ class OrchestratorBase:
         web_answer_service: Any | None = None,
         draft_critic: Any | None = None,
         tasks_for_user: Any | None = None,
+        compose_email_fn: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -78,6 +79,8 @@ class OrchestratorBase:
         self._draft_critic = draft_critic
         # Builds the Google Tasks adapter for a user (tests inject a fake).
         self._tasks_for_user = tasks_for_user
+        # Writes email drafts; the default calls the LLM (offline evaluation injects one).
+        self._compose_email_fn = compose_email_fn
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

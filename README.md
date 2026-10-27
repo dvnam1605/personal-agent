@@ -242,6 +242,8 @@ cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm ru
 
 Đo chất lượng trả lời trên bộ câu hỏi chuẩn (cần backend và LLM): `uv run python scripts/benchmarks/eval_rag.py`.
 
+Đo hành vi của agent (định tuyến, chặn thao tác ghi, hỏi lại giữa chừng, bộ nhớ, chống chèn lệnh từ mail, việc cần làm, web) trên bộ kịch bản chuẩn, chạy offline không cần backend hay LLM: `uv run python scripts/benchmarks/eval_agent.py`. Bộ này cũng chạy trong pytest.
+
 Quy ước viết code và toàn bộ các bước CI cần chạy trước khi push (lint, kiểu, test + coverage, quét secret, lỗ hổng thư viện, bandit, Trivy) nằm trong [AGENTS.md](AGENTS.md). Trên GitHub còn chạy CodeQL và Dependabot.
 
 ## Stack

@@ -26,6 +26,7 @@ from app.services.skills.matching import unaccent_vietnamese as _unaccent
 ListEventsFn = Callable[..., Awaitable[Any]]
 SearchMessagesFn = Callable[..., Awaitable[Any]]
 RetrieveFn = Callable[[str], Awaitable[Any]]
+ComposeFn = Callable[..., Awaitable[tuple[str, str, list[str]]]]
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,7 @@ async def run_supervisor_dag(
     personal: str = "",
     signature: str | None = None,
     critic: DraftCritic | None = None,
+    compose: ComposeFn = compose_email_draft,
 ) -> QueryResult:
     """Execute a dynamic multi-domain supervisor DAG across Knowledge, Calendar, and Communication.
 
@@ -409,7 +411,7 @@ async def run_supervisor_dag(
             context_parts.append("Lịch làm việc / sự kiện liên quan:\n" + "\n".join(cal_lines))
         combined_context = "\n\n".join(context_parts)
 
-        subject, body, recipients = await compose_email_draft(
+        subject, body, recipients = await compose(
             query, context=combined_context, personal=personal or None
         )
         plan = await prepare_draft(

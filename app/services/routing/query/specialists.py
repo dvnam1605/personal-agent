@@ -129,6 +129,7 @@ class SpecialistMixin(TaskMixin):
                 personal=await self._personal_context(session, user_id, query),
                 signature=await self._memory_for(session).signature(user_id),
                 critic=self._draft_critic,
+                compose=self._compose_email_fn or compose_email_draft,
             )
         return None
 
@@ -356,7 +357,8 @@ class SpecialistMixin(TaskMixin):
         from app.domain.models import ProposedAction
 
         personal = await self._personal_context(session, user_id, query)
-        subject, body, recipients = await compose_email_draft(query, personal=personal or None)
+        compose = self._compose_email_fn or compose_email_draft
+        subject, body, recipients = await compose(query, personal=personal or None)
         plan = await prepare_draft(
             query,
             subject,
