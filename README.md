@@ -45,7 +45,7 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 **Tìm trên web**
 
 - «Tìm trên web về …», «tra cứu trên mạng: …», «google: …», «tin tức …» — trả lời từ kết quả Tavily, mỗi ý gắn nguồn `[W1]` kèm đường link.
-- Chỉ khi bạn yêu cầu rõ; câu hỏi về tài liệu nội bộ không bao giờ tự gửi ra ngoài. Cần `WEB_SEARCH__API_KEY`.
+- Chỉ khi bạn yêu cầu rõ; câu hỏi về tài liệu nội bộ không bao giờ tự gửi ra ngoài. Cần `TAVILY_API_KEY` (hoặc `WEB_SEARCH__API_KEY`).
 
 **Kho tài liệu nội bộ**
 

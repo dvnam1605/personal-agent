@@ -114,6 +114,7 @@ class Settings(BaseSettings):
     router_api_key: str | None = Field(default=None, repr=False, exclude=True)
     router_model: str | None = Field(default=None, repr=False, exclude=True)
     router_base_url: str | None = Field(default=None, repr=False, exclude=True)
+    tavily_api_key: str | None = Field(default=None, repr=False, exclude=True)
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
@@ -222,6 +223,11 @@ class Settings(BaseSettings):
             }
             merged_llm.update(llm_updates)
             self.llm = LLMProviderSettings.model_validate(merged_llm)
+
+        # The provider's own variable name (TAVILY_API_KEY) works as well as WEB_SEARCH__API_KEY.
+        tavily_key = (self.tavily_api_key or "").strip()
+        if tavily_key and not self.web_search.api_key:
+            self.web_search = self.web_search.model_copy(update={"api_key": tavily_key})
         return self
 
     @model_validator(mode="after")
