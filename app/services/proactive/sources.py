@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 class ProactiveSources(Protocol):
     """Per-user read access a proactive job needs.
 
-    Jobs only read: calendar events, mail, tasks and internal documents. Anything that
+    Jobs only read: calendar events, mail, tasks, Drive and internal documents. Anything that
     writes to Google still has to go through an approval request.
     """
 
@@ -21,6 +21,8 @@ class ProactiveSources(Protocol):
     async def retrieve(self, topic: str, user_id: str) -> Any: ...
 
     async def tasks(self, session: AsyncSession, user_id: str) -> Any: ...
+
+    async def drive(self, session: AsyncSession, user_id: str) -> Any: ...
 
 
 class OrchestratorSources:
@@ -44,3 +46,6 @@ class OrchestratorSources:
 
     async def tasks(self, session: AsyncSession, user_id: str) -> Any:
         return await self._orchestrator._tasks(session, user_id)
+
+    async def drive(self, session: AsyncSession, user_id: str) -> Any:
+        return await self._orchestrator._drive(session, user_id)

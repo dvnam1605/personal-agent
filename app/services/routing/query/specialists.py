@@ -22,7 +22,7 @@ from app.services.approvals import ApprovalRequestService
 
 from .drafting import ask_recipients, prepare_draft, review_note
 from .email_synthesis import compose_email_draft, summarize_emails
-from .goals import GoalMixin
+from .minutes import MinutesMixin
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
     _iso,
@@ -50,7 +50,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(GoalMixin):
+class SpecialistMixin(MinutesMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(
@@ -452,27 +452,3 @@ class SpecialistMixin(GoalMixin):
             route=route,
             data={"query": gmail_query, "messages": messages, "count": len(messages)},
         )
-
-    async def _calendar(self, session: AsyncSession, user_id: str) -> Any:
-        if self._calendar_for_user is not None:
-            return await self._calendar_for_user(session, user_id)
-        from app.api.routes.google_auth import google_oauth_service
-        from app.services.google.calendar import CalendarService
-
-        oauth = self._oauth_service or google_oauth_service
-        return await CalendarService.for_user(oauth, session, user_id)
-
-    async def _communication(self, session: AsyncSession, user_id: str) -> Any:
-        if self._communication_for_user is not None:
-            return await self._communication_for_user(session, user_id)
-        from app.api.routes.google_auth import google_oauth_service
-        from app.integrations.google_gmail import GMAIL_MODIFY_SCOPE
-        from app.services.google.communication import CommunicationService
-
-        oauth = self._oauth_service or google_oauth_service
-        client = await oauth.create_client(
-            session,
-            user_id,
-            required_scopes=[GMAIL_MODIFY_SCOPE],
-        )
-        return CommunicationService.from_client(client)

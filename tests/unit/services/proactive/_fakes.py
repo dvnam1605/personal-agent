@@ -119,6 +119,7 @@ class FakeSources:
         retrieve_result: Any = None,
         retrieve_error: Exception | None = None,
         tasks: Any = None,
+        drive: Any = None,
     ) -> None:
         self.calendar_service = calendar or FakeCalendar()
         self.mail_service = mail or FakeMail()
@@ -126,6 +127,7 @@ class FakeSources:
         self.retrieve_error = retrieve_error
         self.retrieved: list[str] = []
         self.tasks_service = tasks
+        self.drive_service = drive
 
     async def calendar(self, session: AsyncSession, user_id: str) -> FakeCalendar:
         return self.calendar_service
@@ -143,3 +145,8 @@ class FakeSources:
         if self.tasks_service is None:
             raise NotFoundError("Google Tasks is not granted.")
         return self.tasks_service
+
+    async def drive(self, session: AsyncSession, user_id: str) -> Any:
+        if self.drive_service is None:
+            raise NotFoundError("Drive is not granted.")
+        return self.drive_service

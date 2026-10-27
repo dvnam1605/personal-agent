@@ -19,6 +19,7 @@ from app.services.proactive.followup import MeetingFollowupJob
 from app.services.proactive.goals import GoalReminderJob
 from app.services.proactive.mail_watch import MailWatchJob
 from app.services.proactive.meeting_prep import MeetingPrepJob
+from app.services.proactive.minutes import MeetingMinutesJob
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
 from app.services.proactive.watcher import WatcherJob
@@ -77,6 +78,7 @@ class ProactiveWorker:
             MorningBriefingJob(sources, settings),
             MeetingPrepJob(sources, settings),
             MeetingFollowupJob(sources, settings),
+            MeetingMinutesJob(sources, settings),
             MailWatchJob(sources, settings),
             WatcherJob(sources, settings),
             GoalReminderJob(settings),

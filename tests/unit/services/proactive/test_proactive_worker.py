@@ -127,6 +127,7 @@ async def test_default_jobs_and_stop_event(
         "morning_briefing",
         "meeting_prep",
         "meeting_followup",
+        "meeting_minutes",
         "mail_watch",
         "watcher",
         "goal_reminder",

@@ -20,6 +20,7 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - **Tự chuẩn bị họp** — khoảng 30 phút trước mỗi cuộc họp có khách mời, tự dựng hồ sơ họp (email gần đây của khách mời, tài liệu nội bộ liên quan).
 - **Sau họp** — khi một cuộc họp có khách mời kết thúc, gợi ý «Soạn follow-up»; nháp vẫn chờ bạn duyệt.
 - **Mail quan trọng** — cứ vài phút kiểm tra hộp thư, báo ngay mail quan trọng mới đến.
+- **Biên bản họp** — khi bản ghi lời thoại Google Meet (Transcript / Notes by Gemini) xuất hiện trong Drive, tự viết biên bản: nội dung chính, quyết định, việc cần làm. Hỏi tay: «biên bản cuộc họp hôm nay». Cần bật ghi lời thoại trong Meet.
 - Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề, đẩy về trình duyệt ngay khi có (SSE). Trợ lý chỉ đọc; không tự gửi hay sửa gì.
 
 **Mục tiêu dài hạn và theo dõi**
