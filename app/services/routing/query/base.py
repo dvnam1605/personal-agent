@@ -1,7 +1,7 @@
 """State and run bookkeeping shared by every part of the query orchestrator.
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
-KnowledgeMixin → MemoryMixin → SpecialistMixin → StreamMixin → QueryOrchestrator — so each
+KnowledgeMixin → MemoryMixin → WebMixin → SpecialistMixin → StreamMixin → QueryOrchestrator — so each
 part sees the attributes and methods of the parts before it.
 """
 
@@ -49,6 +49,7 @@ class OrchestratorBase:
         phrase_structured: bool = True,
         pipeline: Any | None = None,
         memory_factory: Any | None = None,
+        web_answer_service: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -66,6 +67,8 @@ class OrchestratorBase:
         self._pipeline: Any | None = pipeline
         # Builds the PersonalMemoryService for a request session (tests inject one).
         self._memory_factory = memory_factory
+        # Answers explicit web requests; built from settings when not injected.
+        self._web_answer_service = web_answer_service
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

@@ -21,7 +21,6 @@ from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
 from .email_synthesis import compose_email_draft, summarize_emails
-from .memory import MemoryMixin
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
     _iso,
@@ -36,6 +35,7 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
+from .web import WebMixin
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -49,7 +49,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(MemoryMixin):
+class SpecialistMixin(WebMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(

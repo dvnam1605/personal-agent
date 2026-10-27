@@ -98,6 +98,10 @@ class QueryOrchestrator(StreamMixin):
         if memory_result is not None:
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
             return memory_result
+        web_result = await self._maybe_handle_web(query, run_id, decision)
+        if web_result is not None:
+            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return web_result
         document_result = await self._maybe_handle_document(
             session, user_id, query, effective_query, run_id, decision, conversation_id
         )

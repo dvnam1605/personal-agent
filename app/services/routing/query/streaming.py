@@ -204,6 +204,13 @@ class StreamMixin(SpecialistMixin):
                 yield _emit_done("completed")
                 return
 
+            web_result = await self._maybe_handle_web(query, run_id, decision)
+            if web_result is not None:
+                async for item in _stream_text(web_result.message):
+                    yield item
+                yield _emit_done(web_result.status)
+                return
+
             if decision.route_type is not RouteType.REJECT:
                 document_result = await self._maybe_handle_document(
                     session, user_id, query, effective_query, run_id, decision, conversation_id

@@ -27,6 +27,11 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - Trợ lý chỉ nhớ những gì bạn bảo nhớ; dùng khi soạn email (tên, chữ ký, giọng văn).
 - Xem, sửa, xóa từng mục ở **Cài đặt → Bộ nhớ**.
 
+**Tìm trên web**
+
+- «Tìm trên web về …», «tra cứu trên mạng: …», «google: …», «tin tức …» — trả lời từ kết quả Tavily, mỗi ý gắn nguồn `[W1]` kèm đường link.
+- Chỉ khi bạn yêu cầu rõ; câu hỏi về tài liệu nội bộ không bao giờ tự gửi ra ngoài. Cần `WEB_SEARCH__API_KEY`.
+
 **Kho tài liệu nội bộ**
 
 - **Trả lời có dẫn chứng** — mỗi ý gắn trích dẫn tới đúng văn bản, mục và trang; không đủ căn cứ thì nói rõ thiếu gì.
