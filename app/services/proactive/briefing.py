@@ -1,4 +1,4 @@
-"""Morning briefing job: today's calendar and the unread mail of the last day, once a day."""
+"""Morning briefing job: today's calendar, recent unread mail and due tasks, once a day."""
 
 from __future__ import annotations
 
@@ -56,7 +56,8 @@ class MorningBriefingJob:
 
         events_section, event_count = await self._events_section(session, user_id, local)
         mail_section, mail_count = await self._mail_section(session, user_id)
-        body = "\n\n".join([events_section, mail_section])
+        tasks_section = await self._tasks_section(session, user_id, local)
+        body = "\n\n".join(part for part in [events_section, mail_section, tasks_section] if part)
         notification = await NotificationService.create(
             session,
             user_id=user_id,
@@ -110,6 +111,26 @@ class MorningBriefingJob:
             for message in messages
         )
         return "\n".join(lines), len(messages)
+
+    async def _tasks_section(self, session: AsyncSession, user_id: str, local: datetime) -> str:
+        """Overdue and due-today tasks; empty when there are none or Tasks is not granted."""
+        try:
+            adapter = await self._sources.tasks(session, user_id)
+            items = await adapter.list_tasks()
+        except AppError:
+            return ""
+        today = local.date()
+        due = sorted(
+            (item for item in items if item.due is not None and item.due <= today),
+            key=lambda item: item.due,
+        )
+        if not due:
+            return ""
+        lines = [f"**Việc đến hạn** ({len(due)})"]
+        for item in due[:MAX_EVENTS]:
+            late = " — quá hạn" if item.due < today else ""
+            lines.append(f"- {plain(item.title)}{late}")
+        return "\n".join(lines)
 
     def _event_line(self, event: Any) -> str:
         title = plain(getattr(event, "summary", "") or "(không tiêu đề)")

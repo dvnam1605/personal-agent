@@ -222,6 +222,19 @@ class StreamMixin(SpecialistMixin):
                 yield _emit_done(web_result.status)
                 return
 
+            task_result = await self._maybe_handle_tasks(session, user_id, query, run_id, decision)
+            if task_result is not None:
+                async for item in _stream_text(task_result.message):
+                    yield item
+                yield _sse(
+                    "citations",
+                    {"data": task_result.data, "approval_id": task_result.approval_id},
+                )
+                if task_result.status == "needs_approval":
+                    final_status = RunStatus.WAITING_APPROVAL
+                yield _emit_done(task_result.status)
+                return
+
             if decision.route_type is not RouteType.REJECT:
                 document_result = await self._maybe_handle_document(
                     session, user_id, query, effective_query, run_id, decision, conversation_id

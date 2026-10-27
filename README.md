@@ -12,6 +12,7 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp. Mỗi bản nháp được một bộ rà soát độc lập kiểm tra (chỗ trống, thiếu ý, bịa thông tin) và tự sửa trước khi bạn duyệt; trợ lý không bao giờ tự đoán người nhận — chưa rõ thì hỏi lại, rồi làm tiếp đúng yêu cầu đó khi bạn trả lời.
 - **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
 - **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
+- **Việc cần làm (Google Tasks)** — «việc cần làm?», «thêm việc: gọi anh Nam hạn thứ 6», «xong việc gọi anh Nam». Thêm và đánh dấu xong đều qua thẻ duyệt; việc quá hạn và đến hạn có trong bản tin sáng. Tài khoản đã kết nối trước đây cần bấm **Kết nối** lại để cấp quyền Tasks.
 
 **Tự chủ động**
 

@@ -1,7 +1,8 @@
 """State and run bookkeeping shared by every part of the query orchestrator.
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
-KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → SpecialistMixin →
+KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → TaskMixin →
+SpecialistMixin →
 StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
 the parts before it.
 """
@@ -52,6 +53,7 @@ class OrchestratorBase:
         memory_factory: Any | None = None,
         web_answer_service: Any | None = None,
         draft_critic: Any | None = None,
+        tasks_for_user: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -74,6 +76,8 @@ class OrchestratorBase:
         # Reviews email drafts before approval; the default runs structural checks plus
         # a model review when an LLM is configured.
         self._draft_critic = draft_critic
+        # Builds the Google Tasks adapter for a user (tests inject a fake).
+        self._tasks_for_user = tasks_for_user
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

@@ -20,7 +20,6 @@ from app.domain.errors import ValidationError
 from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
-from .clarification import ClarificationMixin
 from .drafting import ask_recipients, prepare_draft, review_note
 from .email_synthesis import compose_email_draft, summarize_emails
 from .models import QueryResult, QueryRouteInfo, route_info
@@ -37,6 +36,7 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
+from .tasks import TaskMixin
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -50,7 +50,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(ClarificationMixin):
+class SpecialistMixin(TaskMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(

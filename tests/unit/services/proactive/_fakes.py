@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.errors import NotFoundError
 from app.domain.models.google.calendar import (
     CalendarAttendee,
     CalendarEvent,
@@ -117,12 +118,14 @@ class FakeSources:
         mail: FakeMail | None = None,
         retrieve_result: Any = None,
         retrieve_error: Exception | None = None,
+        tasks: Any = None,
     ) -> None:
         self.calendar_service = calendar or FakeCalendar()
         self.mail_service = mail or FakeMail()
         self.retrieve_result = retrieve_result
         self.retrieve_error = retrieve_error
         self.retrieved: list[str] = []
+        self.tasks_service = tasks
 
     async def calendar(self, session: AsyncSession, user_id: str) -> FakeCalendar:
         return self.calendar_service
@@ -135,3 +138,8 @@ class FakeSources:
         if self.retrieve_error is not None:
             raise self.retrieve_error
         return self.retrieve_result
+
+    async def tasks(self, session: AsyncSession, user_id: str) -> Any:
+        if self.tasks_service is None:
+            raise NotFoundError("Google Tasks is not granted.")
+        return self.tasks_service

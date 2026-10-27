@@ -28,6 +28,7 @@ class GoogleOAuthSettings(BaseModel):
             "https://www.googleapis.com/auth/calendar",
             "https://www.googleapis.com/auth/contacts.readonly",
             "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/tasks",
         ],
         description="OAuth requested scopes",
     )

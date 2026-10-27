@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import date, time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings.proactive import ProactiveSettings
 from app.domain.errors import NotFoundError
+from app.integrations.google_tasks import TaskItem
 from app.services.proactive import MorningBriefingJob, NotificationService
 from tests.unit.services.proactive._fakes import (
     FakeCalendar,
@@ -85,3 +86,27 @@ async def test_empty_day_says_so(db_session: AsyncSession) -> None:
     created = await _job(FakeSources()).run(db_session, "user_a", local(2026, 10, 27, 8))
     assert "Không có lịch nào." in created[0].body
     assert "Không có email mới." in created[0].body
+
+
+async def test_briefing_lists_overdue_and_due_today_tasks(db_session: AsyncSession) -> None:
+    class Tasks:
+        async def list_tasks(self) -> list[TaskItem]:
+            return [
+                TaskItem(id="1", title="Nộp báo cáo", due=date(2026, 10, 27)),
+                TaskItem(id="2", title="Gọi [Nam](x)", due=date(2026, 10, 20)),
+                TaskItem(id="3", title="Đọc sách", due=date(2026, 11, 2)),
+                TaskItem(id="4", title="Không hạn"),
+            ]
+
+    created = await _job(FakeSources(tasks=Tasks())).run(
+        db_session, "user_a", local(2026, 10, 27, 8)
+    )
+    body = created[0].body
+    assert "**Việc đến hạn** (2)" in body
+    assert body.index(r"Gọi \[Nam\]\(x\) — quá hạn") < body.index("- Nộp báo cáo")
+    assert "Đọc sách" not in body and "Không hạn" not in body
+
+
+async def test_briefing_omits_tasks_without_the_grant(db_session: AsyncSession) -> None:
+    created = await _job(FakeSources()).run(db_session, "user_a", local(2026, 10, 27, 8))
+    assert "Việc đến hạn" not in created[0].body

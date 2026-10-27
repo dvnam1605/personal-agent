@@ -116,6 +116,11 @@ class QueryOrchestrator(StreamMixin):
         if web_result is not None:
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
             return web_result
+        task_result = await self._maybe_handle_tasks(session, user_id, query, run_id, decision)
+        if task_result is not None:
+            if task_result.status != "needs_approval":
+                await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return task_result
         document_result = await self._maybe_handle_document(
             session, user_id, query, effective_query, run_id, decision, conversation_id
         )

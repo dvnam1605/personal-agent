@@ -37,10 +37,12 @@ class ApprovalExecutionService:
         oauth_service: Any | None = None,
         calendar_execute: ToolExecuteFn | None = None,
         communication_execute: ToolExecuteFn | None = None,
+        tasks_execute: ToolExecuteFn | None = None,
     ) -> None:
         self._oauth_service = oauth_service
         self._calendar_execute = calendar_execute
         self._communication_execute = communication_execute
+        self._tasks_execute = tasks_execute
 
     async def execute(
         self,
@@ -126,6 +128,9 @@ class ApprovalExecutionService:
                 session, user_id
             )
             return await execute(tool_input, context)
+        if tool_input.tool_name.startswith("tasks."):
+            execute = self._tasks_execute or await self._default_tasks_execute(session, user_id)
+            return await execute(tool_input, context)
         from app.domain.models import ToolExecutionMetadata
 
         return ToolResult(
@@ -154,6 +159,14 @@ class ApprovalExecutionService:
         oauth = self._oauth_service or google_oauth_service
         client = await oauth.create_client(session, user_id, required_scopes=[GMAIL_MODIFY_SCOPE])
         tools = GoogleCommunicationTools(CommunicationService.from_client(client))
+        return tools.execute
+
+    async def _default_tasks_execute(self, session: AsyncSession, user_id: str) -> ToolExecuteFn:
+        from app.api.routes.google_auth import google_oauth_service
+        from app.tools.google_tasks import GoogleTasksTools
+
+        oauth = self._oauth_service or google_oauth_service
+        tools = await GoogleTasksTools.for_user(oauth, session, user_id)
         return tools.execute
 
     @staticmethod
@@ -211,6 +224,11 @@ def _success_message(tool_name: str, output: Any) -> str:
             draft_id = str(output.get("id") or "")
         suffix = f" (id={draft_id})" if draft_id else ""
         return f"Đã tạo nháp Gmail{suffix}."
+    if tool_name in ("tasks.create", "tasks.complete"):
+        title = str(output.get("title") or "") if isinstance(output, dict) else ""
+        label = f" «{title}»" if title else ""
+        verb = "Đã thêm việc" if tool_name == "tasks.create" else "Đã đánh dấu xong việc"
+        return f"{verb}{label} trên Google Tasks."
     return f"Đã thực thi {tool_name}."
 
 
