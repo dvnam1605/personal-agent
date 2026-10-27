@@ -29,6 +29,11 @@ MATRIX = [
 COLUMNS, ROWS = rows_from_matrix(MATRIX)
 
 
+def _plan(**fields: Any) -> QueryPlan:
+    """Plans arrive as model JSON; validate them the same way."""
+    return QueryPlan.model_validate(fields)
+
+
 def test_numbers() -> None:
     assert [
         to_number(v) for v in ["3.000 đ", "1.5", "2.500,75", "1,234,567", "12%", True, "x"]
@@ -44,7 +49,7 @@ def test_numbers() -> None:
 
 
 def test_group_sum_sort_and_filters() -> None:
-    plan = QueryPlan(
+    plan = _plan(
         group_by=["khu vuc"],
         aggregates=[{"fn": "sum", "column": "Doanh thu"}, {"fn": "count", "column": "*"}],
         sort_by="sum(Doanh thu)",
@@ -53,7 +58,7 @@ def test_group_sum_sort_and_filters() -> None:
     assert header == ["Khu vực", "sum(Doanh thu)", "count(*)"]
     assert table == [["Bắc", 2700000.0, 2], ["Nam", 800000.0, 2]]
 
-    filtered = QueryPlan(
+    filtered = _plan(
         filters=[
             {"column": "Tháng", "op": "=", "value": 2},
             {"column": "Khu vực", "op": "contains", "value": "bac"},
@@ -61,19 +66,19 @@ def test_group_sum_sort_and_filters() -> None:
         select=["Khu vực", "Doanh thu"],
     )
     assert run_plan(filtered, COLUMNS, ROWS)[1] == [["Bắc", "1.500.000"]]
-    over = QueryPlan(
+    over = _plan(
         filters=[{"column": "Doanh thu", "op": ">", "value": "1.000.000"}],
         aggregates=[{"fn": "avg", "column": "Doanh thu"}],
     )
     assert run_plan(over, COLUMNS, ROWS)[1] == [[1350000.0]]
 
     with pytest.raises(PlanError):
-        run_plan(QueryPlan(select=["Lợi nhuận"]), COLUMNS, ROWS)
+        run_plan(_plan(select=["Lợi nhuận"]), COLUMNS, ROWS)
     with pytest.raises(PlanError):
-        run_plan(QueryPlan(), COLUMNS, ROWS)
+        run_plan(_plan(), COLUMNS, ROWS)
     with pytest.raises(PlanError):
-        run_plan(QueryPlan(aggregates=[{"fn": "sum", "column": "*"}]), COLUMNS, ROWS)
-    assert QueryPlan(limit="900").limit == 50 and QueryPlan(limit="x").limit == 20
+        run_plan(_plan(aggregates=[{"fn": "sum", "column": "*"}]), COLUMNS, ROWS)
+    assert _plan(limit="900").limit == 50 and _plan(limit="x").limit == 20
 
 
 def test_rows_from_matrix_names_blank_and_duplicate_headers() -> None:
