@@ -5,8 +5,10 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from app.core.llm import llm_text
+from app.core.text import inert_markdown
 from app.domain.models.retrieval.web import WebSearchPage, WebSearchResultItem
 from app.services.retrieval.answer.injection_boundary import _neutralize_tag
 from app.tools.knowledge import WebSearchProvider
@@ -90,11 +92,12 @@ def _results_list(items: list[WebSearchResultItem]) -> str:
 
 
 def sources_markdown(sources: list[WebSource]) -> str:
-    """Source list appended under the answer; titles are escaped, links are plain URLs."""
+    """Source list under the answer: label, inert title and a link named by its site."""
     if not sources:
         return ""
     lines = ["", "**Nguồn:**"]
     for source in sources:
-        title = re.sub(r"([\\`*_\[\]()<>#!|])", r"\\\1", " ".join(source.title.split()))[:150]
-        lines.append(f"- [{source.label}] {title} — <{source.url}>")
+        title = inert_markdown(" ".join(source.title.split()))[:150]
+        site = urlparse(source.url).netloc.removeprefix("www.") or "link"
+        lines.append(f"- {source.label}: {title} — [{site}]({source.url})")
     return "\n".join(lines)

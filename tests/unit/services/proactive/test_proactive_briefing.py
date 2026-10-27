@@ -103,7 +103,7 @@ async def test_briefing_lists_overdue_and_due_today_tasks(db_session: AsyncSessi
     )
     body = created[0].body
     assert "**Việc đến hạn** (2)" in body
-    assert body.index(r"Gọi \[Nam\]\(x\) — quá hạn") < body.index("- Nộp báo cáo")
+    assert body.index("Gọi [Nam] (x) — quá hạn") < body.index("- Nộp báo cáo")
     assert "Đọc sách" not in body and "Không hạn" not in body
 
 

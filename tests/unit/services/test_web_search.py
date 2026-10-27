@@ -119,7 +119,9 @@ async def test_answer_without_llm_lists_results(monkeypatch: pytest.MonkeyPatch)
     assert empty.status == "no_results" and empty.sources == []
 
 
-def test_sources_markdown_escapes_titles() -> None:
-    source = answer_module.WebSource(label="W1", title="[x](http://evil)", url="https://a.vn")
-    assert sources_markdown([source]).endswith(r"- [W1] \[x\]\(http://evil\) — <https://a.vn>")
+def test_sources_markdown_links_sites_and_breaks_title_links() -> None:
+    source = answer_module.WebSource(label="W1", title="[x](http://evil)", url="https://www.a.vn/p")
+    assert sources_markdown([source]).endswith(
+        "- W1: [x] (http://evil) — [a.vn](https://www.a.vn/p)"
+    )
     assert sources_markdown([]) == ""

@@ -7,6 +7,7 @@ the retrieval pipeline and would create import cycles.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 # ``đ``/``Đ`` are atomic letters (not a combining stroke), so NFKD leaves them.
@@ -19,3 +20,14 @@ def unaccent_vietnamese(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", folded)
     stripped = "".join(char for char in decomposed if not unicodedata.combining(char))
     return " ".join(stripped.casefold().split())
+
+
+# The web app's Markdown renderer has no backslash escapes, so untrusted text is made
+# inert by breaking markup up instead: "](" cannot form a link or image, "$" cannot open
+# a formula.
+_LINK_JOIN = re.compile(r"\]\s*\(")
+
+
+def inert_markdown(text: str) -> str:
+    """Untrusted text that renders as itself in the web app's Markdown, no escapes shown."""
+    return _LINK_JOIN.sub("] (", text).replace("$", "＄")

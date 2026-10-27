@@ -12,7 +12,7 @@ from app.core.settings.proactive import ProactiveSettings
 from app.domain.errors import AppError
 from app.infrastructure.db.models import Document, Notification, WatchRule
 from app.services.goals.service import WatchService
-from app.services.proactive.formatting import plain
+from app.services.proactive.formatting import plain, sender_name
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
 from app.services.routing.query.parsing import load_gmail_details
@@ -88,7 +88,7 @@ class WatcherJob:
                 user_id=user_id,
                 kind=WATCH_KIND,
                 title=f"{label}: {plain(message.get('subject') or '(không tiêu đề)')}",
-                body=f"**Từ:** {plain(message.get('from') or '')}\n\n{plain(message.get('snippet') or '', 300)}",
+                body=f"**Từ:** {sender_name(message.get('from') or '')}\n\n{plain(message.get('snippet') or '', 300)}",
                 dedup_key=f"watch:{rule.id}:{message.get('id')}",
                 data=data,
             )

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings.proactive import ProactiveSettings
 from app.services.proactive import MailWatchJob, MeetingFollowupJob
-from app.services.proactive.formatting import plain
+from app.services.proactive.formatting import plain, sender_name
 from tests.unit.services.proactive._fakes import (
     FakeCalendar,
     FakeMail,
@@ -23,8 +23,10 @@ SETTINGS = ProactiveSettings(
 )
 
 
-def test_plain_escapes_markdown_and_collapses_lines() -> None:
-    assert plain("[click](http://evil)\n**now**") == r"\[click\]\(http://evil\) \*\*now\*\*"
+def test_plain_breaks_markup_without_escapes() -> None:
+    assert plain("[click](http://evil)\n**now** $x$") == "[click] (http://evil) **now** ＄x＄"
+    assert sender_name("LinkedIn <jobs@linkedin.com>") == "LinkedIn"
+    assert sender_name("nam@x.vn") == "nam@x.vn"
     assert plain("x" * 50, max_len=10) == "xxxxxxxxx…"
     assert plain(None) == ""
 
@@ -45,7 +47,7 @@ async def test_followup_is_suggested_once_after_a_meeting_ends(db_session: Async
     assert len(created) == 1 and again == []
     notification = created[0]
     assert notification.kind == "meeting_followup"
-    assert notification.title == r"Đã họp xong: Họp \[link\]\(x\)"
+    assert notification.title == "Đã họp xong: Họp [link] (x)"
     assert notification.data["suggested_query"] == "Soạn email follow-up cuộc họp hôm nay"
     assert "link" not in notification.data["suggested_query"]
     assert "nam@x.vn" in notification.body
@@ -84,7 +86,7 @@ async def test_mail_watch_announces_recent_mail_once(db_session: AsyncSession) -
     assert throttled == [] and later == []
     assert len(mail.queries) == 2
     notification = created[0]
-    assert notification.title == r"Email quan trọng: Hợp đồng \!\[x\]\(http://e\)"
+    assert notification.title == "Email quan trọng: Hợp đồng ![x] (http://e)"
     assert notification.data["suggested_query"] == "Đọc email mới nhất từ nam@x.vn"
     assert "Hợp đồng" not in notification.data["suggested_query"]
 

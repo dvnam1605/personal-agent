@@ -17,6 +17,9 @@ _LIST = re.compile(
     r"(?:viec can lam|cong viec can lam|viec phai lam|todo|to-do|tasks?)"
     r"(?: cua (?:toi|minh))?(?: (?:hom nay|tuan nay|con lai))?\s*\??\s*$"
     r"|\b(?:toi|minh) (?:con|co) (?:viec|task) (?:gi|nao)\b"
+    # "check task xem tuần này có task gì", "có bao nhiêu task", "xem danh sách task"
+    r"|\b(?:check|kiem tra|xem|liet ke|danh sach)\b.*\b(?:tasks?|todo|viec can lam)\b"
+    r"|\b(?:co|con) (?:bao nhieu )?(?:tasks?|todo|viec can lam)(?: (?:gi|nao))?\b"
 )
 _CREATE = re.compile(
     r"^\s*(?:(?:them|tao|ghi)(?: (?:mot|1))? (?:viec|task|cong viec|todo|viec can lam)"
@@ -63,8 +66,7 @@ class TaskCommand:
 def parse_task_command(query: str, today: date) -> TaskCommand | None:
     """Recognise "việc cần làm", "thêm việc: … hạn thứ 6", "xong việc …"; ``None`` otherwise."""
     folded = unaccent_vietnamese(query)
-    if _LIST.search(folded):
-        return TaskCommand("list")
+    # Add/complete first: their titles may contain list words ("thêm việc: check task").
     for kind, pattern in _COMMANDS:
         match = pattern.match(folded)
         if match is None:
@@ -74,6 +76,8 @@ def parse_task_command(query: str, today: date) -> TaskCommand | None:
         if not title or unaccent_vietnamese(title) in _FILLER:
             return None
         return TaskCommand(kind, title=title, due=due if kind == "create" else None)
+    if _LIST.search(folded):
+        return TaskCommand("list")
     return None
 
 

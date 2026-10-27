@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings.proactive import ProactiveSettings
 from app.domain.errors import AppError
 from app.infrastructure.db.models import Notification
-from app.services.proactive.formatting import plain
+from app.services.proactive.formatting import plain, sender_name
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
 from app.services.routing.query.parsing import load_gmail_details
@@ -106,7 +106,7 @@ class MorningBriefingJob:
             return "**Email chưa đọc (24 giờ qua)**\nKhông có email mới.", 0
         lines = [f"**Email chưa đọc (24 giờ qua)** ({len(messages)})"]
         lines.extend(
-            f"- {plain(message.get('from') or 'Không rõ người gửi', 120)}: "
+            f"- {sender_name(message.get('from') or 'Không rõ người gửi')}: "
             f"{plain(message.get('subject'))}"
             for message in messages
         )

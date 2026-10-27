@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings.proactive import ProactiveSettings
 from app.infrastructure.db.models import Notification
-from app.services.proactive.formatting import plain
+from app.services.proactive.formatting import plain, sender_name
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
 from app.services.routing.query.parsing import load_gmail_details
@@ -66,7 +66,7 @@ class MailWatchJob:
     async def _notify(
         self, session: AsyncSession, user_id: str, message: dict[str, Any], dedup_key: str
     ) -> Notification | None:
-        sender = plain(message.get("from") or "Không rõ người gửi", 120)
+        sender = sender_name(message.get("from") or "Không rõ người gửi")
         subject = plain(message.get("subject") or "(không tiêu đề)")
         snippet = plain(message.get("snippet") or "", 300)
         from_email = str(message.get("from_email") or "")

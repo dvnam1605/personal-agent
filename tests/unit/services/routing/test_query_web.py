@@ -52,7 +52,7 @@ async def test_explicit_web_request_is_answered_with_sources(
 
     assert result.status == "completed"
     assert result.message.startswith("Giá vàng hôm nay tăng [W1].")
-    assert "<https://a.vn/vang>" in result.message
+    assert "[a.vn](https://a.vn/vang)" in result.message
     assert result.data["web_query"] == "giá vàng hôm nay"
     assert result.data["web_sources"][0]["url"] == "https://a.vn/vang"
 

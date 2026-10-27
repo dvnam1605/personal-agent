@@ -23,6 +23,11 @@ TODAY = date(2026, 10, 27)  # a Tuesday
     [
         ("Việc cần làm của tôi hôm nay?", TaskCommand("list")),
         ("tôi còn việc gì", TaskCommand("list")),
+        ("check task xem tuần này có task gì", TaskCommand("list")),
+        ("có bao nhiêu task", TaskCommand("list")),
+        ("Thêm việc: check task", TaskCommand("create", "check task")),
+        ("xong việc check task", TaskCommand("complete", "check task")),
+        ("kiểm tra lịch họp", None),
         (
             "Thêm việc: gọi anh Nam hạn thứ 6",
             TaskCommand("create", "gọi anh Nam", date(2026, 10, 30)),
