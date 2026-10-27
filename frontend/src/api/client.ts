@@ -435,6 +435,52 @@ class ApiClient {
     return this.request<NotificationReadResponse>('/notifications/read-all', { method: 'POST' })
   }
 
+  /**
+   * Hold the live notification stream open until it ends or `signal` aborts; calls
+   * `onNotification` for every new notification id. Resolves `false` when the server
+   * reports live delivery unavailable, so the caller can fall back to polling.
+   */
+  async streamNotifications(
+    onNotification: (id: string) => void,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const response = await fetch('/notifications/stream', {
+      headers: { ...this.getHeaders(), Accept: 'text/event-stream' },
+      signal,
+    })
+    if (!response.ok || !response.body) {
+      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let currentEvent = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return true
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          if (currentEvent === 'unavailable') return false
+          if (currentEvent === 'notification') {
+            try {
+              const payload = JSON.parse(line.slice(5).trim()) as { id?: string }
+              if (payload.id) onNotification(payload.id)
+            } catch {
+              // Ignore a malformed frame; the next poll catches up.
+            }
+          }
+        } else if (line === '') {
+          currentEvent = ''
+        }
+      }
+    }
+  }
+
   /* 5. Health & Diagnostics */
   async getHealth(): Promise<HealthResponse> {
     return this.request<HealthResponse>('/health')

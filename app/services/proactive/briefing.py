@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings.proactive import ProactiveSettings
 from app.domain.errors import AppError
 from app.infrastructure.db.models import Notification
+from app.services.proactive.formatting import plain
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
 from app.services.routing.query.parsing import load_gmail_details
@@ -26,7 +27,8 @@ class MorningBriefingJob:
 
     The briefing is built from plain reads and written without an LLM call, so it is
     cheap, deterministic and never invents an appointment. A section whose source fails
-    says so instead of dropping the whole briefing.
+    says so instead of dropping the whole briefing. Titles, senders and subjects come
+    from other people and are escaped before they reach the Markdown body.
     """
 
     name = "morning_briefing"
@@ -103,13 +105,14 @@ class MorningBriefingJob:
             return "**Email chưa đọc (24 giờ qua)**\nKhông có email mới.", 0
         lines = [f"**Email chưa đọc (24 giờ qua)** ({len(messages)})"]
         lines.extend(
-            f"- {message.get('from') or 'Không rõ người gửi'}: {message.get('subject')}"
+            f"- {plain(message.get('from') or 'Không rõ người gửi', 120)}: "
+            f"{plain(message.get('subject'))}"
             for message in messages
         )
         return "\n".join(lines), len(messages)
 
     def _event_line(self, event: Any) -> str:
-        title = getattr(event, "summary", "") or "(không tiêu đề)"
+        title = plain(getattr(event, "summary", "") or "(không tiêu đề)")
         start = getattr(event, "start", None)
         end = getattr(event, "end", None)
         if start is None or getattr(start, "all_day", False):
@@ -120,5 +123,5 @@ class MorningBriefingJob:
         except (TypeError, ValueError):
             return title
         span = f"{begin:%H:%M}" + (f"–{finish:%H:%M}" if finish is not None else "")
-        location = getattr(event, "location", None)
+        location = plain(getattr(event, "location", None) or "", 120)
         return f"{span} {title}" + (f" ({location})" if location else "")

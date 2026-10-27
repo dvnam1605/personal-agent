@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, CalendarClock, CheckCheck, Sunrise } from 'lucide-react'
+import { Bell, CalendarCheck, CalendarClock, CheckCheck, Mail, Sunrise } from 'lucide-react'
 import { apiClient } from '../../api/client'
 import type { NotificationItem } from '../../types/api'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/shadcn/popover'
@@ -9,17 +9,29 @@ import { useToast } from '../ui/toastContext'
 import './NotificationBell.css'
 
 const POLL_INTERVAL_MS = 60000
+const STREAM_RETRY_MS = 15000
+
+const KIND_ICONS: Record<string, typeof Bell> = {
+  morning_briefing: Sunrise,
+  meeting_prep: CalendarClock,
+  meeting_followup: CalendarCheck,
+  mail_alert: Mail,
+}
 
 interface NotificationBellProps {
   enabled: boolean
+  /** Send a suggested request to the assistant (opens the assistant workspace). */
+  onAskAssistant?: (prompt: string) => void
 }
 
 /**
  * Notification centre for what the assistant prepared on its own (morning briefing,
- * meeting dossiers). Polls the backend; a notification that appears between two polls
- * is announced with a toast, and opening one marks it read.
+ * meeting dossiers and follow-ups, important mail). A live stream refreshes the list
+ * as soon as the worker stores something; polling covers a dropped stream. A new
+ * notification is announced with a toast, opening one marks it read, and one that
+ * carries a suggested request offers it as a button.
  */
-export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled }) => {
+export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled, onAskAssistant }) => {
   const { showToast } = useToast()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -52,9 +64,23 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled }) =
     }
     tick()
     const interval = setInterval(tick, POLL_INTERVAL_MS)
+    const controller = new AbortController()
+    let retry: ReturnType<typeof setTimeout> | undefined
+    const listen = async () => {
+      try {
+        const live = await apiClient.streamNotifications(tick, controller.signal)
+        if (!live) return
+      } catch {
+        if (controller.signal.aborted) return
+      }
+      if (active) retry = setTimeout(listen, STREAM_RETRY_MS)
+    }
+    void listen()
     return () => {
       active = false
       clearInterval(interval)
+      clearTimeout(retry)
+      controller.abort()
     }
   }, [enabled, refresh])
 
@@ -113,8 +139,12 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled }) =
         ) : (
           <ul className="notification-list">
             {items.map((item) => {
-              const Icon = item.kind === 'meeting_prep' ? CalendarClock : Sunrise
+              const Icon = KIND_ICONS[item.kind] ?? Bell
               const isExpanded = expandedId === item.id
+              const suggestedQuery =
+                typeof item.data.suggested_query === 'string' ? item.data.suggested_query : null
+              const actionLabel =
+                typeof item.data.action_label === 'string' ? item.data.action_label : 'Hỏi trợ lý'
               return (
                 <li
                   key={item.id}
@@ -134,6 +164,14 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled }) =
                   {isExpanded && (
                     <div className="notification-item-body">
                       <MarkdownContent content={item.body} />
+                      {suggestedQuery && onAskAssistant && (
+                        <button
+                          className="notification-item-action"
+                          onClick={() => onAskAssistant(suggestedQuery)}
+                        >
+                          {actionLabel}
+                        </button>
+                      )}
                     </div>
                   )}
                 </li>

@@ -123,7 +123,12 @@ async def test_default_jobs_and_stop_event(
     worker = ProactiveWorker.with_default_jobs(
         session_factory, FakeSources(), ProactiveSettings(tick_seconds=0.01)
     )
-    assert [job.name for job in worker.jobs] == ["morning_briefing", "meeting_prep"]
+    assert [job.name for job in worker.jobs] == [
+        "morning_briefing",
+        "meeting_prep",
+        "meeting_followup",
+        "mail_watch",
+    ]
 
     stop = asyncio.Event()
     task = asyncio.create_task(worker.run(stop))

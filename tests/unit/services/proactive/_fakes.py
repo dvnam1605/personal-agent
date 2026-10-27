@@ -14,7 +14,12 @@ from app.domain.models.google.calendar import (
     CalendarEventPage,
     CalendarEventTime,
 )
-from app.domain.models.google.communication import GmailMessagePage, GmailMessageSummary
+from app.domain.models.google.communication import (
+    EmailAddress,
+    GmailMessage,
+    GmailMessagePage,
+    GmailMessageSummary,
+)
 
 ZONE = "Asia/Ho_Chi_Minh"
 
@@ -63,21 +68,44 @@ class FakeCalendar:
 class FakeMail:
     """Search returns summaries; ``get_message`` is absent so snippets are used as-is."""
 
-    def __init__(self, snippets: list[str] | None = None, error: Exception | None = None):
+    def __init__(
+        self,
+        snippets: list[str] | None = None,
+        error: Exception | None = None,
+        messages: list[GmailMessageSummary] | None = None,
+    ):
         self.snippets = snippets or []
         self.error = error
+        self.messages = messages
         self.queries: list[str] = []
 
     async def search_messages(self, query: str, page_size: int = 3) -> GmailMessagePage:
         self.queries.append(query)
         if self.error is not None:
             raise self.error
+        if self.messages is not None:
+            return GmailMessagePage(items=self.messages[:page_size])
         return GmailMessagePage(
             items=[
                 GmailMessageSummary(id=f"m{index}", thread_id=f"t{index}", snippet=snippet)
                 for index, snippet in enumerate(self.snippets[:page_size])
             ]
         )
+
+
+def make_mail(
+    message_id: str, received: datetime, *, subject: str = "Báo giá", sender: str = "nam@x.vn"
+) -> GmailMessage:
+    """Full Gmail message as ``get_message`` would return it."""
+    return GmailMessage(
+        id=message_id,
+        thread_id=f"t-{message_id}",
+        snippet="Gửi anh báo giá mới",
+        internal_date=received,
+        subject=subject,
+        sender=EmailAddress(display_name="Anh Nam", email=sender),
+        label_ids=["UNREAD", "IMPORTANT"],
+    )
 
 
 class FakeSources:

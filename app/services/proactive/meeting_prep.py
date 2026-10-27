@@ -103,14 +103,18 @@ def _meeting_start(event: Any) -> datetime | None:
     start = getattr(event, "start", None)
     if start is None or getattr(start, "all_day", False):
         return None
-    others = [
-        attendee
-        for attendee in list(getattr(event, "attendees", []) or [])
-        if not getattr(attendee, "self_attendee", False) and getattr(attendee, "email", "")
-    ]
-    if not others:
+    if not other_attendee_emails(event):
         return None
     try:
         return start.as_datetime()
     except (TypeError, ValueError):
         return None
+
+
+def other_attendee_emails(event: Any) -> list[str]:
+    """Emails of the attendees other than the calendar owner."""
+    return [
+        str(attendee.email)
+        for attendee in list(getattr(event, "attendees", []) or [])
+        if not getattr(attendee, "self_attendee", False) and getattr(attendee, "email", "")
+    ]

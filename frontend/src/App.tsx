@@ -272,6 +272,10 @@ const AppContent: React.FC = () => {
         currentUser={currentUser}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        onAskAssistant={(prompt) => {
+          setActiveWorkspace('assistant')
+          handleSendMessage(prompt)
+        }}
       />
 
       <div className="executive-app__body">

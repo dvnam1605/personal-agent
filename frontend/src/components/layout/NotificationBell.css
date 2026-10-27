@@ -151,3 +151,19 @@
   padding: 0 12px 12px 34px;
   font-size: var(--text-sm);
 }
+
+.notification-item-action {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-primary-border);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.notification-item-action:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}

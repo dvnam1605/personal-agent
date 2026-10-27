@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.settings.proactive import ProactiveSettings
 from app.infrastructure.db.models import GoogleIntegration, Notification, User
 from app.services.proactive.briefing import MorningBriefingJob
+from app.services.proactive.events import NotificationBus, get_notification_bus
+from app.services.proactive.followup import MeetingFollowupJob
+from app.services.proactive.mail_watch import MailWatchJob
 from app.services.proactive.meeting_prep import MeetingPrepJob
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
@@ -40,7 +43,8 @@ class ProactiveWorker:
     expired Google grant or one failing job never blocks the rest. A failure pauses that
     pair for ``failure_backoff_seconds`` instead of retrying a broken call every minute.
     Duplicate runs (restarts, several processes) are harmless: notifications are unique
-    per occurrence. Old notifications are purged once a day.
+    per occurrence. Each committed notification is announced on the notification bus so
+    open tabs refresh at once. Old notifications are purged once a day.
     """
 
     def __init__(
@@ -49,11 +53,13 @@ class ProactiveWorker:
         jobs: Sequence[ProactiveJob],
         settings: ProactiveSettings,
         clock: Callable[[], datetime] | None = None,
+        bus: NotificationBus | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.jobs = list(jobs)
         self.settings = settings
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._bus = bus
         self._paused_until: dict[tuple[str, str], datetime] = {}
         self._last_purge: datetime | None = None
 
@@ -64,10 +70,12 @@ class ProactiveWorker:
         sources: ProactiveSources,
         settings: ProactiveSettings,
     ) -> ProactiveWorker:
-        """Worker running the morning briefing and the meeting preparation."""
+        """Worker running the briefing, meeting preparation and follow-up, and mail watch."""
         jobs: list[ProactiveJob] = [
             MorningBriefingJob(sources, settings),
             MeetingPrepJob(sources, settings),
+            MeetingFollowupJob(sources, settings),
+            MailWatchJob(sources, settings),
         ]
         return cls(session_factory, jobs, settings)
 
@@ -122,7 +130,9 @@ class ProactiveWorker:
                 )
                 return 0
         self._paused_until.pop(key, None)
+        bus = self._bus or get_notification_bus()
         for notification in notifications:
+            await bus.publish(user_id, notification.id)
             logger.info(
                 "proactive_notification_created",
                 job=job.name,
