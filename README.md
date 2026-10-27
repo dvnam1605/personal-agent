@@ -181,6 +181,10 @@ Backend có mount `./app`, nên sau khi sửa mã Python chỉ cần `docker res
 
 Tạo bot với @BotFather, đặt `TELEGRAM__BOT_TOKEN` (và `TELEGRAM__BOT_USERNAME`) trong `.env`, khởi động lại backend. Trong ứng dụng: **Cài đặt → Telegram → Tạo mã liên kết**, rồi gửi `/link <mã>` cho bot (mã dùng một lần, hết hạn sau 10 phút). Sau đó hỏi như trong ứng dụng; việc cần duyệt có nút **Duyệt / Từ chối**, thông báo (bản tin sáng, hồ sơ họp…) được gửi về chat. Bot dùng long polling nên không cần địa chỉ public. Lưu ý: nội dung trao đổi trên Telegram đi qua máy chủ của Telegram.
 
+## MCP (dùng trợ lý từ Claude Desktop và agent khác)
+
+`scripts/mcp_server.py` là một MCP server qua stdio với các tool `ask_assistant`, `list_notifications`, `list_memories`, `remember`. Nó gọi API của trợ lý bằng token đăng nhập của bạn (`NOAT_TOKEN`, hoặc `NOAT_API_KEY` + `NOAT_USER_ID`), nên mọi kiểm tra quyền và an toàn vẫn áp dụng. Không có tool duyệt: thao tác ghi do agent khác đề xuất vẫn phải được bạn duyệt trong ứng dụng hoặc Telegram. Cấu hình mẫu cho Claude Desktop nằm ở đầu file script.
+
 ## Nạp tài liệu
 
 Đặt file vào `data/<thư mục>/` (thư mục này không được commit) rồi nạp. Chạy trong container backend để dùng GPU (dừng backend trước để nhường bộ nhớ):
