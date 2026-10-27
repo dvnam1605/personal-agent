@@ -177,6 +177,10 @@ Backend có mount `./app`, nên sau khi sửa mã Python chỉ cần `docker res
 
 Đăng nhập trên `http://localhost:5173`, bấm **Kết nối** trên thanh tiêu đề hoặc trong **Cài đặt**. Google hỏi quyền Lịch / Gmail / Drive / Danh bạ rồi đưa bạn trở lại ứng dụng.
 
+## Telegram
+
+Tạo bot với @BotFather, đặt `TELEGRAM__BOT_TOKEN` (và `TELEGRAM__BOT_USERNAME`) trong `.env`, khởi động lại backend. Trong ứng dụng: **Cài đặt → Telegram → Tạo mã liên kết**, rồi gửi `/link <mã>` cho bot (mã dùng một lần, hết hạn sau 10 phút). Sau đó hỏi như trong ứng dụng; việc cần duyệt có nút **Duyệt / Từ chối**, thông báo (bản tin sáng, hồ sơ họp…) được gửi về chat. Bot dùng long polling nên không cần địa chỉ public. Lưu ý: nội dung trao đổi trên Telegram đi qua máy chủ của Telegram.
+
 ## Nạp tài liệu
 
 Đặt file vào `data/<thư mục>/` (thư mục này không được commit) rồi nạp. Chạy trong container backend để dùng GPU (dừng backend trước để nhường bộ nhớ):

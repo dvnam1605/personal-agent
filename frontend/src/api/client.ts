@@ -24,6 +24,8 @@ import type {
   GoogleIntegrationStatus,
   HealthResponse,
   MemoryView,
+  TelegramLinkCode,
+  TelegramStatus,
   NotificationListResponse,
   NotificationReadResponse,
   QueryRequest,
@@ -419,6 +421,19 @@ class ApiClient {
     return this.request<GoogleDisconnectResponse>('/auth/google/disconnect', {
       method: 'POST',
     })
+  }
+
+  /* Telegram */
+  async getTelegramStatus(): Promise<TelegramStatus> {
+    return this.request<TelegramStatus>('/telegram/status')
+  }
+
+  async createTelegramLinkCode(): Promise<TelegramLinkCode> {
+    return this.request<TelegramLinkCode>('/telegram/link-code', { method: 'POST' })
+  }
+
+  async unlinkTelegram(): Promise<TelegramStatus> {
+    return this.request<TelegramStatus>('/telegram/link', { method: 'DELETE' })
   }
 
   /* Long-term memory */

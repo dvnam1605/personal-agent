@@ -171,6 +171,19 @@ export interface NotificationReadResponse {
   updated: number;
 }
 
+/* Telegram channel */
+export interface TelegramStatus {
+  enabled: boolean;
+  linked: boolean;
+  bot_username: string | null;
+}
+
+export interface TelegramLinkCode {
+  code: string;
+  expires_at: string;
+  bot_username: string | null;
+}
+
 /* Long-term memory (what the assistant remembers about the user) */
 export interface MemoryView {
   id: string;

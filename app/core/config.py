@@ -33,6 +33,7 @@ from app.core.settings.knowledge import (
 from app.core.settings.llm import LLMMode, LLMProviderSettings
 from app.core.settings.paths import PROJECT_ROOT, resolve_project_path
 from app.core.settings.proactive import ProactiveSettings
+from app.core.settings.telegram import TelegramSettings
 from app.core.settings.web import WebSearchSettings
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "SecuritySettings",
     "Settings",
     "SupervisorBudgetSettings",
+    "TelegramSettings",
     "TimeoutsSettings",
     "WebSearchSettings",
     "get_settings",
@@ -125,6 +127,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     proactive: ProactiveSettings = Field(default_factory=ProactiveSettings)
     web_search: WebSearchSettings = Field(default_factory=WebSearchSettings)
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
 
     @property
     def auth_enforced(self) -> bool:

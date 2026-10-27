@@ -11,6 +11,7 @@ from app.api.routes.memories import router as memories_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.query import router as query_router
 from app.api.routes.questions import router as questions_router
+from app.api.routes.telegram import router as telegram_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
@@ -22,6 +23,7 @@ api_router.include_router(questions_router)
 api_router.include_router(notifications_router)
 api_router.include_router(memories_router)
 api_router.include_router(query_router)
+api_router.include_router(telegram_router)
 
 __all__ = [
     "api_router",
@@ -34,4 +36,5 @@ __all__ = [
     "notifications_router",
     "query_router",
     "questions_router",
+    "telegram_router",
 ]
