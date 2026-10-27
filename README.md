@@ -9,7 +9,7 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 **Google Workspace**
 
 - **Lịch** — xem hôm nay, ngày mai, tuần này; đặt cuộc họp khi bạn nói rõ giờ.
-- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp.
+- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp. Mỗi bản nháp được một bộ rà soát độc lập kiểm tra (chỗ trống, thiếu ý, bịa thông tin) và tự sửa trước khi bạn duyệt; trợ lý không bao giờ tự đoán người nhận — chưa rõ thì hỏi lại, rồi làm tiếp đúng yêu cầu đó khi bạn trả lời.
 - **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
 - **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
 

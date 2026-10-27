@@ -242,7 +242,7 @@ async def compose_email_draft(
     query_lower = query.lower()
     if "báo cáo" in query_lower or "chi tiêu" in query_lower:
         subject = "Báo cáo tổng hợp quy chế chi tiêu và đối chiếu lịch làm việc"
-        recipients = ["ketoan@vov.vn", "quanly@vov.vn"]
+        recipients: list[str] = []
         body_context = f"\n\nThông tin tổng hợp:\n{context}\n" if context else ""
         body = (
             "Kính gửi: Ban Giám đốc và Phòng Kế toán - Tài vụ,\n\n"
@@ -254,7 +254,7 @@ async def compose_email_draft(
         )
     else:
         subject = "Xin nghỉ phép việc gia đình"
-        recipients = ["quanly@vov.vn"]
+        recipients = []
         body = (
             "Kính gửi: Quản lý trực tiếp,\n\n"
             "Tôi viết email này để xin phép được nghỉ làm việc 01 ngày vì lý do bận việc gia đình cần trực tiếp giải quyết.\n\n"

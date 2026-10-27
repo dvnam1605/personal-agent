@@ -13,6 +13,7 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import AssistantRun, Memory, User
 from app.services.routing.query import QueryOrchestrator
 from app.services.routing.query import specialists as specialists_module
+from tests.unit.services.routing._critics import AcceptingCritic
 
 
 @pytest.fixture
@@ -58,12 +59,16 @@ async def test_email_draft_receives_personal_context(
         return "Tiêu đề", "Nội dung", ["nam@atin.vn"]
 
     monkeypatch.setattr(specialists_module, "compose_email_draft", fake_compose)
-    orchestrator = QueryOrchestrator()
+    critic = AcceptingCritic()
+    orchestrator = QueryOrchestrator(draft_critic=critic)
     await orchestrator.handle(db_session, "user_a", "Ghi nhớ: chữ ký của tôi là Nam - ATIN")
+    await orchestrator.handle(db_session, "user_a", "Ghi nhớ: anh Nam là nam@atin.vn")
     result = await orchestrator.handle(db_session, "user_a", "Soạn email gửi anh Nam xin nghỉ phép")
 
     assert result.status == "needs_approval"
     assert "chữ ký của tôi là Nam - ATIN" in captured["personal"]
+    assert result.data["to"] == ["nam@atin.vn"]
+    assert critic.reviewed[0].recipients == ("nam@atin.vn",)
 
 
 async def test_stream_path_handles_memory_commands(db_session: AsyncSession) -> None:

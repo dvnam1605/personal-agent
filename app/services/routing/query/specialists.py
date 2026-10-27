@@ -20,6 +20,8 @@ from app.domain.errors import ValidationError
 from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
+from .clarification import ClarificationMixin
+from .drafting import ask_recipients, prepare_draft, review_note
 from .email_synthesis import compose_email_draft, summarize_emails
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
@@ -35,7 +37,6 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
-from .web import WebMixin
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -49,7 +50,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(WebMixin):
+class SpecialistMixin(ClarificationMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(
@@ -125,6 +126,9 @@ class SpecialistMixin(WebMixin):
                 list_events=list_events,
                 search_messages=search_messages,
                 retrieve=retrieve,
+                personal=await self._personal_context(session, user_id, query),
+                signature=await self._memory_for(session).signature(user_id),
+                critic=self._draft_critic,
             )
         return None
 
@@ -353,7 +357,19 @@ class SpecialistMixin(WebMixin):
 
         personal = await self._personal_context(session, user_id, query)
         subject, body, recipients = await compose_email_draft(query, personal=personal or None)
-        to_list = recipients or ["quanly@vov.vn"]
+        plan = await prepare_draft(
+            query,
+            subject,
+            body,
+            recipients,
+            personal=personal,
+            signature=await self._memory_for(session).signature(user_id),
+            critic=self._draft_critic,
+        )
+        if plan.needs_recipients:
+            return ask_recipients(run_id, route, query, subject)
+        subject, body = plan.draft.subject, plan.draft.body
+        to_list = list(plan.draft.recipients)
         proposal = ProposedAction(
             action_type="create_draft",
             description=f"Tạo bản nháp email '{subject}' tới {', '.join(to_list)} trên Gmail",
@@ -368,6 +384,7 @@ class SpecialistMixin(WebMixin):
         )
         approval = await ApprovalRequestService.create_request(session, run_id, proposal)
 
+        note = review_note(plan)
         msg = (
             f"Tôi đã soạn sẵn nội dung email theo yêu cầu của bạn:\n\n"
             f"📌 **Tiêu đề:** {subject}\n\n"
@@ -375,6 +392,7 @@ class SpecialistMixin(WebMixin):
             f"---\n\n"
             f"{body}\n\n"
             f"---\n\n"
+            f"{note + chr(10) * 2 if note else ''}"
             f"Vui lòng kiểm tra nội dung ở trên. Bạn có thể nhấn **Duyệt** trên thẻ xác nhận bên dưới để tự động tạo bản nháp này trên Gmail của bạn."
         )
         return QueryResult(
@@ -387,6 +405,7 @@ class SpecialistMixin(WebMixin):
                 "subject": subject,
                 "body": body,
                 "to": to_list,
+                "review": {"fixed": plan.fixed, "remaining": plan.remaining},
             },
             approval_id=approval.id,
         )

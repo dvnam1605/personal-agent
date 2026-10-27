@@ -104,11 +104,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     domains.includes('communication') ||
     Boolean(result?.message?.includes('soạn') && result?.message?.includes('email'))
 
-  const suggestedChoices = isCalendarCreation
-    ? ['10h sáng mai', '14h chiều nay', '9h sáng thứ Hai', 'Huỷ yêu cầu']
-    : isEmailDraft
-      ? ['Xin nghỉ phép', 'Báo cáo tiến độ', 'Gửi đối tác', 'Huỷ yêu cầu']
-      : ['Hôm nay', 'Ngày mai', 'Tuần này', 'Huỷ yêu cầu']
+  // The server names the choices when it paused a request to ask (e.g. a recipient).
+  const serverChoices = Array.isArray(result?.data?.suggested_choices)
+    ? (result.data.suggested_choices as unknown[]).filter((c): c is string => typeof c === 'string')
+    : null
+
+  const suggestedChoices = serverChoices
+    ? serverChoices
+    : isCalendarCreation
+      ? ['10h sáng mai', '14h chiều nay', '9h sáng thứ Hai', 'Huỷ yêu cầu']
+      : isEmailDraft
+        ? ['Xin nghỉ phép', 'Báo cáo tiến độ', 'Gửi đối tác', 'Huỷ yêu cầu']
+        : ['Hôm nay', 'Ngày mai', 'Tuần này', 'Huỷ yêu cầu']
 
   const handleClarifySubmit = (answer: string) => {
     const trimmed = answer.trim()
@@ -117,6 +124,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     // If user explicitly asks to cancel
     if (trimmed.toLowerCase() === 'huỷ yêu cầu' || trimmed.toLowerCase() === 'hủy yêu cầu') {
       onClarifyAnswer('Huỷ yêu cầu')
+      return
+    }
+
+    // The server kept the paused request; it merges the answer itself.
+    if (result?.data?.resume) {
+      onClarifyAnswer(trimmed)
       return
     }
 

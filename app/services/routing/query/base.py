@@ -1,8 +1,9 @@
 """State and run bookkeeping shared by every part of the query orchestrator.
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
-KnowledgeMixin → MemoryMixin → WebMixin → SpecialistMixin → StreamMixin → QueryOrchestrator — so each
-part sees the attributes and methods of the parts before it.
+KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → SpecialistMixin →
+StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
+the parts before it.
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ class OrchestratorBase:
         pipeline: Any | None = None,
         memory_factory: Any | None = None,
         web_answer_service: Any | None = None,
+        draft_critic: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -69,6 +71,9 @@ class OrchestratorBase:
         self._memory_factory = memory_factory
         # Answers explicit web requests; built from settings when not injected.
         self._web_answer_service = web_answer_service
+        # Reviews email drafts before approval; the default runs structural checks plus
+        # a model review when an LLM is configured.
+        self._draft_critic = draft_critic
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

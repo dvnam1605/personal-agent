@@ -72,8 +72,13 @@ class StreamMixin(SpecialistMixin):
         import json
 
         started = time.perf_counter()
+        resume = await self._resume_pending(session, conversation_id, user_id, query)
+        resumed = resume.query != query
+        query = resume.query
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        effective_query, decision, anchor = await self._triage_in_context(
+            query, None if resumed else history
+        )
         await self._set_followup_scope(session, conversation_id, user_id, anchor)
         route = route_info(decision)
         await self._ensure_user(session, user_id)
@@ -195,6 +200,12 @@ class StreamMixin(SpecialistMixin):
         final_error: str | None = None
 
         try:
+            if resume.message is not None:
+                async for item in _stream_text(resume.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
             memory_result = await self._maybe_handle_memory(
                 session, user_id, query, run_id, decision
             )
@@ -336,6 +347,7 @@ class StreamMixin(SpecialistMixin):
                     route=route,
                 )
 
+            await self._remember_pending(session, conversation_id, user_id, result)
             if result.message:
                 async for item in _stream_text(result.message):
                     yield item

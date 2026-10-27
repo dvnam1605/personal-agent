@@ -12,12 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.enums import ActionRiskLevel
 from app.domain.models import ProposedAction
 from app.services.approvals import ApprovalRequestService
+from app.services.critic import DraftCritic
 from app.services.routing.query import (
     QueryResult,
     QueryRouteInfo,
     infer_calendar_window,
     infer_past_calendar_window,
 )
+from app.services.routing.query.drafting import ask_recipients, prepare_draft
+from app.services.routing.query.email_synthesis import compose_email_draft
 from app.services.skills.matching import unaccent_vietnamese as _unaccent
 
 ListEventsFn = Callable[..., Awaitable[Any]]
@@ -337,8 +340,15 @@ async def run_supervisor_dag(
     list_events: ListEventsFn,
     search_messages: SearchMessagesFn,
     retrieve: RetrieveFn,
+    personal: str = "",
+    signature: str | None = None,
+    critic: DraftCritic | None = None,
 ) -> QueryResult:
-    """Execute a dynamic multi-domain supervisor DAG across Knowledge, Calendar, and Communication."""
+    """Execute a dynamic multi-domain supervisor DAG across Knowledge, Calendar, and Communication.
+
+    A draft step goes through the same review as a direct draft: recipients the user did
+    not give are dropped, and with none left the run pauses to ask instead of guessing.
+    """
     del search_messages
     query_unaccented = _unaccent(query).lower()
 
@@ -399,10 +409,22 @@ async def run_supervisor_dag(
             context_parts.append("Lịch làm việc / sự kiện liên quan:\n" + "\n".join(cal_lines))
         combined_context = "\n\n".join(context_parts)
 
-        from app.services.routing.query.email_synthesis import compose_email_draft
-
-        subject, body, recipients = await compose_email_draft(query, context=combined_context)
-        to_list = recipients or ["ketoan@vov.vn", "quanly@vov.vn"]
+        subject, body, recipients = await compose_email_draft(
+            query, context=combined_context, personal=personal or None
+        )
+        plan = await prepare_draft(
+            query,
+            subject,
+            body,
+            recipients,
+            personal=personal,
+            signature=signature,
+            critic=critic,
+        )
+        if plan.needs_recipients:
+            return ask_recipients(run_id, route, query, subject)
+        subject, body = plan.draft.subject, plan.draft.body
+        to_list = list(plan.draft.recipients)
 
         proposal = ProposedAction(
             action_type="create_draft",

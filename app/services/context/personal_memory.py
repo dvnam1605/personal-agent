@@ -23,6 +23,7 @@ MAX_CONTENT_LEN = 500
 MAX_PREFERENCES_IN_CONTEXT = 10
 MAX_FACTS_IN_CONTEXT = 5
 MAX_FORGET = 3
+_SIGNATURE_VALUE = re.compile(r"(?:chữ ký|chu ky)[^:]*?(?::|\blà\b|\bla\b)\s*(?P<value>.+)$", re.I)
 _DEICTIC = frozenset({"do", "nay", "kia", "cai", "chuyen", "dieu", "viec", "ay", "nhe"})
 
 # Matched on accent-folded, lower-cased text; folding keeps offsets, so the content is
@@ -148,6 +149,15 @@ class PersonalMemoryService:
         return [
             item for item in items if item.memory_type in (MemoryType.PREFERENCE, MemoryType.FACT)
         ]
+
+    async def signature(self, user_id: str) -> str | None:
+        """The remembered signature text ("chữ ký của tôi là X" → "X"), if any."""
+        for item in await self._preferences.get_active_preferences(user_id, category="signature"):
+            match = _SIGNATURE_VALUE.search(item.content)
+            value = (match.group("value") if match else "").strip().strip("«»\"'")
+            if value:
+                return value
+        return None
 
     async def context_for(self, user_id: str, query: str) -> str:
         """Labelled block of the user's preferences and the facts relevant to ``query``."""

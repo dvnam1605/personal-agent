@@ -75,8 +75,14 @@ class QueryOrchestrator(StreamMixin):
     ) -> QueryResult:
         """Persist a run, execute the routed specialist, and return a QueryResult."""
         started = time.perf_counter()
+        resume = await self._resume_pending(session, conversation_id, user_id, query)
+        resumed = resume.query != query
+        query = resume.query
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        # A resumed request is complete on its own; it must not be re-read as a follow-up.
+        effective_query, decision, anchor = await self._triage_in_context(
+            query, None if resumed else history
+        )
         await self._set_followup_scope(session, conversation_id, user_id, anchor)
         await self._ensure_user(session, user_id)
         run_id = self._new_run_id()
@@ -93,6 +99,14 @@ class QueryOrchestrator(StreamMixin):
             active_skill=decision.target_agent,
             goal=query,
         )
+        if resume.message is not None:
+            await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
+            return QueryResult(
+                run_id=run_id,
+                status="completed",
+                message=resume.message,
+                route=route_info(decision),
+            )
 
         memory_result = await self._maybe_handle_memory(session, user_id, query, run_id, decision)
         if memory_result is not None:
@@ -142,6 +156,7 @@ class QueryOrchestrator(StreamMixin):
             )
             raise
 
+        await self._remember_pending(session, conversation_id, user_id, result)
         if result.status != "needs_approval":
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
         return result
