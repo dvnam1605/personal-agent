@@ -195,6 +195,15 @@ class StreamMixin(SpecialistMixin):
         final_error: str | None = None
 
         try:
+            memory_result = await self._maybe_handle_memory(
+                session, user_id, query, run_id, decision
+            )
+            if memory_result is not None:
+                async for item in _stream_text(memory_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
             if decision.route_type is not RouteType.REJECT:
                 document_result = await self._maybe_handle_document(
                     session, user_id, query, effective_query, run_id, decision, conversation_id

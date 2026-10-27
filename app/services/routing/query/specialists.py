@@ -21,7 +21,7 @@ from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
 from .email_synthesis import compose_email_draft, summarize_emails
-from .knowledge import KnowledgeMixin
+from .memory import MemoryMixin
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
     _iso,
@@ -49,7 +49,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(KnowledgeMixin):
+class SpecialistMixin(MemoryMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(
@@ -351,7 +351,8 @@ class SpecialistMixin(KnowledgeMixin):
         from app.domain.enums import ActionRiskLevel
         from app.domain.models import ProposedAction
 
-        subject, body, recipients = await compose_email_draft(query)
+        personal = await self._personal_context(session, user_id, query)
+        subject, body, recipients = await compose_email_draft(query, personal=personal or None)
         to_list = recipients or ["quanly@vov.vn"]
         proposal = ProposedAction(
             action_type="create_draft",

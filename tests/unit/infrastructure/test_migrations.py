@@ -65,6 +65,9 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         notification_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(notifications)").fetchall()
         }
+        memory_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(memories)").fetchall()
+        }
 
     assert "audit_outbox" in tables
     assert "google_integrations" in tables
@@ -96,7 +99,8 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         "extractor_version",
     }.issubset(relation_columns)
     assert {"kind", "title", "body", "data", "dedup_key", "read_at"}.issubset(notification_columns)
-    assert version == "0015"
+    assert {"is_stale", "details"}.issubset(memory_columns)
+    assert version == "0016"
 
 
 @pytest.mark.asyncio

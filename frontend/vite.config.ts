@@ -35,6 +35,7 @@ export default defineConfig({
       '/documents': 'http://127.0.0.1:8000',
       '/runs': 'http://127.0.0.1:8000',
       '/notifications': 'http://127.0.0.1:8000',
+      '/memories': 'http://127.0.0.1:8000',
       '/health': 'http://127.0.0.1:8000',
       '/ready': 'http://127.0.0.1:8000',
       '/api': 'http://127.0.0.1:8000',

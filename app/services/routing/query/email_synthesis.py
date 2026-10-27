@@ -232,8 +232,13 @@ async def compose_email_draft(
     query: str,
     *,
     context: str | None = None,
+    personal: str | None = None,
 ) -> tuple[str, str, list[str]]:
-    """Generate subject, body, and recipients for an email draft request using LLM."""
+    """Generate subject, body, and recipients for an email draft request using LLM.
+
+    ``personal`` is what the user asked the assistant to remember (name, signature,
+    tone); it only reaches the model prompt, never the template fallback.
+    """
     query_lower = query.lower()
     if "báo cáo" in query_lower or "chi tiêu" in query_lower:
         subject = "Báo cáo tổng hợp quy chế chi tiêu và đối chiếu lịch làm việc"
@@ -280,6 +285,8 @@ async def compose_email_draft(
                 )
             else:
                 user_content = f"Yêu cầu: {query}"
+            if personal:
+                user_content += f"\n\n{personal}"
             model = settings.llm.fast_model or settings.llm.primary_model
             timeout = 35.0
             chunks: list[str] = []

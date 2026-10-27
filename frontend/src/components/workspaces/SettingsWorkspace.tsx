@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Link2,
   Palette,
+  Brain,
 } from 'lucide-react'
 import { Switch } from '@/components/shadcn/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/shadcn/tabs'
@@ -16,6 +17,7 @@ import { apiClient } from '../../api/client'
 import type { GoogleIntegrationStatus, ReadinessResponse } from '../../types/api'
 import { useToast } from '../ui/toastContext'
 import { Hint } from '../ui/Hint'
+import { MemoryPanel } from './MemoryPanel'
 import './Workspaces.css'
 import './SettingsWorkspace.css'
 
@@ -97,6 +99,9 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ theme, onT
             <TabsTrigger value="account">
               <Key /> Tài khoản
             </TabsTrigger>
+            <TabsTrigger value="memory">
+              <Brain /> Bộ nhớ
+            </TabsTrigger>
             <TabsTrigger value="appearance">
               <Palette /> Giao diện
             </TabsTrigger>
@@ -104,6 +109,10 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ theme, onT
               <Activity /> Hệ thống
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="memory">
+            <MemoryPanel />
+          </TabsContent>
 
           <TabsContent value="appearance">
             <div className="settings-card">

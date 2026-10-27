@@ -23,6 +23,7 @@ import type {
   GoogleStartResponse,
   GoogleIntegrationStatus,
   HealthResponse,
+  MemoryView,
   NotificationListResponse,
   NotificationReadResponse,
   QueryRequest,
@@ -145,6 +146,7 @@ class ApiClient {
         throw error
       }
 
+      if (response.status === 204) return undefined as T
       return (await response.json()) as T
     } catch (err: any) {
       if (err.name === 'TypeError' && err.message?.includes('fetch')) {
@@ -417,6 +419,29 @@ class ApiClient {
     return this.request<GoogleDisconnectResponse>('/auth/google/disconnect', {
       method: 'POST',
     })
+  }
+
+  /* Long-term memory */
+  async listMemories(): Promise<MemoryView[]> {
+    return this.request<MemoryView[]>('/memories')
+  }
+
+  async createMemory(content: string): Promise<MemoryView> {
+    return this.request<MemoryView>('/memories', {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  async updateMemory(memoryId: string, content: string): Promise<MemoryView> {
+    return this.request<MemoryView>(`/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  async deleteMemory(memoryId: string): Promise<void> {
+    await this.request<unknown>(`/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' })
   }
 
   /* Proactive notifications (morning briefing, meeting dossiers) */

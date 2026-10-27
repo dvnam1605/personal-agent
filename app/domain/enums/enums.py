@@ -143,6 +143,7 @@ class MemoryType(StrEnum):
     ENTITY = "entity"
     PREFERENCE = "preference"
     EPISODIC = "episodic"
+    FACT = "fact"
 
 
 class EntityType(StrEnum):

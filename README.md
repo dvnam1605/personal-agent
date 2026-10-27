@@ -21,6 +21,12 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - **Mail quan trọng** — cứ vài phút kiểm tra hộp thư, báo ngay mail quan trọng mới đến.
 - Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề, đẩy về trình duyệt ngay khi có (SSE). Trợ lý chỉ đọc; không tự gửi hay sửa gì.
 
+**Bộ nhớ dài hạn**
+
+- Nói «nhớ rằng chữ ký của tôi là …», «quên số điện thoại cũ», «bạn nhớ gì về tôi?» ngay trong chat.
+- Trợ lý chỉ nhớ những gì bạn bảo nhớ; dùng khi soạn email (tên, chữ ký, giọng văn).
+- Xem, sửa, xóa từng mục ở **Cài đặt → Bộ nhớ**.
+
 **Kho tài liệu nội bộ**
 
 - **Trả lời có dẫn chứng** — mỗi ý gắn trích dẫn tới đúng văn bản, mục và trang; không đủ căn cứ thì nói rõ thiếu gì.

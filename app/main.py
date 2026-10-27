@@ -226,6 +226,7 @@ def create_app() -> FastAPI:
     from app.api.routes.auth import router as auth_router
     from app.api.routes.conversations import router as conversations_router
     from app.api.routes.documents import router as documents_router
+    from app.api.routes.memories import router as memories_router
     from app.api.routes.notifications import router as notifications_router
     from app.api.routes.query import router as query_router
     from app.api.routes.questions import router as questions_router
@@ -238,6 +239,7 @@ def create_app() -> FastAPI:
     app.include_router(approvals_router, prefix="")
     app.include_router(questions_router, prefix="")
     app.include_router(notifications_router, prefix="")
+    app.include_router(memories_router, prefix="")
     app.include_router(query_router, prefix="")
     app.include_router(api_router, prefix=settings.api_prefix)
 

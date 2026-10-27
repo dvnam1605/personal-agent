@@ -171,6 +171,14 @@ export interface NotificationReadResponse {
   updated: number;
 }
 
+/* Long-term memory (what the assistant remembers about the user) */
+export interface MemoryView {
+  id: string;
+  memory_type: 'preference' | 'fact' | string;
+  content: string;
+  category: string | null;
+}
+
 /* Health & Diagnostics */
 export interface HealthResponse {
   status: string;
