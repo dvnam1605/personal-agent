@@ -2,7 +2,7 @@
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
 KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → TaskMixin →
-SpecialistMixin →
+GoalMixin → SpecialistMixin →
 StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
 the parts before it.
 """
@@ -55,6 +55,7 @@ class OrchestratorBase:
         draft_critic: Any | None = None,
         tasks_for_user: Any | None = None,
         compose_email_fn: Any | None = None,
+        goal_planner: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -81,6 +82,8 @@ class OrchestratorBase:
         self._tasks_for_user = tasks_for_user
         # Writes email drafts; the default calls the LLM (offline evaluation injects one).
         self._compose_email_fn = compose_email_fn
+        # Plans a goal's steps; the default asks the LLM and falls back to a generic plan.
+        self._goal_planner = goal_planner
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

@@ -36,6 +36,7 @@ from app.infrastructure.db.models.documents import (
     GeneratedDocument,
     IngestionJobRecord,
 )
+from app.infrastructure.db.models.goals import Goal, WatchRule
 from app.infrastructure.db.models.notifications import Notification
 from app.infrastructure.db.models.users import Entity, GoogleIntegration, Memory, Skill, User
 
@@ -53,6 +54,7 @@ __all__ = [
     "DocumentRelation",
     "Entity",
     "GeneratedDocument",
+    "Goal",
     "GoogleIntegration",
     "IngestionJobRecord",
     "LLMExecution",
@@ -65,6 +67,7 @@ __all__ = [
     "ToolExecution",
     "User",
     "UserQuestion",
+    "WatchRule",
     "WorkflowRun",
     "_forbid_append_only_orm_mutation",
     "_sanitize_approval_arguments",

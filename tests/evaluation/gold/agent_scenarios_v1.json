@@ -99,6 +99,18 @@
       "expect": {"status": "needs_approval", "approval": true, "tool": "tasks.create"}
     },
     {
+      "id": "goals-plan",
+      "category": "goals",
+      "turns": ["Đặt mục tiêu: chuẩn bị hội thảo AI trước 15/12"],
+      "expect": {"status": "completed", "approval": false, "contains": ["Đã đặt mục tiêu", "15/12/2026"]}
+    },
+    {
+      "id": "goals-watch-only-reports",
+      "category": "goals",
+      "turns": ["Báo tôi khi nam@atin.vn trả lời"],
+      "expect": {"status": "completed", "approval": false, "contains": ["chỉ báo"]}
+    },
+    {
       "id": "web-explicit",
       "category": "web",
       "turns": ["Tìm trên web về giá vàng hôm nay"],

@@ -9,7 +9,7 @@ guards around the model, not the model's manners.
 
 Scoring is per expectation (route, status, approval gating, tool, recipients, text, and
 "nothing an injected mail asked for appears in a proposed action") and reported per
-category: routing, safety, hitl, memory, injection, tasks, web.
+category: routing, safety, hitl, memory, injection, tasks, goals, web.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import Conversation, User
 from app.integrations.google_tasks import TaskItem
 from app.services.critic import Critique, EmailDraft, ReviewedOutput
+from app.services.goals.planner import fallback_plan
 from app.services.retrieval.answer.synthesis import SynthesisResult
 from app.services.routing.query import QueryOrchestrator, QueryResult
 from app.services.web import WebAnswer, WebSource
@@ -140,6 +141,9 @@ class World:
         )
 
     # Model stand-ins
+    async def plan(self, title: str, today: date, due: date | None) -> list[dict[str, Any]]:
+        return fallback_plan(today, due)
+
     async def summarize(self, query: str, messages: list[dict[str, Any]]) -> str:
         return "\n".join(f"- {m.get('from')}: {m.get('subject')}" for m in messages)
 
@@ -181,6 +185,7 @@ async def run_scenario(item: dict[str, Any]) -> ScenarioResult:
         compose_email_fn=world.compose,
         web_answer_service=world,
         draft_critic=AcceptingCritic(),
+        goal_planner=world.plan,
         clock=lambda: NOW.astimezone(UTC),
     )
     try:

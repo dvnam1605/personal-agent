@@ -16,10 +16,12 @@ from app.infrastructure.db.models import GoogleIntegration, Notification, User
 from app.services.proactive.briefing import MorningBriefingJob
 from app.services.proactive.events import NotificationBus, get_notification_bus
 from app.services.proactive.followup import MeetingFollowupJob
+from app.services.proactive.goals import GoalReminderJob
 from app.services.proactive.mail_watch import MailWatchJob
 from app.services.proactive.meeting_prep import MeetingPrepJob
 from app.services.proactive.notifications import NotificationService
 from app.services.proactive.sources import ProactiveSources
+from app.services.proactive.watcher import WatcherJob
 
 logger = structlog.get_logger(__name__)
 
@@ -70,12 +72,14 @@ class ProactiveWorker:
         sources: ProactiveSources,
         settings: ProactiveSettings,
     ) -> ProactiveWorker:
-        """Worker running the briefing, meeting preparation and follow-up, and mail watch."""
+        """Worker running the briefing, meetings, mail watch, watch rules and goal reminders."""
         jobs: list[ProactiveJob] = [
             MorningBriefingJob(sources, settings),
             MeetingPrepJob(sources, settings),
             MeetingFollowupJob(sources, settings),
             MailWatchJob(sources, settings),
+            WatcherJob(sources, settings),
+            GoalReminderJob(settings),
         ]
         return cls(session_factory, jobs, settings)
 

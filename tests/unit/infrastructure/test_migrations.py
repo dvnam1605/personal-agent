@@ -100,7 +100,7 @@ def test_alembic_upgrade_head_creates_hardened_schema(
     }.issubset(relation_columns)
     assert {"kind", "title", "body", "data", "dedup_key", "read_at"}.issubset(notification_columns)
     assert {"is_stale", "details"}.issubset(memory_columns)
-    assert version == "0016"
+    assert version == "0017"
 
 
 @pytest.mark.asyncio

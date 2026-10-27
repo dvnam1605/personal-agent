@@ -22,6 +22,11 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 - **Mail quan trọng** — cứ vài phút kiểm tra hộp thư, báo ngay mail quan trọng mới đến.
 - Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề, đẩy về trình duyệt ngay khi có (SSE). Trợ lý chỉ đọc; không tự gửi hay sửa gì.
 
+**Mục tiêu dài hạn và theo dõi**
+
+- «Đặt mục tiêu: chuẩn bị hội thảo trước 15/12» — trợ lý chia thành các bước có hạn, nhắc mỗi sáng khi có bước đến hạn; «tiến độ mục tiêu», «xong bước 2 của mục tiêu hội thảo».
+- «Báo tôi khi nam@congty.vn trả lời», «theo dõi email có «hợp đồng»», «báo khi có tài liệu mới về quy chế chi tiêu» — trợ lý chỉ báo vào chuông thông báo, không tự làm gì; «đang theo dõi gì?», «dừng theo dõi …».
+
 **Bộ nhớ dài hạn**
 
 - Nói «nhớ rằng chữ ký của tôi là …», «quên số điện thoại cũ», «bạn nhớ gì về tôi?» ngay trong chat.
