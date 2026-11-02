@@ -47,10 +47,10 @@ async def analyze(drive: Any, name_hint: str, question: str) -> AnalysisResult:
     """Find the spreadsheet, get a plan from the model, run it, render a Markdown table."""
     file = await find_spreadsheet(drive, name_hint)
     if file is None:
-        return AnalysisResult(f"Không thấy bảng tính nào tên có «{name_hint}» trong Drive.")
+        return AnalysisResult(f"Không thấy bảng tính nào tên có “{name_hint}” trong Drive.")
     columns, rows = await load_table(drive, file)
     if not columns:
-        return AnalysisResult(f"Bảng «{file.name}» không có dữ liệu.")
+        return AnalysisResult(f"Bảng “{file.name}” không có dữ liệu.")
     sample = json.dumps(rows[:5], ensure_ascii=False, default=str)
     prompt = (
         f"Câu hỏi: {question}\nCác cột: {json.dumps(columns, ensure_ascii=False)}\n"

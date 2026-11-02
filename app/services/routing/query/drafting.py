@@ -62,13 +62,13 @@ async def prepare_draft(
 
 def ask_recipients(run_id: str, route: QueryRouteInfo, request: str, subject: str) -> QueryResult:
     """Pause the request and ask who the email is for; the answer resumes it."""
-    title = f"«{subject}» " if subject else ""
+    title = f"“{subject}” " if subject else ""
     return QueryResult(
         run_id=run_id,
         status="clarification_needed",
         message=(
             f"Bạn muốn gửi email {title}cho ai? Nhập địa chỉ email người nhận "
-            "(nhiều người thì cách nhau bằng dấu phẩy), hoặc nói «hủy»."
+            "(nhiều người thì cách nhau bằng dấu phẩy), hoặc nói “hủy”."
         ),
         route=route,
         data={

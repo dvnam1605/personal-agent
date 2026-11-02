@@ -94,7 +94,7 @@ async def test_list_propose_and_approve(db_session: AsyncSession) -> None:
             json={"action": "create", "title": "  Gửi   hợp đồng ", "due": "2026-10-30"},
         )
         body = created.json()
-        assert body["description"] == "Thêm việc «Gửi hợp đồng» (hạn 30/10/2026) vào Google Tasks."
+        assert body["description"] == "Thêm việc “Gửi hợp đồng” (hạn 30/10/2026) vào Google Tasks."
         assert fake.created == []
         approved = await client.post(
             f"/approvals/{body['approval_id']}/approve", json={"execute": True}
@@ -105,7 +105,7 @@ async def test_list_propose_and_approve(db_session: AsyncSession) -> None:
         done = (
             await client.post("/tasks/propose", json={"action": "complete", "task_id": "t1"})
         ).json()
-        assert done["description"] == "Đánh dấu xong việc «Gọi anh Nam» trên Google Tasks."
+        assert done["description"] == "Đánh dấu xong việc “Gọi anh Nam” trên Google Tasks."
         await client.post(f"/approvals/{done['approval_id']}/approve", json={"execute": True})
         assert fake.completed == ["t1"]
 

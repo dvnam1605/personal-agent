@@ -93,7 +93,7 @@ export const MemoryPanel: React.FC = () => {
           <h3>Trợ lý nhớ gì về tôi</h3>
           <p>
             Sở thích và thông tin bạn nhờ trợ lý ghi nhớ, dùng khi soạn email và trả lời. Trong chat
-            bạn cũng có thể nói «nhớ rằng …» hoặc «quên …».
+            bạn cũng có thể nói “nhớ rằng …” hoặc “quên …”.
           </p>
         </div>
         <Brain size={18} className="text-dim" />

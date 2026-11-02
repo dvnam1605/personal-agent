@@ -24,7 +24,7 @@ def _backend(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/query":
         body = json.loads(request.content)
         if "duyệt" in body["query"]:
-            return httpx.Response(200, json={"message": "Thêm việc «x».", "approval_id": "ap-1"})
+            return httpx.Response(200, json={"message": "Thêm việc “x”.", "approval_id": "ap-1"})
         return httpx.Response(
             200, json={"message": f"Trả lời: {body['query']}", "approval_id": None}
         )

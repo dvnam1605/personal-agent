@@ -49,7 +49,7 @@ class GoalReminderJob:
                 late = " — quá hạn" if step_due < today else ""
                 lines.append(f"- Bước {index}: {plain(title)}{late}")
             lines.append("")
-            lines.append("Xong bước nào, nói «xong bước N của mục tiêu …».")
+            lines.append("Xong bước nào, nói “xong bước N của mục tiêu …”.")
             notification = await NotificationService.create(
                 session,
                 user_id=user_id,

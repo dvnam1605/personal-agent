@@ -82,9 +82,9 @@ class GoalMixin(TaskMixin):
                 return hint, {}
             goal = goals[0]
             if not await GoalService.complete_step(session, goal, command.step or 0):
-                return f"Mục tiêu «{goal.title}» không có bước {command.step}.", {}
+                return f"Mục tiêu “{goal.title}” không có bước {command.step}.", {}
             suffix = " Mục tiêu đã hoàn thành!" if goal.status == "done" else ""
-            return f"Đã đánh dấu xong bước {command.step} của «{goal.title}».{suffix}", {
+            return f"Đã đánh dấu xong bước {command.step} của “{goal.title}”.{suffix}", {
                 "goal_id": goal.id
             }
         if command.kind == "watch_create" and command.watch_kind is not None:
@@ -95,38 +95,38 @@ class GoalMixin(TaskMixin):
             )
             label = _WATCH_LABELS[command.watch_kind]
             return (
-                f"Đã bật theo dõi {label} «{rule.target}». Tôi sẽ báo trong chuông thông báo; "
+                f"Đã bật theo dõi {label} “{rule.target}”. Tôi sẽ báo trong chuông thông báo; "
                 "tôi chỉ báo, không tự làm gì.",
                 {"watch_id": rule.id},
             )
         if command.kind == "watch_list":
             rules = await WatchService.active(session, user_id)
             if not rules:
-                return "Bạn chưa theo dõi gì. Ví dụ: «báo tôi khi nam@congty.vn trả lời».", {}
+                return "Bạn chưa theo dõi gì. Ví dụ: “báo tôi khi nam@congty.vn trả lời”.", {}
             lines = ["Đang theo dõi:"]
             lines.extend(
-                f"- {_WATCH_LABELS.get(rule.kind, rule.kind)} «{rule.target}»" for rule in rules
+                f"- {_WATCH_LABELS.get(rule.kind, rule.kind)} “{rule.target}”" for rule in rules
             )
             return "\n".join(lines), {"watches": [rule.id for rule in rules]}
         stopped = await WatchService.stop(session, user_id, command.target)
         if not stopped:
             return "Không có mục theo dõi nào khớp.", {}
-        return "Đã dừng theo dõi: " + ", ".join(f"«{rule.target}»" for rule in stopped), {}
+        return "Đã dừng theo dõi: " + ", ".join(f"“{rule.target}”" for rule in stopped), {}
 
 
 def _goal_created(goal: Goal) -> str:
     due = f" (hạn {goal.due:%d/%m/%Y})" if goal.due else ""
-    lines = [f"Đã đặt mục tiêu «{goal.title}»{due}. Kế hoạch:"]
+    lines = [f"Đã đặt mục tiêu “{goal.title}”{due}. Kế hoạch:"]
     for index, step in enumerate(goal.steps, start=1):
         lines.append(f"{index}. {step['title']} — hạn {date.fromisoformat(step['due']):%d/%m}")
     lines.append("")
-    lines.append("Tôi sẽ nhắc mỗi sáng khi có bước đến hạn. Xong bước nào, nói «xong bước N».")
+    lines.append("Tôi sẽ nhắc mỗi sáng khi có bước đến hạn. Xong bước nào, nói “xong bước N”.")
     return "\n".join(lines)
 
 
 def _progress(goals: list[Goal], today: date) -> str:
     if not goals:
-        return "Bạn chưa có mục tiêu nào. Ví dụ: «đặt mục tiêu: chuẩn bị hội thảo trước 15/12»."
+        return "Bạn chưa có mục tiêu nào. Ví dụ: “đặt mục tiêu: chuẩn bị hội thảo trước 15/12”."
     lines: list[str] = []
     for goal in goals:
         done = sum(1 for step in goal.steps if step.get("done"))

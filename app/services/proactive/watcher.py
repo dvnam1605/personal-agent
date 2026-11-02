@@ -77,7 +77,7 @@ class WatcherJob:
             label = (
                 f"Email mới từ {plain(rule.target)}"
                 if rule.kind == "mail_from"
-                else f"Email nhắc đến «{plain(rule.target)}»"
+                else f"Email nhắc đến “{plain(rule.target)}”"
             )
             data: dict[str, Any] = {"rule_id": rule.id, "message_id": message.get("id")}
             if message.get("from_email"):
@@ -119,7 +119,7 @@ class WatcherJob:
                 session,
                 user_id=user_id,
                 kind=WATCH_KIND,
-                title=f"Tài liệu mới về «{plain(rule.target)}»: {plain(document.title)}",
+                title=f"Tài liệu mới về “{plain(rule.target)}”: {plain(document.title)}",
                 body=f"Kho tài liệu vừa có văn bản **{plain(document.title)}**.",
                 dedup_key=f"watch:{rule.id}:{document.logical_document_id}",
                 data={

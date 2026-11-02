@@ -83,7 +83,7 @@ async def propose_task_change(
     parameters: dict[str, Any]
     if body.action == "create":
         when = f" (hạn {body.due:%d/%m/%Y})" if body.due else ""
-        description = f"Thêm việc «{body.title}»{when} vào Google Tasks."
+        description = f"Thêm việc “{body.title}”{when} vào Google Tasks."
         tool, action_type = TASKS_CREATE, "create_task"
         parameters = {"title": body.title, "due": body.due.isoformat() if body.due else None}
     else:
@@ -91,7 +91,7 @@ async def propose_task_change(
         task = next((t for t in await adapter.list_tasks() if t.id == body.task_id), None)
         if task is None or task.is_done:
             raise NotFoundError("Task not found.")
-        description = f"Đánh dấu xong việc «{task.title}» trên Google Tasks."
+        description = f"Đánh dấu xong việc “{task.title}” trên Google Tasks."
         tool, action_type = TASKS_COMPLETE, "complete_task"
         parameters = {"task_id": task.id, "title": task.title}
 

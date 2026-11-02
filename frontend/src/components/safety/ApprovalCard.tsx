@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { QuotedText } from '../ui/QuotedText'
 import {
   ShieldAlert,
   ShieldCheck,
@@ -123,7 +124,7 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
 
       <div className="approval-card__body">
         <h3 className="approval-card__title">Xác nhận thực thi hành động</h3>
-        <p className="approval-card__desc">{approval.description}</p>
+        <p className="approval-card__desc"><QuotedText text={approval.description} /></p>
 
         {/* Important parameters breakdown */}
         {approval.important_arguments && Object.keys(approval.important_arguments).length > 0 && (

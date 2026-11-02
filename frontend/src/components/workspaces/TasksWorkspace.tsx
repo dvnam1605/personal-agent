@@ -4,6 +4,7 @@ import { apiClient } from '../../api/client'
 import type { TaskItem } from '../../types/api'
 import { useToast } from '../ui/toastContext'
 import { Hint } from '../ui/Hint'
+import { QuotedText } from '../ui/QuotedText'
 import './Workspaces.css'
 import './TasksWorkspace.css'
 
@@ -211,7 +212,9 @@ export const TasksWorkspace: React.FC = () => {
         {pending && (
           <div className="tasks-approval" role="alertdialog" aria-label="Xác nhận thay đổi">
             <ShieldCheck size={18} className="tasks-approval-icon" />
-            <span className="tasks-approval-text">{pending.description}</span>
+            <span className="tasks-approval-text">
+              <QuotedText text={pending.description} />
+            </span>
             <button className="tasks-approval-btn tasks-approval-btn--ok" onClick={handleApprove} disabled={busy}>
               Duyệt
             </button>
@@ -239,8 +242,8 @@ export const TasksWorkspace: React.FC = () => {
             <div className="empty-icon-wrap">
               <CheckCircle2 size={24} />
             </div>
-            <h3>{filter === 'all' ? 'Không còn việc nào đang mở' : `Không có việc «${GROUP_LABELS[filter as Group]}»`}</h3>
-            <p>Thêm việc ở ô phía trên, hoặc nói với trợ lý «thêm việc: … hạn thứ 6».</p>
+            <h3>{filter === 'all' ? 'Không còn việc nào đang mở' : `Không có việc “${GROUP_LABELS[filter as Group]}”`}</h3>
+            <p>Thêm việc ở ô phía trên, hoặc nói với trợ lý “thêm việc: … hạn thứ 6”.</p>
           </div>
         ) : (
           visibleGroups.map((group) =>

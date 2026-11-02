@@ -53,7 +53,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             GoalCommand("watch_create", watch_kind="mail_from", target="nam@atin.vn"),
         ),
         (
-            "theo dõi email có «hợp đồng»",
+            "theo dõi email có “hợp đồng”",
             GoalCommand("watch_create", watch_kind="mail_keyword", target="hợp đồng"),
         ),
         (
@@ -113,7 +113,7 @@ async def test_goal_chat_flow(db_session: AsyncSession) -> None:
         return (await orchestrator.handle(db_session, "user_a", text)).message
 
     created = await ask("Đặt mục tiêu: chuẩn bị hội thảo AI trước 15/12")
-    assert "Đã đặt mục tiêu «chuẩn bị hội thảo AI» (hạn 15/12/2026)" in created
+    assert "Đã đặt mục tiêu “chuẩn bị hội thảo AI” (hạn 15/12/2026)" in created
     assert "1. Bước một — hạn 26/10" in created
 
     progress = await ask("tiến độ mục tiêu")
@@ -133,13 +133,13 @@ async def test_watch_chat_flow(db_session: AsyncSession) -> None:
     async def ask(text: str, user: str = "user_a") -> str:
         return (await orchestrator.handle(db_session, user, text)).message
 
-    assert "Đã bật theo dõi email từ «nam@atin.vn»" in await ask("báo tôi khi nam@atin.vn trả lời")
+    assert "Đã bật theo dõi email từ “nam@atin.vn”" in await ask("báo tôi khi nam@atin.vn trả lời")
     await ask("báo tôi khi nam@atin.vn trả lời")
-    await ask("theo dõi email có «hợp đồng»")
+    await ask("theo dõi email có “hợp đồng”")
     listing = await ask("đang theo dõi gì?")
-    assert listing.count("«nam@atin.vn»") == 1 and "«hợp đồng»" in listing
+    assert listing.count("“nam@atin.vn”") == 1 and "“hợp đồng”" in listing
     assert "chưa theo dõi" in await ask("đang theo dõi gì?", user="user_b")
-    assert "Đã dừng theo dõi: «nam@atin.vn»" in await ask("dừng theo dõi nam@atin.vn")
+    assert "Đã dừng theo dõi: “nam@atin.vn”" in await ask("dừng theo dõi nam@atin.vn")
     assert "Không có mục theo dõi nào khớp" in await ask("dừng theo dõi lan@x.vn")
 
 

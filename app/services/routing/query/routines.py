@@ -44,13 +44,13 @@ class RoutineMixin(AnalysisMixin):
                 message = str(exc)
             else:
                 message = (
-                    f"Đã tạo quy trình «{routine.name}» — {describe(command.weekdays, command.run_time)}. "
+                    f"Đã tạo quy trình “{routine.name}” — {describe(command.weekdays, command.run_time)}. "
                     "Kết quả sẽ có trong chuông thông báo; việc cần ghi vẫn chờ bạn duyệt."
                 )
         elif command.kind == "list":
             routines = await RoutineService.active(session, user_id)
             if not routines:
-                message = "Bạn chưa có quy trình nào. Ví dụ: «tạo quy trình mỗi thứ 6 17h: tổng hợp email tuần này»."
+                message = "Bạn chưa có quy trình nào. Ví dụ: “tạo quy trình mỗi thứ 6 17h: tổng hợp email tuần này”."
             else:
                 lines = ["Các quy trình đang bật:"]
                 lines.extend(
@@ -61,7 +61,7 @@ class RoutineMixin(AnalysisMixin):
         else:
             stopped = await RoutineService.delete(session, user_id, command.target)
             message = (
-                "Đã tắt: " + ", ".join(f"«{r.name}»" for r in stopped)
+                "Đã tắt: " + ", ".join(f"“{r.name}”" for r in stopped)
                 if stopped
                 else "Không có quy trình nào khớp."
             )

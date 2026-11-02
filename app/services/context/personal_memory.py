@@ -154,7 +154,7 @@ class PersonalMemoryService:
         """The remembered signature text ("chữ ký của tôi là X" → "X"), if any."""
         for item in await self._preferences.get_active_preferences(user_id, category="signature"):
             match = _SIGNATURE_VALUE.search(item.content)
-            value = (match.group("value") if match else "").strip().strip("«»\"'")
+            value = (match.group("value") if match else "").strip().strip("“”\"'")
             if value:
                 return value
         return None
@@ -178,11 +178,11 @@ def recall_message(items: list[MemoryItem]) -> str:
     """Chat answer listing what is remembered."""
     if not items:
         return (
-            "Tôi chưa ghi nhớ điều gì về bạn. Bạn có thể nói «nhớ rằng …» "
+            "Tôi chưa ghi nhớ điều gì về bạn. Bạn có thể nói “nhớ rằng …” "
             "hoặc thêm trong trang Bộ nhớ."
         )
     lines = ["Những điều tôi đang ghi nhớ về bạn:"]
     lines.extend(f"- {item.content}" for item in items)
     lines.append("")
-    lines.append("Nói «quên …» hoặc vào trang Bộ nhớ để sửa, xóa.")
+    lines.append("Nói “quên …” hoặc vào trang Bộ nhớ để sửa, xóa.")
     return "\n".join(lines)

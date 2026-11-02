@@ -56,14 +56,14 @@ class MemoryMixin(KnowledgeMixin):
             result = await memory.forget(user_id, command.content)
             if result.ambiguous:
                 message = (
-                    f"Có {len(result.ambiguous)} ghi nhớ khớp với «{command.content}». "
+                    f"Có {len(result.ambiguous)} ghi nhớ khớp với “{command.content}”. "
                     "Bạn nói cụ thể hơn, hoặc xóa từng mục trong trang Bộ nhớ."
                 )
             elif result.forgotten:
                 lines = ["Đã quên:", *(f"- {item.content}" for item in result.forgotten)]
                 message = "\n".join(lines)
             else:
-                message = f"Tôi không có ghi nhớ nào khớp với «{command.content}»."
+                message = f"Tôi không có ghi nhớ nào khớp với “{command.content}”."
             data["forgotten"] = [item.id for item in result.forgotten]
         else:
             message = recall_message(await memory.active(user_id))

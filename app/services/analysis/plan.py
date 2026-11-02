@@ -93,7 +93,7 @@ def resolve_column(name: str, columns: list[str]) -> str:
     for column in columns:
         if unaccent_vietnamese(column).strip() == wanted:
             return column
-    raise PlanError(f"Không có cột «{name}» trong bảng.")
+    raise PlanError(f"Không có cột “{name}” trong bảng.")
 
 
 def _matches(row: dict[str, Any], item: Filter) -> bool:

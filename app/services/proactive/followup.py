@@ -80,7 +80,7 @@ class MeetingFollowupJob:
                 f"Cuộc họp **{title}** kết thúc lúc {local_end:%H:%M}.",
                 f"Khách mời: {', '.join(plain(email) for email in attendees)}",
                 "",
-                "Bấm «Soạn follow-up» để trợ lý soạn nháp email; bạn duyệt trước khi nháp được tạo.",
+                "Bấm “Soạn follow-up” để trợ lý soạn nháp email; bạn duyệt trước khi nháp được tạo.",
             ]
         )
         return await NotificationService.create(

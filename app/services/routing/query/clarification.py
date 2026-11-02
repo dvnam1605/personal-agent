@@ -73,7 +73,7 @@ class ClarificationMixin(WebMixin):
                     query=query,
                     message=(
                         "Tôi cần địa chỉ email của người nhận, ví dụ nam@congty.vn "
-                        "(hoặc nói «hủy»)."
+                        "(hoặc nói “hủy”)."
                     ),
                 )
             self._set_pending(conversation, None)

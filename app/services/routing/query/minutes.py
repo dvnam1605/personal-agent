@@ -85,7 +85,7 @@ class MinutesMixin(GoalMixin):
                 run_id=run_id,
                 status="completed",
                 message=(
-                    f"Chưa thấy bản ghi (transcript) của «{title}» trong Drive. Bật ghi lời thoại "
+                    f"Chưa thấy bản ghi (transcript) của “{title}” trong Drive. Bật ghi lời thoại "
                     "trong Google Meet; bản ghi thường có sau khi họp 10–30 phút."
                 ),
                 route=route,

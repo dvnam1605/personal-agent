@@ -226,7 +226,7 @@ def _success_message(tool_name: str, output: Any) -> str:
         return f"Đã tạo nháp Gmail{suffix}."
     if tool_name in ("tasks.create", "tasks.complete"):
         title = str(output.get("title") or "") if isinstance(output, dict) else ""
-        label = f" «{title}»" if title else ""
+        label = f" “{title}”" if title else ""
         verb = "Đã thêm việc" if tool_name == "tasks.create" else "Đã đánh dấu xong việc"
         return f"{verb}{label} trên Google Tasks."
     return f"Đã thực thi {tool_name}."

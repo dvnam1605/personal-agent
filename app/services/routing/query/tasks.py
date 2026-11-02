@@ -25,7 +25,7 @@ MAX_LISTED = 20
 TASKS_DENIED = (
     "Google từ chối truy cập Google Tasks. Thường là do Google Tasks API chưa được bật trong "
     "project Google Cloud của OAuth client (APIs & Services → Library → Google Tasks API → "
-    "Enable), hoặc tài khoản chưa cấp quyền Tasks — khi đó bấm «Kết nối» lại."
+    "Enable), hoặc tài khoản chưa cấp quyền Tasks — khi đó bấm “Kết nối” lại."
 )
 
 
@@ -93,7 +93,7 @@ class TaskMixin(ClarificationMixin):
         when = f" (hạn {command.due:%d/%m/%Y})" if command.due else ""
         proposal = ProposedAction(
             action_type="create_task",
-            description=f"Thêm việc «{command.title}»{when} vào Google Tasks.",
+            description=f"Thêm việc “{command.title}”{when} vào Google Tasks.",
             tool_name=TASKS_CREATE,
             parameters={"title": command.title, "due": due},
             risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,
@@ -123,7 +123,7 @@ class TaskMixin(ClarificationMixin):
         matches = _matching(await adapter.list_tasks(), command.title)
         if len(matches) != 1:
             message = (
-                f"Không thấy việc nào khớp «{command.title}» trong danh sách đang mở."
+                f"Không thấy việc nào khớp “{command.title}” trong danh sách đang mở."
                 if not matches
                 else "Có nhiều việc khớp, bạn nói cụ thể hơn:\n"
                 + "\n".join(f"- {item.title}" for item in matches[:5])
@@ -132,7 +132,7 @@ class TaskMixin(ClarificationMixin):
         task = matches[0]
         proposal = ProposedAction(
             action_type="complete_task",
-            description=f"Đánh dấu xong việc «{task.title}» trên Google Tasks.",
+            description=f"Đánh dấu xong việc “{task.title}” trên Google Tasks.",
             tool_name=TASKS_COMPLETE,
             parameters={"task_id": task.id, "title": task.title},
             risk_level=ActionRiskLevel.LOW_IMPACT_WRITE,

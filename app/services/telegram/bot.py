@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 HELP = (
     "Xin chào! Tôi là trợ lý Noat.\n"
-    "1. Mở ứng dụng → Cài đặt → Telegram → «Tạo mã liên kết».\n"
+    "1. Mở ứng dụng → Cài đặt → Telegram → “Tạo mã liên kết”.\n"
     "2. Gửi cho tôi: /link <mã 6 số>.\n"
     "Sau đó hỏi tôi như trong ứng dụng; việc cần duyệt sẽ có nút Duyệt / Từ chối.\n"
     "/unlink để hủy liên kết."

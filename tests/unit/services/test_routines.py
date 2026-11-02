@@ -99,13 +99,13 @@ async def test_chat_flow(db_session: AsyncSession) -> None:
         return (await orchestrator.handle(db_session, "user_a", text)).message
 
     created = await ask("Tạo quy trình mỗi thứ 6 lúc 17h: tổng hợp email tuần này")
-    assert created.startswith("Đã tạo quy trình «tổng hợp email tuần này» — thứ 6 lúc 17:00")
+    assert created.startswith("Đã tạo quy trình “tổng hợp email tuần này” — thứ 6 lúc 17:00")
     await ask("tạo quy trình hằng ngày 8:30: việc cần làm?")
     listing = await ask("các quy trình của tôi")
     assert "1. tổng hợp email tuần này — thứ 6 lúc 17:00" in listing
     assert "2. việc cần làm? — hằng ngày lúc 08:30" in listing
-    assert "Đã tắt: «việc cần làm?»" in await ask("xóa quy trình 2")
-    assert "Đã tắt: «tổng hợp email tuần này»" in await ask("tắt quy trình tổng hợp email")
+    assert "Đã tắt: “việc cần làm?”" in await ask("xóa quy trình 2")
+    assert "Đã tắt: “tổng hợp email tuần này”" in await ask("tắt quy trình tổng hợp email")
     assert "chưa có quy trình" in await ask("các quy trình của tôi")
     assert "không được tự tạo" in await ask("tạo quy trình hằng ngày 8h: nhớ rằng x")
 
