@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Multi-stage production build for FastAPI Backend using Astral uv
 
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 
 # Install uv from official Astral image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
@@ -33,7 +33,7 @@ RUN uv sync --frozen --no-dev --no-editable
 RUN chmod +x docker-entrypoint.sh
 
 # --- Production Runner Stage ---
-FROM python:3.12-slim-bookworm AS runner
+FROM python:3.15-slim-bookworm AS runner
 
 WORKDIR /app
 
