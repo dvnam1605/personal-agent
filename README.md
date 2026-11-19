@@ -219,13 +219,22 @@ uv run python scripts/backfill/backfill_formulas.py
 
 Mỗi script có `--dry-run` để xem trước mà không ghi.
 
-PDF scan (ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi nạp file markdown:
+PDF scan (ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi nạp file markdown. Engine `paddleocr_vl_1_6` dùng checkpoint PaddleOCR-VL 1.6 đã finetune (round 11): một thư mục transformers cục bộ gồm `config.json`, `model.safetensors`, code `*_paddleocr_vl.py` và tokenizer. Cách đọc giống đường scan của webapp OCR: PP-DocLayoutV2 (CPU) tìm block và thứ tự đọc, model VL đọc từng block theo prompt của nó (`OCR:`, `Table Recognition:`, `Formula Recognition:`), rồi ghép thành Markdown (bảng HTML, công thức `$$…$$`). Code nằm ở `scripts/ingestion/ocr_vl/`.
+
+Cài trong một venv riêng, không dùng venv của runtime:
 
 ```bash
-uv pip install -e ".[ocr-paddle]"   # hoặc ".[ocr-surya]"
-python scripts/ingestion/ocr_batch.py --input-dir ./scanned_pdfs --output-dir ./parsed_md \
-  --engine paddleocr_vl_1_6 --device cuda:0
+UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv sync --frozen --python 3.12 --extra ocr-paddle   # hoặc --extra ocr-surya
+UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv run --no-sync python scripts/ingestion/ocr_batch.py \
+  --input-dir ./scanned_pdfs --output-dir ./parsed_md \
+  --engine paddleocr_vl_1_6 --model-path /path/to/round11/ckpt --model-name round11 --device cuda:0
 ```
+
+- `--model-path` là bắt buộc (hoặc đặt biến `OCR_VL_MODEL_PATH`). `--model-name` chỉ để đọc cho dễ; mặc định là tên thư mục checkpoint.
+- Sidecar `.ocr.json` ghi `engine_version` dạng `round11 sha256:dcdbc90e51ce; paddleocr 3.7.0; pipeline scan-v1`. Hash lấy từ file trọng số, nên đổi checkpoint thì batch sau OCR lại và fingerprint ingestion cũng đổi.
+- Ảnh, con dấu và lề trang (header, footer, số trang, chú thích chân trang) không đưa vào Markdown; bảng vắt qua hai trang được nối lại thành một bảng.
+- `--vram-gb` (mặc định 5,5) giới hạn bộ nhớ GPU của tiến trình, hữu ích khi GPU dùng chung. GPU Ampere trở lên chạy bf16; Turing (GTX 16xx, T4) chạy fp16 như lúc đánh giá model.
+- Trên Windows, PyPI chỉ có torch bản CPU. Sau khi sync, cài lại torch bản CUDA cùng phiên bản, ví dụ `uv pip install --python ~/.venvs/pai-ocr torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126 --reinstall-package torch --reinstall-package torchvision`.
 
 Ảnh trích ra nằm ở `storage/doc_images/` (cũng không commit), phục vụ qua `GET /documents/images/{key}` cho người có quyền đọc văn bản chứa ảnh.
 

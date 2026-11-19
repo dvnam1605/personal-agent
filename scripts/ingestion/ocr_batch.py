@@ -6,17 +6,26 @@ the request path. Output feeds ingestion through
 OCR engine and version) is loaded alongside the Markdown and incorporated into the
 orchestrator's fingerprint inputs, ensuring provenance integrity and proper cache invalidation.
 
-Dependency isolation (P9E-2, option a): paddle/surya live in optional groups
+Engines:
+
+- ``paddleocr_vl_1_6``: the fine-tuned PaddleOCR-VL 1.6 checkpoint given by ``--model-path``
+  (a local transformers folder, e.g. round 11), run through the scan pipeline in ``ocr_vl/``.
+  ``engine_version`` names the checkpoint and its weight hash, so a new checkpoint changes the
+  ingestion fingerprint and re-OCRs files on the next batch.
+- ``paddle_ppstructurev3``: stock PP-StructureV3 from ``paddleocr``.
+- ``surya_2``: Surya OCR.
+
+Dependency isolation (P9E-2, option a): paddle/torch/surya live in optional groups
 (``pip install -e ".[ocr-paddle]"`` / ``".[ocr-surya]"``) installed only on the
 external machine; imports happen lazily inside engine constructors so CI and
-the runtime suite never touch them. Engine glue is smoke-validated on the GPU
-machine per spec P9E-3 — this environment verifies everything around it.
+the runtime suite never touch them.
 
 Usage::
 
     python scripts/ingestion/ocr_batch.py \
         --input-dir ./scanned_pdfs --output-dir ./parsed_md \
-        --engine paddleocr_vl_1_6 --device cuda:0 [--recursive] [--force]
+        --engine paddleocr_vl_1_6 --model-path /path/to/round11/ckpt --model-name round11 \
+        --device cuda:0 [--vram-gb 5.5] [--recursive] [--force]
 
 Exit codes: 0 = every file processed or skipped, 1 = at least one failure
 (the batch itself always runs to completion), 2 = usage/configuration error.
@@ -27,21 +36,37 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from app.services.ingestion.source import checksum_file  # noqa: E402
+from scripts.ingestion.ocr_vl import (  # noqa: E402
+    PIPELINE_VERSION,
+    VlPipeline,
+    describe_checkpoint,
+    validate_checkpoint,
+)
 
 SIDECAR_SUFFIX = ".ocr.json"
 SIDECAR_SCHEMA_VERSION = 1
-ENGINES = ("paddleocr_vl_1_6", "paddle_ppstructurev3", "surya_2")
+VL_ENGINE = "paddleocr_vl_1_6"
+ENGINES = (VL_ENGINE, "paddle_ppstructurev3", "surya_2")
+ENGINE_DEPENDENCIES = {
+    VL_ENGINE: ("paddleocr", "torch", "transformers", "einops"),
+    "paddle_ppstructurev3": ("paddleocr",),
+    "surya_2": ("surya-ocr",),
+}
+MODEL_PATH_ENV = "OCR_VL_MODEL_PATH"
+DEFAULT_VRAM_GB = 5.5
 
 
 class OcrSidecar(BaseModel):
@@ -83,40 +108,93 @@ class PageResult:
 
 
 class OcrEngine:
-    """Lazy engine wrapper; heavy imports happen in :meth:`load`."""
+    """Lazy engine wrapper.
 
-    def __init__(self, name: str, device: str) -> None:
+    :meth:`load` checks the checkpoint and the installed dependencies and fixes ``version``
+    (what the sidecar records); models load on the first :meth:`pages` call and stay loaded
+    for the whole batch.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        device: str,
+        *,
+        model_path: Path | None = None,
+        model_name: str | None = None,
+        vram_gb: float | None = None,
+    ) -> None:
         self.name = name
         self.device = device
+        self.model_path = model_path
+        self.model_name = model_name
+        self.vram_gb = vram_gb
         self.version: str | None = None
+        self._pipeline: VlPipeline | None = None
 
     def load(self) -> None:
-        dist = {
-            "paddleocr_vl_1_6": "paddleocr",
-            "paddle_ppstructurev3": "paddleocr",
-            "surya_2": "surya-ocr",
-        }[self.name]
+        if self.name != VL_ENGINE:
+            dependency = ENGINE_DEPENDENCIES[self.name][0]
+            self.version = _dependency_versions(ENGINE_DEPENDENCIES[self.name])[dependency]
+            return
+        model_path = self._require_model_path()
         try:
-            self.version = importlib.metadata.version(dist)
-        except importlib.metadata.PackageNotFoundError:
-            msg = f"engine dependency '{dist}' not installed; use [ocr-paddle]/[ocr-surya]"
-            raise RuntimeError(msg) from None
+            validate_checkpoint(model_path)
+        except ValueError as error:
+            raise RuntimeError(str(error)) from None
+        versions = _dependency_versions(ENGINE_DEPENDENCIES[VL_ENGINE])
+        identity = describe_checkpoint(model_path, self.model_name)
+        self.version = (
+            f"{identity.short()}; paddleocr {versions['paddleocr']}; pipeline {PIPELINE_VERSION}"
+        )
 
     def pages(self, pdf_path: Path) -> list[PageResult]:
+        if self.name == VL_ENGINE:
+            return self._vl_pages(pdf_path)
         if self.name == "surya_2":
             return _surya_pages(pdf_path, self.device)
-        return _paddle_pages(pdf_path, self.name, self.device)
+        return _ppstructure_pages(pdf_path, self.device)
+
+    def close(self) -> None:
+        if self._pipeline is not None:
+            self._pipeline.close()
+            self._pipeline = None
+
+    def _require_model_path(self) -> Path:
+        if self.model_path is None:
+            msg = f"engine '{VL_ENGINE}' needs --model-path (or ${MODEL_PATH_ENV})"
+            raise RuntimeError(msg)
+        return self.model_path
+
+    def _vl_pages(self, pdf_path: Path) -> list[PageResult]:
+        if self._pipeline is None:
+            self._pipeline = VlPipeline(self._require_model_path(), self.device, self.vram_gb)
+        return [
+            PageResult(page.index, page.markdown, ocr_used=True, warnings=page.warnings)
+            for page in self._pipeline.run(pdf_path)
+        ]
 
 
-def _paddle_pages(pdf_path: Path, engine_name: str, device: str) -> list[PageResult]:
-    from paddleocr import PaddleOCRVL, PPStructureV3
+def _dependency_versions(distributions: tuple[str, ...]) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    missing: list[str] = []
+    for distribution in distributions:
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            missing.append(distribution)
+    if missing:
+        msg = (
+            f"engine dependencies not installed: {', '.join(missing)}; use [ocr-paddle]/[ocr-surya]"
+        )
+        raise RuntimeError(msg)
+    return versions
 
-    pipeline_kwargs = {"device": "gpu:0" if device.startswith("cuda") else "cpu"}
-    pipeline = (
-        PPStructureV3(**pipeline_kwargs)
-        if engine_name == "paddle_ppstructurev3"
-        else PaddleOCRVL(**pipeline_kwargs)
-    )
+
+def _ppstructure_pages(pdf_path: Path, device: str) -> list[PageResult]:
+    from paddleocr import PPStructureV3
+
+    pipeline: Any = PPStructureV3(device="gpu:0" if device.startswith("cuda") else "cpu")
     results: list[PageResult] = []
     for index, res in enumerate(pipeline.predict(str(pdf_path), use_textline_orientation=True)):
         markdown = getattr(res, "markdown", None)
@@ -172,6 +250,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path, help="mirrored Markdown tree")
     parser.add_argument("--engine", required=True, choices=ENGINES)
     parser.add_argument("--device", default="cuda:0", help="cuda:0 | cpu (default: cuda:0)")
+    parser.add_argument(
+        "--model-path",
+        type=Path,
+        default=os.environ.get(MODEL_PATH_ENV) or None,
+        help=f"{VL_ENGINE}: local fine-tuned checkpoint folder (default: ${MODEL_PATH_ENV})",
+    )
+    parser.add_argument(
+        "--model-name",
+        default=None,
+        help=f"{VL_ENGINE}: name recorded in the sidecar (default: checkpoint folder name)",
+    )
+    parser.add_argument(
+        "--vram-gb",
+        type=float,
+        default=DEFAULT_VRAM_GB,
+        help=f"{VL_ENGINE}: cap on GPU memory for this process (default: {DEFAULT_VRAM_GB})",
+    )
     parser.add_argument("--recursive", action="store_true", help="walk input-dir recursively")
     parser.add_argument(
         "--force",
@@ -186,6 +281,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not args.input_dir.is_dir():
         parser.error(f"--input-dir is not a directory: {args.input_dir}")
+    if args.engine == VL_ENGINE and not args.dry_run and args.model_path is None:
+        parser.error(f"--engine {VL_ENGINE} needs --model-path (or ${MODEL_PATH_ENV})")
+    if args.model_path is not None:
+        args.model_path = Path(args.model_path)
     return args
 
 
@@ -218,8 +317,19 @@ def read_sidecar(path: Path) -> OcrSidecar | None:
         return None
 
 
-def should_skip(pdf: Path, sidecar_path: Path, checksum: str, *, force: bool) -> tuple[bool, str]:
-    """Idempotent re-run rule: matching checksum + real (non-dry-run) output."""
+def should_skip(
+    pdf: Path,
+    sidecar_path: Path,
+    checksum: str,
+    *,
+    force: bool,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+) -> tuple[bool, str]:
+    """Idempotent re-run rule: matching checksum, same engine/model, real (non-dry-run) output.
+
+    The engine check applies only when the current engine's version is known (not in dry-run).
+    """
     if force:
         return False, "forced re-run"
     sidecar = read_sidecar(sidecar_path)
@@ -229,6 +339,10 @@ def should_skip(pdf: Path, sidecar_path: Path, checksum: str, *, force: bool) ->
         return False, "only a planned (dry-run) sidecar exists"
     if sidecar.source_checksum != checksum:
         return False, "input changed since last run"
+    if engine_version is not None and (
+        sidecar.engine != engine_name or sidecar.engine_version != engine_version
+    ):
+        return False, "OCR engine or model changed since last run"
     if not md_path_for_sidecar(sidecar_path).is_file():
         return False, "sidecar present but Markdown missing"
     return True, "already processed with identical input checksum"
@@ -266,7 +380,14 @@ def process_pdf(pdf: Path, args: argparse.Namespace, engine: OcrEngine) -> FileO
     checksum = checksum_file(pdf)
     md_path, sidecar_path = output_paths_for(pdf, args.input_dir, args.output_dir)
 
-    skip, reason = should_skip(pdf, sidecar_path, checksum, force=args.force)
+    skip, reason = should_skip(
+        pdf,
+        sidecar_path,
+        checksum,
+        force=args.force,
+        engine_name=engine.name,
+        engine_version=engine.version,
+    )
     if skip:
         return FileOutcome(pdf, "skipped", reason)
 
@@ -348,14 +469,23 @@ def write_report(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    engine = OcrEngine(args.engine, args.device)
+    engine = OcrEngine(
+        args.engine,
+        args.device,
+        model_path=args.model_path,
+        model_name=args.model_name,
+        vram_gb=args.vram_gb,
+    )
     if not args.dry_run:
         try:
             engine.load()
         except RuntimeError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
-    outcomes = run_batch(args, engine)
+    try:
+        outcomes = run_batch(args, engine)
+    finally:
+        engine.close()
     if outcomes:
         report_path = write_report(outcomes, args.output_dir, input_dir=args.input_dir)
         print(f"report: {report_path}")

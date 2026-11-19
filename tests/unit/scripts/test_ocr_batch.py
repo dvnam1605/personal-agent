@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import json
 import sys
@@ -51,6 +52,8 @@ def make_args(tmp_path: Path, argv_extra: list[str]) -> SimpleNamespace:
         str(tmp_path / "out"),
         "--engine",
         "paddleocr_vl_1_6",
+        "--model-path",
+        str(tmp_path / "ckpt"),
         "--device",
         "cuda:0",
         *argv_extra,
@@ -277,3 +280,168 @@ def test_dry_run_never_overwrites_real_sidecar(tmp_path: Path) -> None:
     after_content = sidecar_path.read_text(encoding="utf-8")
     assert after_content == initial_content
     assert '"dry_run": false' in after_content
+
+
+VL_ENGINE = "paddleocr_vl_1_6"
+
+
+def _checkpoint(folder: Path) -> Path:
+    folder.mkdir(parents=True)
+    (folder / "config.json").write_text("{}", encoding="utf-8")
+    (folder / "model.safetensors").write_bytes(b"fake weights")
+    return folder
+
+
+def _installed(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str]) -> None:
+    def fake_version(distribution: str) -> str:
+        if distribution not in versions:
+            raise importlib.metadata.PackageNotFoundError(distribution)
+        return versions[distribution]
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+
+
+def test_vl_engine_needs_model_path_unless_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_input(tmp_path / "in")
+    base = [
+        "--input-dir",
+        str(tmp_path / "in"),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--engine",
+        VL_ENGINE,
+    ]
+    monkeypatch.delenv("OCR_VL_MODEL_PATH", raising=False)
+    with pytest.raises(SystemExit) as exc_info:
+        ocr_batch.parse_args(base)
+    assert exc_info.value.code == 2
+    assert ocr_batch.parse_args([*base, "--dry-run"]).model_path is None
+
+    monkeypatch.setenv("OCR_VL_MODEL_PATH", str(tmp_path / "ckpt"))
+    args = ocr_batch.parse_args(base)
+    assert args.model_path == tmp_path / "ckpt"
+    assert args.vram_gb == 5.5 and args.model_name is None
+
+
+def test_vl_engine_version_names_checkpoint_and_weight_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ckpt = _checkpoint(tmp_path / "round11_out" / "ckpt")
+    _installed(
+        monkeypatch,
+        {"paddleocr": "3.7.0", "torch": "2.10.0", "transformers": "4.55.0", "einops": "0.8.2"},
+    )
+    digest = ocr_batch.describe_checkpoint(ckpt).sha256
+
+    named = ocr_batch.OcrEngine(VL_ENGINE, "cuda:0", model_path=ckpt, model_name="round11")
+    named.load()
+    assert named.version == (
+        f"round11 sha256:{digest[:12]}; paddleocr 3.7.0; pipeline {ocr_batch.PIPELINE_VERSION}"
+    )
+    unnamed = ocr_batch.OcrEngine(VL_ENGINE, "cuda:0", model_path=ckpt)
+    unnamed.load()
+    assert unnamed.version is not None and unnamed.version.startswith("round11_out sha256:")
+
+
+def test_engine_load_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(RuntimeError, match="--model-path"):
+        ocr_batch.OcrEngine(VL_ENGINE, "cpu").load()
+    with pytest.raises(RuntimeError, match="not a directory"):
+        ocr_batch.OcrEngine(VL_ENGINE, "cpu", model_path=tmp_path / "missing").load()
+
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    _installed(monkeypatch, {"paddleocr": "3.7.0"})
+    with pytest.raises(RuntimeError, match="torch, transformers, einops"):
+        ocr_batch.OcrEngine(VL_ENGINE, "cpu", model_path=ckpt).load()
+    with pytest.raises(RuntimeError, match="surya-ocr"):
+        ocr_batch.OcrEngine("surya_2", "cpu").load()
+
+    structure = ocr_batch.OcrEngine("paddle_ppstructurev3", "cpu")
+    structure.load()
+    assert structure.version == "3.7.0"
+
+
+def test_main_exit_code_2_for_invalid_checkpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed_input(tmp_path / "in", ("m.pdf",))
+    argv = [
+        "--input-dir",
+        str(tmp_path / "in"),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--engine",
+        VL_ENGINE,
+        "--model-path",
+        str(tmp_path / "nope"),
+    ]
+    assert ocr_batch.main(argv) == 2
+    assert "not a directory" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_rerun_when_engine_model_changes(tmp_path: Path) -> None:
+    input_dir = tmp_path / "in"
+    (pdf,) = seed_input(input_dir, ("only.pdf",))
+    args = make_args(tmp_path, [])
+    assert ocr_batch.process_pdf(pdf, args, FakeEngine()).status == "processed"
+
+    newer = FakeEngine()
+    newer.version = "round12 sha256:0123456789ab; paddleocr 3.7.0; pipeline scan-v1"
+    assert ocr_batch.process_pdf(pdf, args, newer).status == "processed"
+    assert newer.calls == ["only.pdf"]
+
+    _, sidecar_path = ocr_batch.output_paths_for(pdf, input_dir, tmp_path / "out")
+    sidecar = ocr_batch.read_sidecar(sidecar_path)
+    assert sidecar is not None and sidecar.engine_version == newer.version
+    checksum = checksum_file(pdf)
+    skip, reason = ocr_batch.should_skip(
+        pdf, sidecar_path, checksum, force=False, engine_name=VL_ENGINE, engine_version="other"
+    )
+    assert skip is False and "model changed" in reason
+    assert ocr_batch.should_skip(
+        pdf,
+        sidecar_path,
+        checksum,
+        force=False,
+        engine_name=VL_ENGINE,
+        engine_version=newer.version,
+    )[0]
+
+
+def test_vl_engine_pages_reuse_one_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created: list[tuple[Path, str, float | None]] = []
+
+    class FakePipeline:
+        def __init__(self, model_path: Path, device: str, vram_gb: float | None) -> None:
+            created.append((model_path, device, vram_gb))
+            self.closed = False
+
+        def run(self, pdf_path: Path) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(index=0, markdown=f"# {pdf_path.stem}", warnings=[]),
+                SimpleNamespace(index=1, markdown="", warnings=["empty page text"]),
+            ]
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(ocr_batch, "VlPipeline", FakePipeline)
+    with pytest.raises(RuntimeError, match="--model-path"):
+        ocr_batch.OcrEngine(VL_ENGINE, "cuda:0").pages(tmp_path / "a.pdf")
+
+    engine = ocr_batch.OcrEngine(VL_ENGINE, "cuda:0", model_path=tmp_path, vram_gb=4.0)
+    pages = engine.pages(tmp_path / "a.pdf")
+    engine.pages(tmp_path / "b.pdf")
+    assert created == [(tmp_path, "cuda:0", 4.0)]
+    assert [(p.index, p.markdown, p.ocr_used, p.warnings) for p in pages] == [
+        (0, "# a", True, []),
+        (1, "", True, ["empty page text"]),
+    ]
+    pipeline = engine._pipeline
+    engine.close()
+    assert pipeline is not None and pipeline.closed and engine._pipeline is None
