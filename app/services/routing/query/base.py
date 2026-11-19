@@ -1,8 +1,11 @@
 """State and run bookkeeping shared by every part of the query orchestrator.
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
-KnowledgeMixin → SpecialistMixin → StreamMixin → QueryOrchestrator — so each
-part sees the attributes and methods of the parts before it.
+KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → TaskMixin →
+GoalMixin → MinutesMixin → AnalysisMixin →
+RoutineMixin → SpecialistMixin →
+StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
+the parts before it.
 """
 
 from __future__ import annotations
@@ -48,6 +51,13 @@ class OrchestratorBase:
         relation_service: Any | None = None,
         phrase_structured: bool = True,
         pipeline: Any | None = None,
+        memory_factory: Any | None = None,
+        web_answer_service: Any | None = None,
+        draft_critic: Any | None = None,
+        tasks_for_user: Any | None = None,
+        compose_email_fn: Any | None = None,
+        goal_planner: Any | None = None,
+        drive_for_user: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
@@ -63,6 +73,45 @@ class OrchestratorBase:
         self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
         self._summarize_emails_fn = summarize_emails_fn
         self._pipeline: Any | None = pipeline
+        # Builds the PersonalMemoryService for a request session (tests inject one).
+        self._memory_factory = memory_factory
+        # Answers explicit web requests; built from settings when not injected.
+        self._web_answer_service = web_answer_service
+        # Reviews email drafts before approval; the default runs structural checks plus
+        # a model review when an LLM is configured.
+        self._draft_critic = draft_critic
+        # Builds the Google Tasks adapter for a user (tests inject a fake).
+        self._tasks_for_user = tasks_for_user
+        # Writes email drafts; the default calls the LLM (offline evaluation injects one).
+        self._compose_email_fn = compose_email_fn
+        # Plans a goal's steps; the default asks the LLM and falls back to a generic plan.
+        self._goal_planner = goal_planner
+        # Builds the read-only Drive service for a user (tests inject a fake).
+        self._drive_for_user = drive_for_user
+
+    async def _calendar(self, session: AsyncSession, user_id: str) -> Any:
+        if self._calendar_for_user is not None:
+            return await self._calendar_for_user(session, user_id)
+        from app.api.routes.google_auth import google_oauth_service
+        from app.services.google.calendar import CalendarService
+
+        oauth = self._oauth_service or google_oauth_service
+        return await CalendarService.for_user(oauth, session, user_id)
+
+    async def _communication(self, session: AsyncSession, user_id: str) -> Any:
+        if self._communication_for_user is not None:
+            return await self._communication_for_user(session, user_id)
+        from app.api.routes.google_auth import google_oauth_service
+        from app.integrations.google_gmail import GMAIL_MODIFY_SCOPE
+        from app.services.google.communication import CommunicationService
+
+        oauth = self._oauth_service or google_oauth_service
+        client = await oauth.create_client(
+            session,
+            user_id,
+            required_scopes=[GMAIL_MODIFY_SCOPE],
+        )
+        return CommunicationService.from_client(client)
 
     @staticmethod
     async def _ensure_user(session: AsyncSession, user_id: str) -> None:

@@ -208,3 +208,11 @@ def test_production_signing_key_never_falls_back_to_test_key(
         _get_signing_key()
     monkeypatch.setattr(app_settings.security, "approval_signing_key", "p" * 32)
     assert _get_signing_key() != _TEST_SIGNING_KEY
+
+
+def test_tavily_api_key_feeds_web_search() -> None:
+    from app.core.config import Settings
+
+    assert Settings(tavily_api_key="tvly-x").web_search.api_key == "tvly-x"
+    explicit = Settings(tavily_api_key="a", web_search={"api_key": "b"})  # type: ignore[arg-type]
+    assert explicit.web_search.api_key == "b"

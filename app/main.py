@@ -69,6 +69,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         asyncio.create_task(outbox_worker.run(stop_event), name="audit-outbox-worker"),
         asyncio.create_task(retention_worker.run(stop_event), name="retention-worker"),
     ]
+    if settings.proactive.enabled and settings.environment is not Environment.TESTING:
+        from app.api.routes.query import get_query_orchestrator
+        from app.services.proactive import OrchestratorSources, ProactiveWorker
+
+        proactive_worker = ProactiveWorker.with_default_jobs(
+            session_factory, OrchestratorSources(get_query_orchestrator()), settings.proactive
+        )
+        worker_tasks.append(
+            asyncio.create_task(proactive_worker.run(stop_event), name="proactive-worker")
+        )
+    if settings.telegram.bot_token and settings.environment is not Environment.TESTING:
+        from app.api.routes.query import get_query_orchestrator
+        from app.integrations.telegram import TelegramClient
+        from app.services.telegram.bot import TelegramBot
+
+        bot = TelegramBot(
+            TelegramClient(settings.telegram), get_query_orchestrator(), session_factory
+        )
+        worker_tasks.append(asyncio.create_task(bot.run(stop_event), name="telegram-bot"))
     if settings.auth_enforced and not settings.security.api_key:
         logger.error(
             "security.api_key_missing",
@@ -216,9 +235,13 @@ def create_app() -> FastAPI:
     from app.api.routes.auth import router as auth_router
     from app.api.routes.conversations import router as conversations_router
     from app.api.routes.documents import router as documents_router
+    from app.api.routes.memories import router as memories_router
+    from app.api.routes.notifications import router as notifications_router
     from app.api.routes.query import router as query_router
     from app.api.routes.questions import router as questions_router
     from app.api.routes.runs import router as runs_router
+    from app.api.routes.tasks import router as tasks_router
+    from app.api.routes.telegram import router as telegram_router
 
     app.include_router(auth_router, prefix="")
     app.include_router(conversations_router, prefix="")
@@ -226,6 +249,10 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="")
     app.include_router(approvals_router, prefix="")
     app.include_router(questions_router, prefix="")
+    app.include_router(notifications_router, prefix="")
+    app.include_router(memories_router, prefix="")
+    app.include_router(telegram_router, prefix="")
+    app.include_router(tasks_router, prefix="")
     app.include_router(query_router, prefix="")
     app.include_router(api_router, prefix=settings.api_prefix)
 

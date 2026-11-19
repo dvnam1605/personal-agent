@@ -20,8 +20,8 @@ from app.domain.errors import ValidationError
 from app.domain.models.routing.route import RouteDecision
 from app.services.approvals import ApprovalRequestService
 
+from .drafting import ask_recipients, prepare_draft, review_note
 from .email_synthesis import compose_email_draft, summarize_emails
-from .knowledge import KnowledgeMixin
 from .models import QueryResult, QueryRouteInfo, route_info
 from .parsing import (
     _iso,
@@ -36,6 +36,7 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
+from .routines import RoutineMixin
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -49,7 +50,7 @@ _APPROVAL_RE = re.compile(
 )
 
 
-class SpecialistMixin(KnowledgeMixin):
+class SpecialistMixin(RoutineMixin):
     """Workflow, calendar, communication and document handlers of ``QueryOrchestrator``."""
 
     async def _handle_workflow(
@@ -125,6 +126,10 @@ class SpecialistMixin(KnowledgeMixin):
                 list_events=list_events,
                 search_messages=search_messages,
                 retrieve=retrieve,
+                personal=await self._personal_context(session, user_id, query),
+                signature=await self._memory_for(session).signature(user_id),
+                critic=self._draft_critic,
+                compose=self._compose_email_fn or compose_email_draft,
             )
         return None
 
@@ -351,8 +356,22 @@ class SpecialistMixin(KnowledgeMixin):
         from app.domain.enums import ActionRiskLevel
         from app.domain.models import ProposedAction
 
-        subject, body, recipients = await compose_email_draft(query)
-        to_list = recipients or ["quanly@vov.vn"]
+        personal = await self._personal_context(session, user_id, query)
+        compose = self._compose_email_fn or compose_email_draft
+        subject, body, recipients = await compose(query, personal=personal or None)
+        plan = await prepare_draft(
+            query,
+            subject,
+            body,
+            recipients,
+            personal=personal,
+            signature=await self._memory_for(session).signature(user_id),
+            critic=self._draft_critic,
+        )
+        if plan.needs_recipients:
+            return ask_recipients(run_id, route, query, subject)
+        subject, body = plan.draft.subject, plan.draft.body
+        to_list = list(plan.draft.recipients)
         proposal = ProposedAction(
             action_type="create_draft",
             description=f"Tạo bản nháp email '{subject}' tới {', '.join(to_list)} trên Gmail",
@@ -367,6 +386,7 @@ class SpecialistMixin(KnowledgeMixin):
         )
         approval = await ApprovalRequestService.create_request(session, run_id, proposal)
 
+        note = review_note(plan)
         msg = (
             f"Tôi đã soạn sẵn nội dung email theo yêu cầu của bạn:\n\n"
             f"📌 **Tiêu đề:** {subject}\n\n"
@@ -374,6 +394,7 @@ class SpecialistMixin(KnowledgeMixin):
             f"---\n\n"
             f"{body}\n\n"
             f"---\n\n"
+            f"{note + chr(10) * 2 if note else ''}"
             f"Vui lòng kiểm tra nội dung ở trên. Bạn có thể nhấn **Duyệt** trên thẻ xác nhận bên dưới để tự động tạo bản nháp này trên Gmail của bạn."
         )
         return QueryResult(
@@ -386,6 +407,7 @@ class SpecialistMixin(KnowledgeMixin):
                 "subject": subject,
                 "body": body,
                 "to": to_list,
+                "review": {"fixed": plan.fixed, "remaining": plan.remaining},
             },
             approval_id=approval.id,
         )
@@ -430,27 +452,3 @@ class SpecialistMixin(KnowledgeMixin):
             route=route,
             data={"query": gmail_query, "messages": messages, "count": len(messages)},
         )
-
-    async def _calendar(self, session: AsyncSession, user_id: str) -> Any:
-        if self._calendar_for_user is not None:
-            return await self._calendar_for_user(session, user_id)
-        from app.api.routes.google_auth import google_oauth_service
-        from app.services.google.calendar import CalendarService
-
-        oauth = self._oauth_service or google_oauth_service
-        return await CalendarService.for_user(oauth, session, user_id)
-
-    async def _communication(self, session: AsyncSession, user_id: str) -> Any:
-        if self._communication_for_user is not None:
-            return await self._communication_for_user(session, user_id)
-        from app.api.routes.google_auth import google_oauth_service
-        from app.integrations.google_gmail import GMAIL_MODIFY_SCOPE
-        from app.services.google.communication import CommunicationService
-
-        oauth = self._oauth_service or google_oauth_service
-        client = await oauth.create_client(
-            session,
-            user_id,
-            required_scopes=[GMAIL_MODIFY_SCOPE],
-        )
-        return CommunicationService.from_client(client)

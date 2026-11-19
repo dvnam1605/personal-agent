@@ -14,6 +14,7 @@ import { apiClient } from '../../api/client'
 import type { GoogleIntegrationStatus, UserProfile } from '../../types/api'
 import { NammLogo } from '../common/NammLogo'
 import { Hint } from '../ui/Hint'
+import { NotificationBell } from './NotificationBell'
 import { useToast } from '../ui/toastContext'
 import { WORKSPACE_TABS, type WorkspaceType } from './workspaces'
 import './Header.css'
@@ -30,6 +31,7 @@ interface HeaderProps {
   currentUser?: UserProfile | null
   onOpenAuth?: () => void
   onLogout?: () => void
+  onAskAssistant?: (prompt: string) => void
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onOpenAuth,
   onLogout,
+  onAskAssistant,
 }) => {
   const { showToast } = useToast()
   const [googleStatus, setGoogleStatus] = useState<GoogleIntegrationStatus | null>(null)
@@ -152,6 +155,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+
+        <NotificationBell enabled={Boolean(currentUser)} onAskAssistant={onAskAssistant} />
 
         {/* User Identity Chip or Login Button */}
         {currentUser ? (

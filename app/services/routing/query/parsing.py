@@ -16,7 +16,7 @@ from app.services.skills.matching import unaccent_vietnamese
 from .models import GOOGLE_CONNECT_HINT
 
 _CALENDAR_CREATE = re.compile(
-    r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich|len\s+lich)\b",
+    r"\b(tao|dat|book|create|schedule|them|dat\s+lich|xep\s+lich|len\s+lich)\b",
     re.IGNORECASE,
 )
 _CALENDAR_DELETE = re.compile(r"\b(xoa|huy|delete|cancel)\b", re.IGNORECASE)
@@ -60,7 +60,12 @@ _DAY_TOMORROW = re.compile(
     r"\b(ngay\s+mai|sang\s+mai|chieu\s+mai|toi\s+mai)\b",
     re.IGNORECASE,
 )
-_DAY_TODAY = re.compile(r"\b(hom\s+nay|today)\b", re.IGNORECASE)
+_DAY_TODAY = re.compile(r"\b(hom\s+nay|today|(?:sang|trua|chieu|toi|dem)\s+nay)\b", re.IGNORECASE)
+# A part of the day written before the time ("tối nay 9h", "chiều mai lúc 3h"). Read on
+# the original text: folded, "tối" (evening) and "tôi" (I) are both "toi".
+_PERIOD_WORD = re.compile(r"\b(sáng|trưa|chiều|tối|đêm)\b", re.IGNORECASE)
+_PERIOD_FOLDED = {"sáng": "sang", "trưa": "trua", "chiều": "chieu", "tối": "toi", "đêm": "dem"}
+_PERIOD_UNACCENTED = re.compile(r"\b(sang|trua|chieu|toi|dem)\s+(?:nay|mai)\b")
 _DAY_THIS_WEEK = re.compile(r"\b(tuan\s+nay|this\s+week)\b", re.IGNORECASE)
 _DAY_MAI = re.compile(r"\bmai\b", re.IGNORECASE)
 _WEEKDAY_RE = re.compile(
@@ -94,6 +99,21 @@ _TIME_RE = re.compile(
     re.IGNORECASE,
 )
 _DEFAULT_EVENT_DURATION = timedelta(hours=1)
+# Words that are not the event's title: when it is, the request verb, polite filler.
+# "đi" is filler only at the end ("đặt lịch đi"); "đi đá bóng" keeps it.
+_SUMMARY_NOISE = (
+    _TIME_RE,
+    _DAY_TOMORROW,
+    _DAY_TODAY,
+    _DAY_MAI,
+    _WEEKDAY_RE,
+    re.compile(r"\b(?:buoi\s+)?(?:sang|chieu|trua|dem|am|pm)\b"),
+    re.compile(
+        r"\b(?:tao|dat|book|create|schedule|them|dat\s+lich|xep\s+lich|len\s+lich|lich|luc|vao"
+        r"|cho\s+(?:toi|minh)|giup\s+(?:toi|minh)|mot|cuoc|1|nhe|nha|dum|nho)\b"
+    ),
+    re.compile(r"\bdi\s*$"),
+)
 
 
 def infer_calendar_window(
@@ -198,7 +218,7 @@ def parse_event_times(
         return None
     hour = int(match.group(1))
     minute = int(match.group(2) or 0)
-    period = (match.group(3) or "").casefold()
+    period = (match.group(3) or "").casefold() or _period_before_time(query, unaccented)
     if minute > 59:
         return None
     hour = apply_period(hour, period)
@@ -256,33 +276,37 @@ def infer_event_summary(query: str) -> str:
         if extracted:
             return extracted[:80].strip().capitalize()
 
-    unaccented = unaccent_vietnamese(query)
-    cleaned = _TIME_RE.sub(" ", unaccented)
-    cleaned = _DAY_TOMORROW.sub(" ", cleaned)
-    cleaned = _DAY_TODAY.sub(" ", cleaned)
-    cleaned = _DAY_MAI.sub(" ", cleaned)
-    cleaned = _WEEKDAY_RE.sub(" ", cleaned)
-    cleaned = re.sub(
-        r"\b(sang|chieu|toi|trua|am|pm|buoi\s+sang|buoi\s+chieu|buoi\s+toi)\b",
-        " ",
-        cleaned,
-        flags=re.IGNORECASE,
+    # Noise is found on the folded text, which keeps offsets once whitespace is single, and
+    # cut from the original so the title keeps its diacritics ("Đi đá bóng").
+    original = " ".join(query.split())
+    folded = unaccent_vietnamese(original)
+    keep = [True] * len(original)
+    for pattern in _SUMMARY_NOISE:
+        for noise in pattern.finditer(folded):
+            keep[noise.start() : noise.end()] = [False] * (noise.end() - noise.start())
+    cleaned = " ".join(
+        "".join(c if k else " " for c, k in zip(original, keep, strict=True)).split()
     )
-    cleaned = re.sub(
-        r"\b(tao|dat|book|create|schedule|them\s+lich|dat\s+lich|xep\s+lich|len\s+lich|lich|luc|vao|cho\s+toi|giup\s+toi|giup|cho|toi|minh|mot|cuoc|1|di|nhe|dum|nho)\b",
-        " ",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = " ".join(cleaned.split()).strip()
-    if not cleaned or cleaned.casefold() == "hop":
+    cleaned = cleaned.strip(" .,;:!?\"'")
+    if not cleaned or unaccent_vietnamese(cleaned) == "hop":
         return "Họp"
-    return cleaned[:80].strip().capitalize()
+    return (cleaned[:1].upper() + cleaned[1:])[:80].strip()
+
+
+def _period_before_time(query: str, unaccented: str) -> str:
+    """Part of the day named elsewhere in the request, folded ("toi"), or ""."""
+    accented = _PERIOD_WORD.search(query)
+    if accented:
+        return _PERIOD_FOLDED[accented.group(1).casefold()]
+    unaccented_match = _PERIOD_UNACCENTED.search(unaccented)
+    return unaccented_match.group(1) if unaccented_match else ""
 
 
 def apply_period(hour: int, period: str) -> int:
     """Apply AM/PM/morning/afternoon offset to hour integer."""
     if period in {"chieu", "toi", "pm"} and hour < 12:
+        return hour + 12
+    if period == "dem" and 6 <= hour < 12:
         return hour + 12
     if period == "trua" and hour < 12:
         return 12

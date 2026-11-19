@@ -32,6 +32,9 @@ from app.core.settings.knowledge import (
 )
 from app.core.settings.llm import LLMMode, LLMProviderSettings
 from app.core.settings.paths import PROJECT_ROOT, resolve_project_path
+from app.core.settings.proactive import ProactiveSettings
+from app.core.settings.telegram import TelegramSettings
+from app.core.settings.web import WebSearchSettings
 
 __all__ = [
     "PROJECT_ROOT",
@@ -45,6 +48,7 @@ __all__ = [
     "LLMProviderSettings",
     "LangSmithSettings",
     "ParsingSettings",
+    "ProactiveSettings",
     "ProfilingSettings",
     "ReActBudgetSettings",
     "RedisSettings",
@@ -53,7 +57,9 @@ __all__ = [
     "SecuritySettings",
     "Settings",
     "SupervisorBudgetSettings",
+    "TelegramSettings",
     "TimeoutsSettings",
+    "WebSearchSettings",
     "get_settings",
     "resolve_project_path",
     "settings",
@@ -108,6 +114,7 @@ class Settings(BaseSettings):
     router_api_key: str | None = Field(default=None, repr=False, exclude=True)
     router_model: str | None = Field(default=None, repr=False, exclude=True)
     router_base_url: str | None = Field(default=None, repr=False, exclude=True)
+    tavily_api_key: str | None = Field(default=None, repr=False, exclude=True)
     langsmith: LangSmithSettings = Field(default_factory=LangSmithSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
@@ -119,6 +126,9 @@ class Settings(BaseSettings):
     llm_budget: LLMBudgetSettings = Field(default_factory=LLMBudgetSettings)
     timeouts: TimeoutsSettings = Field(default_factory=TimeoutsSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    proactive: ProactiveSettings = Field(default_factory=ProactiveSettings)
+    web_search: WebSearchSettings = Field(default_factory=WebSearchSettings)
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
 
     @property
     def auth_enforced(self) -> bool:
@@ -213,6 +223,11 @@ class Settings(BaseSettings):
             }
             merged_llm.update(llm_updates)
             self.llm = LLMProviderSettings.model_validate(merged_llm)
+
+        # The provider's own variable name (TAVILY_API_KEY) works as well as WEB_SEARCH__API_KEY.
+        tavily_key = (self.tavily_api_key or "").strip()
+        if tavily_key and not self.web_search.api_key:
+            self.web_search = self.web_search.model_copy(update={"api_key": tavily_key})
         return self
 
     @model_validator(mode="after")

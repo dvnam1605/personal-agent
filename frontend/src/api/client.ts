@@ -23,6 +23,14 @@ import type {
   GoogleStartResponse,
   GoogleIntegrationStatus,
   HealthResponse,
+  MemoryView,
+  TaskItem,
+  TaskProposalRequest,
+  TaskProposalResponse,
+  TelegramLinkCode,
+  TelegramStatus,
+  NotificationListResponse,
+  NotificationReadResponse,
   QueryRequest,
   QueryResult,
   ReadinessResponse,
@@ -143,6 +151,7 @@ class ApiClient {
         throw error
       }
 
+      if (response.status === 204) return undefined as T
       return (await response.json()) as T
     } catch (err: any) {
       if (err.name === 'TypeError' && err.message?.includes('fetch')) {
@@ -415,6 +424,117 @@ class ApiClient {
     return this.request<GoogleDisconnectResponse>('/auth/google/disconnect', {
       method: 'POST',
     })
+  }
+
+  /* Google Tasks */
+  async listTasks(): Promise<TaskItem[]> {
+    return this.request<TaskItem[]>('/tasks')
+  }
+
+  /** Create the approval for adding or completing a task; nothing is written until approved. */
+  async proposeTask(body: TaskProposalRequest): Promise<TaskProposalResponse> {
+    return this.request<TaskProposalResponse>('/tasks/propose', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }
+
+  /* Telegram */
+  async getTelegramStatus(): Promise<TelegramStatus> {
+    return this.request<TelegramStatus>('/telegram/status')
+  }
+
+  async createTelegramLinkCode(): Promise<TelegramLinkCode> {
+    return this.request<TelegramLinkCode>('/telegram/link-code', { method: 'POST' })
+  }
+
+  async unlinkTelegram(): Promise<TelegramStatus> {
+    return this.request<TelegramStatus>('/telegram/link', { method: 'DELETE' })
+  }
+
+  /* Long-term memory */
+  async listMemories(): Promise<MemoryView[]> {
+    return this.request<MemoryView[]>('/memories')
+  }
+
+  async createMemory(content: string): Promise<MemoryView> {
+    return this.request<MemoryView>('/memories', {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  async updateMemory(memoryId: string, content: string): Promise<MemoryView> {
+    return this.request<MemoryView>(`/memories/${encodeURIComponent(memoryId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  async deleteMemory(memoryId: string): Promise<void> {
+    await this.request<unknown>(`/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' })
+  }
+
+  /* Proactive notifications (morning briefing, meeting dossiers) */
+  async getNotifications(limit: number = 20): Promise<NotificationListResponse> {
+    return this.request<NotificationListResponse>(`/notifications?limit=${limit}`)
+  }
+
+  async markNotificationRead(notificationId: string): Promise<NotificationReadResponse> {
+    return this.request<NotificationReadResponse>(
+      `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST' }
+    )
+  }
+
+  async markAllNotificationsRead(): Promise<NotificationReadResponse> {
+    return this.request<NotificationReadResponse>('/notifications/read-all', { method: 'POST' })
+  }
+
+  /**
+   * Hold the live notification stream open until it ends or `signal` aborts; calls
+   * `onNotification` for every new notification id. Resolves `false` when the server
+   * reports live delivery unavailable, so the caller can fall back to polling.
+   */
+  async streamNotifications(
+    onNotification: (id: string) => void,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const response = await fetch('/notifications/stream', {
+      headers: { ...this.getHeaders(), Accept: 'text/event-stream' },
+      signal,
+    })
+    if (!response.ok || !response.body) {
+      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let currentEvent = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return true
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          if (currentEvent === 'unavailable') return false
+          if (currentEvent === 'notification') {
+            try {
+              const payload = JSON.parse(line.slice(5).trim()) as { id?: string }
+              if (payload.id) onNotification(payload.id)
+            } catch {
+              // Ignore a malformed frame; the next poll catches up.
+            }
+          }
+        } else if (line === '') {
+          currentEvent = ''
+        }
+      }
+    }
   }
 
   /* 5. Health & Diagnostics */

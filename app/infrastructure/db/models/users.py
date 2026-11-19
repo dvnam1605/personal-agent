@@ -102,7 +102,12 @@ class Entity(Base, TimestampMixin):
 
 
 class Memory(Base, TimestampMixin):
-    """User memory item with semantic embedding and model metadata."""
+    """User memory item with semantic embedding and model metadata.
+
+    ``is_stale`` marks an item superseded (a newer preference in the same category) or
+    forgotten on request; stale items are never shown to the model. ``details`` keeps
+    provenance such as the category and where the memory came from.
+    """
 
     __tablename__ = "memories"
 
@@ -119,8 +124,12 @@ class Memory(Base, TimestampMixin):
     last_accessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    is_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="memories")
+
+    __table_args__ = (Index("ix_memories_user_type", "user_id", "memory_type"),)
 
 
 class Skill(Base, TimestampMixin):

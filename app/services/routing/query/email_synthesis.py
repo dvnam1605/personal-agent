@@ -232,12 +232,17 @@ async def compose_email_draft(
     query: str,
     *,
     context: str | None = None,
+    personal: str | None = None,
 ) -> tuple[str, str, list[str]]:
-    """Generate subject, body, and recipients for an email draft request using LLM."""
+    """Generate subject, body, and recipients for an email draft request using LLM.
+
+    ``personal`` is what the user asked the assistant to remember (name, signature,
+    tone); it only reaches the model prompt, never the template fallback.
+    """
     query_lower = query.lower()
     if "báo cáo" in query_lower or "chi tiêu" in query_lower:
         subject = "Báo cáo tổng hợp quy chế chi tiêu và đối chiếu lịch làm việc"
-        recipients = ["ketoan@vov.vn", "quanly@vov.vn"]
+        recipients: list[str] = []
         body_context = f"\n\nThông tin tổng hợp:\n{context}\n" if context else ""
         body = (
             "Kính gửi: Ban Giám đốc và Phòng Kế toán - Tài vụ,\n\n"
@@ -249,7 +254,7 @@ async def compose_email_draft(
         )
     else:
         subject = "Xin nghỉ phép việc gia đình"
-        recipients = ["quanly@vov.vn"]
+        recipients = []
         body = (
             "Kính gửi: Quản lý trực tiếp,\n\n"
             "Tôi viết email này để xin phép được nghỉ làm việc 01 ngày vì lý do bận việc gia đình cần trực tiếp giải quyết.\n\n"
@@ -280,6 +285,8 @@ async def compose_email_draft(
                 )
             else:
                 user_content = f"Yêu cầu: {query}"
+            if personal:
+                user_content += f"\n\n{personal}"
             model = settings.llm.fast_model or settings.llm.primary_model
             timeout = 35.0
             chunks: list[str] = []

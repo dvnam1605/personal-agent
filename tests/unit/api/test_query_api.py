@@ -28,6 +28,7 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.session import get_db_session
 from app.services.retrieval.answer.synthesis import SynthesisResult
 from app.services.routing.query import QueryOrchestrator
+from tests.unit.services.routing._critics import AcceptingCritic
 
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
 
@@ -185,16 +186,28 @@ async def test_query_supervisor_dag_execution(db_session: AsyncSession) -> None:
             status=SufficiencyStatus.SUFFICIENT,
         )
 
-    app = _app(db_session, QueryOrchestrator(retrieve=retrieve, clock=lambda: NOW))
+    orchestrator = QueryOrchestrator(
+        retrieve=retrieve, clock=lambda: NOW, draft_critic=AcceptingCritic()
+    )
+    app = _app(db_session, orchestrator)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
+        unknown = await client.post(
             "/query",
             json={"query": "tìm quy chế chi tiêu và xem lịch để soạn email báo cáo"},
         )
+        response = await client.post(
+            "/query",
+            json={
+                "query": "tìm quy chế chi tiêu và xem lịch để soạn email báo cáo gửi ketoan@congty.vn"
+            },
+        )
+    assert unknown.json()["status"] == "clarification_needed"
+    assert unknown.json()["approval_id"] is None
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "needs_approval"
+    assert body["data"]["to"] == ["ketoan@congty.vn"]
     assert body["approval_id"] is not None
     assert body["route"]["route_type"] == "supervisor_dag"
     assert "Supervisor DAG" in body["message"]

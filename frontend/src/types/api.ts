@@ -149,6 +149,72 @@ export interface GoogleStartResponse {
   authorization_url: string;
 }
 
+/* Proactive notifications */
+export type NotificationKind = 'morning_briefing' | 'meeting_prep' | string;
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationListResponse {
+  items: NotificationItem[];
+  unread_count: number;
+}
+
+export interface NotificationReadResponse {
+  updated: number;
+}
+
+/* Google Tasks */
+export interface TaskItem {
+  id: string;
+  title: string;
+  notes: string | null;
+  status: string;
+  due: string | null;
+  completed_at: string | null;
+  web_link: string | null;
+}
+
+export interface TaskProposalRequest {
+  action: 'create' | 'complete';
+  title?: string;
+  due?: string | null;
+  task_id?: string;
+}
+
+export interface TaskProposalResponse {
+  approval_id: string;
+  description: string;
+}
+
+/* Telegram channel */
+export interface TelegramStatus {
+  enabled: boolean;
+  linked: boolean;
+  bot_username: string | null;
+}
+
+export interface TelegramLinkCode {
+  code: string;
+  expires_at: string;
+  bot_username: string | null;
+}
+
+/* Long-term memory (what the assistant remembers about the user) */
+export interface MemoryView {
+  id: string;
+  memory_type: 'preference' | 'fact' | string;
+  content: string;
+  category: string | null;
+}
+
 /* Health & Diagnostics */
 export interface HealthResponse {
   status: string;

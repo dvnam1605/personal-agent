@@ -9,9 +9,43 @@ Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo 
 **Google Workspace**
 
 - **Lịch** — xem hôm nay, ngày mai, tuần này; đặt cuộc họp khi bạn nói rõ giờ.
-- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp.
+- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp. Mỗi bản nháp được một bộ rà soát độc lập kiểm tra (chỗ trống, thiếu ý, bịa thông tin) và tự sửa trước khi bạn duyệt; trợ lý không bao giờ tự đoán người nhận — chưa rõ thì hỏi lại, rồi làm tiếp đúng yêu cầu đó khi bạn trả lời.
 - **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
 - **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
+- **Việc cần làm (Google Tasks)** — «việc cần làm?», «thêm việc: gọi anh Nam hạn thứ 6», «xong việc gọi anh Nam». Thêm và đánh dấu xong đều qua thẻ duyệt; việc quá hạn và đến hạn có trong bản tin sáng. Tài khoản đã kết nối trước đây cần bấm **Kết nối** lại để cấp quyền Tasks.
+
+**Tự chủ động**
+
+- **Bản tin sáng** — mỗi sáng (mặc định 7:30) gom lịch hôm nay và email chưa đọc trong 24 giờ qua.
+- **Tự chuẩn bị họp** — khoảng 30 phút trước mỗi cuộc họp có khách mời, tự dựng hồ sơ họp (email gần đây của khách mời, tài liệu nội bộ liên quan).
+- **Sau họp** — khi một cuộc họp có khách mời kết thúc, gợi ý «Soạn follow-up»; nháp vẫn chờ bạn duyệt.
+- **Mail quan trọng** — cứ vài phút kiểm tra hộp thư, báo ngay mail quan trọng mới đến.
+- **Biên bản họp** — khi bản ghi lời thoại Google Meet (Transcript / Notes by Gemini) xuất hiện trong Drive, tự viết biên bản: nội dung chính, quyết định, việc cần làm. Hỏi tay: «biên bản cuộc họp hôm nay». Cần bật ghi lời thoại trong Meet.
+- Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề, đẩy về trình duyệt ngay khi có (SSE). Trợ lý chỉ đọc; không tự gửi hay sửa gì.
+
+**Mục tiêu dài hạn và theo dõi**
+
+- «Đặt mục tiêu: chuẩn bị hội thảo trước 15/12» — trợ lý chia thành các bước có hạn, nhắc mỗi sáng khi có bước đến hạn; «tiến độ mục tiêu», «xong bước 2 của mục tiêu hội thảo».
+- «Báo tôi khi nam@congty.vn trả lời», «theo dõi email có «hợp đồng»», «báo khi có tài liệu mới về quy chế chi tiêu» — trợ lý chỉ báo vào chuông thông báo, không tự làm gì; «đang theo dõi gì?», «dừng theo dõi …».
+
+**Quy trình tự động (skill của bạn)**
+
+- «Tạo quy trình mỗi thứ 6 lúc 17h: tổng hợp email tuần này», «tạo quy trình ngày làm việc 7h: lịch hôm nay?» — trợ lý chạy đúng câu lệnh đó theo lịch, như chính bạn hỏi, và gửi kết quả vào chuông thông báo; việc cần ghi vẫn chờ duyệt. «Các quy trình của tôi», «xóa quy trình 2».
+
+**Phân tích bảng tính**
+
+- «Phân tích file Doanh thu 2026: tổng doanh thu theo khu vực» — đọc Google Sheets / Excel trong Drive, mô hình chỉ lập *kế hoạch truy vấn* (lọc, nhóm, tổng, đếm, sắp xếp), hệ thống tự tính và trả bảng; không chạy code do mô hình viết.
+
+**Bộ nhớ dài hạn**
+
+- Nói «nhớ rằng chữ ký của tôi là …», «quên số điện thoại cũ», «bạn nhớ gì về tôi?» ngay trong chat.
+- Trợ lý chỉ nhớ những gì bạn bảo nhớ; dùng khi soạn email (tên, chữ ký, giọng văn).
+- Xem, sửa, xóa từng mục ở **Cài đặt → Bộ nhớ**.
+
+**Tìm trên web**
+
+- «Tìm trên web về …», «tra cứu trên mạng: …», «google: …», «tin tức …» — trả lời từ kết quả Tavily, mỗi ý gắn nguồn `[W1]` kèm đường link.
+- Chỉ khi bạn yêu cầu rõ; câu hỏi về tài liệu nội bộ không bao giờ tự gửi ra ngoài. Cần `TAVILY_API_KEY` (hoặc `WEB_SEARCH__API_KEY`).
 
 **Kho tài liệu nội bộ**
 
@@ -86,6 +120,7 @@ app/
     documents/        templates, writing/ (planner, writer, review, formulas, figures),
                       tables/, rendering/ (docx, xlsx, markdown)
     google/, workflows/, approvals/, context/ …   lịch, mail, Drive, kịch bản, duyệt, bộ nhớ
+    proactive/        worker nền: bản tin sáng, tự chuẩn bị họp, thông báo
   agents/, harness/, tools/, integrations/        agent chuyên trách, supervisor, công cụ Google
 frontend/src/
   components/workspaces/   assistant, calendar, email, meetings, settings,
@@ -115,6 +150,8 @@ cp .env.example .env
 - mật khẩu `POSTGRES_*`, `REDIS_PASSWORD`
 - cổng LLM: `ROUTER_BASE_URL`, `ROUTER_API_KEY`, `ROUTER_MODEL` (mô hình cần đọc được ảnh để mô tả hình khi nạp tài liệu)
 - nếu dùng Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+
+Tùy chọn cho phần chủ động (đều có mặc định): `PROACTIVE__ENABLED`, `PROACTIVE__BRIEFING_TIME` (ví dụ `07:30`), `PROACTIVE__MEETING_PREP_LEAD_MINUTES`, `PROACTIVE__TIMEZONE`.
 
 Không commit `.env`.
 
@@ -148,6 +185,14 @@ Backend có mount `./app`, nên sau khi sửa mã Python chỉ cần `docker res
 
 Đăng nhập trên `http://localhost:5173`, bấm **Kết nối** trên thanh tiêu đề hoặc trong **Cài đặt**. Google hỏi quyền Lịch / Gmail / Drive / Danh bạ rồi đưa bạn trở lại ứng dụng.
 
+## Telegram
+
+Tạo bot với @BotFather, đặt `TELEGRAM__BOT_TOKEN` (và `TELEGRAM__BOT_USERNAME`) trong `.env`, khởi động lại backend. Trong ứng dụng: **Cài đặt → Telegram → Tạo mã liên kết**, rồi gửi `/link <mã>` cho bot (mã dùng một lần, hết hạn sau 10 phút). Sau đó hỏi như trong ứng dụng; việc cần duyệt có nút **Duyệt / Từ chối**, thông báo (bản tin sáng, hồ sơ họp…) được gửi về chat. Bot dùng long polling nên không cần địa chỉ public. Lưu ý: nội dung trao đổi trên Telegram đi qua máy chủ của Telegram.
+
+## MCP (dùng trợ lý từ Claude Desktop và agent khác)
+
+`scripts/mcp_server.py` là một MCP server qua stdio với các tool `ask_assistant`, `list_notifications`, `list_memories`, `remember`. Nó gọi API của trợ lý bằng token đăng nhập của bạn (`NOAT_TOKEN`, hoặc `NOAT_API_KEY` + `NOAT_USER_ID`), nên mọi kiểm tra quyền và an toàn vẫn áp dụng. Không có tool duyệt: thao tác ghi do agent khác đề xuất vẫn phải được bạn duyệt trong ứng dụng hoặc Telegram. Cấu hình mẫu cho Claude Desktop nằm ở đầu file script.
+
 ## Nạp tài liệu
 
 Đặt file vào `data/<thư mục>/` (thư mục này không được commit) rồi nạp. Chạy trong container backend để dùng GPU (dừng backend trước để nhường bộ nhớ):
@@ -174,13 +219,22 @@ uv run python scripts/backfill/backfill_formulas.py
 
 Mỗi script có `--dry-run` để xem trước mà không ghi.
 
-PDF scan (ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi nạp file markdown:
+PDF scan (ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi nạp file markdown. Engine `paddleocr_vl_1_6` dùng checkpoint PaddleOCR-VL 1.6 đã finetune (round 11): một thư mục transformers cục bộ gồm `config.json`, `model.safetensors`, code `*_paddleocr_vl.py` và tokenizer. Cách đọc giống đường scan của webapp OCR: PP-DocLayoutV2 (CPU) tìm block và thứ tự đọc, model VL đọc từng block theo prompt của nó (`OCR:`, `Table Recognition:`, `Formula Recognition:`), rồi ghép thành Markdown (bảng HTML, công thức `$$…$$`). Code nằm ở `scripts/ingestion/ocr_vl/`.
+
+Cài trong một venv riêng, không dùng venv của runtime:
 
 ```bash
-uv pip install -e ".[ocr-paddle]"   # hoặc ".[ocr-surya]"
-python scripts/ingestion/ocr_batch.py --input-dir ./scanned_pdfs --output-dir ./parsed_md \
-  --engine paddleocr_vl_1_6 --device cuda:0
+UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv sync --frozen --python 3.12 --extra ocr-paddle   # hoặc --extra ocr-surya
+UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv run --no-sync python scripts/ingestion/ocr_batch.py \
+  --input-dir ./scanned_pdfs --output-dir ./parsed_md \
+  --engine paddleocr_vl_1_6 --model-path /path/to/round11/ckpt --model-name round11 --device cuda:0
 ```
+
+- `--model-path` là bắt buộc (hoặc đặt biến `OCR_VL_MODEL_PATH`). `--model-name` chỉ để đọc cho dễ; mặc định là tên thư mục checkpoint.
+- Sidecar `.ocr.json` ghi `engine_version` dạng `round11 sha256:dcdbc90e51ce; paddleocr 3.7.0; pipeline scan-v1`. Hash lấy từ file trọng số, nên đổi checkpoint thì batch sau OCR lại và fingerprint ingestion cũng đổi.
+- Ảnh, con dấu và lề trang (header, footer, số trang, chú thích chân trang) không đưa vào Markdown; bảng vắt qua hai trang được nối lại thành một bảng.
+- `--vram-gb` (mặc định 5,5) giới hạn bộ nhớ GPU của tiến trình, hữu ích khi GPU dùng chung. GPU Ampere trở lên chạy bf16; Turing (GTX 16xx, T4) chạy fp16 như lúc đánh giá model.
+- Trên Windows, PyPI chỉ có torch bản CPU. Sau khi sync, cài lại torch bản CUDA cùng phiên bản, ví dụ `uv pip install --python ~/.venvs/pai-ocr torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126 --reinstall-package torch --reinstall-package torchvision`.
 
 Ảnh trích ra nằm ở `storage/doc_images/` (cũng không commit), phục vụ qua `GET /documents/images/{key}` cho người có quyền đọc văn bản chứa ảnh.
 
@@ -218,6 +272,10 @@ cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm ru
 ```
 
 Đo chất lượng trả lời trên bộ câu hỏi chuẩn (cần backend và LLM): `uv run python scripts/benchmarks/eval_rag.py`.
+
+Đo hành vi của agent (định tuyến, chặn thao tác ghi, hỏi lại giữa chừng, bộ nhớ, chống chèn lệnh từ mail, việc cần làm, web) trên bộ kịch bản chuẩn, chạy offline không cần backend hay LLM: `uv run python scripts/benchmarks/eval_agent.py`. Bộ này cũng chạy trong pytest.
+
+Tìm các luồng ReAct đã đủ ổn định để chuyển thành graph tĩnh (≥ 50 lượt, ≥ 90% theo cùng chuỗi tool), theo `docs/architecture/loop-vs-graph.md`: `uv run python scripts/benchmarks/hardening_report.py`.
 
 Quy ước viết code và toàn bộ các bước CI cần chạy trước khi push (lint, kiểu, test + coverage, quét secret, lỗ hổng thư viện, bandit, Trivy) nằm trong [AGENTS.md](AGENTS.md). Trên GitHub còn chạy CodeQL và Dependabot.
 

@@ -62,10 +62,15 @@ dev = [
     "aiosqlite>=0.20.0",
 ]
 # P9E-2 dependency isolation: OCR engines NEVER enter the assistant runtime;
-# install these only on the external strong-GPU machine (see docs snippet).
+# install these only on the external strong-GPU machine (see README, PDF scan).
+# Engine paddleocr_vl_1_6: PaddleOCR layout/orientation models on CPU plus the
+# fine-tuned PaddleOCR-VL checkpoint on torch (transformers, remote code).
 ocr-paddle = [
     "paddleocr>=3.7,<4",
     "paddlepaddle>=3.2.0",
+    "torch>=2.6",
+    "transformers>=4.55",
+    "einops>=0.8",
 ]
 ocr-surya = [
     "surya-ocr>=0.17.0",
@@ -107,6 +112,8 @@ ignore = [
 minversion = "8.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+# Repository root on sys.path so tests can import the offline tools under scripts/.
+pythonpath = ["."]
 norecursedirs = [".*", "deepseek-harness", "TencentDB-Agent-Memory", "data"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

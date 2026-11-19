@@ -4,6 +4,7 @@ import { Sidebar } from './components/layout/Sidebar'
 import { AssistantWorkspace } from './components/workspaces/AssistantWorkspace'
 import { CalendarWorkspace } from './components/workspaces/CalendarWorkspace'
 import { EmailWorkspace } from './components/workspaces/EmailWorkspace'
+import { TasksWorkspace } from './components/workspaces/TasksWorkspace'
 import { MeetingsWorkspace } from './components/workspaces/MeetingsWorkspace'
 import { KnowledgeWorkspace } from './components/workspaces/knowledge/KnowledgeWorkspace'
 import { DocumentsWorkspace } from './components/workspaces/documents/DocumentsWorkspace'
@@ -272,6 +273,10 @@ const AppContent: React.FC = () => {
         currentUser={currentUser}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        onAskAssistant={(prompt) => {
+          setActiveWorkspace('assistant')
+          handleSendMessage(prompt)
+        }}
       />
 
       <div className="executive-app__body">
@@ -322,6 +327,8 @@ const AppContent: React.FC = () => {
               }}
             />
           )}
+
+          {activeWorkspace === 'tasks' && <TasksWorkspace />}
 
           {activeWorkspace === 'meetings' && (
             <MeetingsWorkspace

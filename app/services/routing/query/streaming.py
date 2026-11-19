@@ -72,8 +72,13 @@ class StreamMixin(SpecialistMixin):
         import json
 
         started = time.perf_counter()
+        resume = await self._resume_pending(session, conversation_id, user_id, query)
+        resumed = resume.query != query
+        query = resume.query
         history = await self._load_conversation_history(session, conversation_id, user_id)
-        effective_query, decision, anchor = await self._triage_in_context(query, history)
+        effective_query, decision, anchor = await self._triage_in_context(
+            query, None if resumed else history
+        )
         await self._set_followup_scope(session, conversation_id, user_id, anchor)
         route = route_info(decision)
         await self._ensure_user(session, user_id)
@@ -195,6 +200,75 @@ class StreamMixin(SpecialistMixin):
         final_error: str | None = None
 
         try:
+            if resume.message is not None:
+                async for item in _stream_text(resume.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            memory_result = await self._maybe_handle_memory(
+                session, user_id, query, run_id, decision
+            )
+            if memory_result is not None:
+                async for item in _stream_text(memory_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            web_result = await self._maybe_handle_web(query, run_id, decision)
+            if web_result is not None:
+                async for item in _stream_text(web_result.message):
+                    yield item
+                yield _emit_done(web_result.status)
+                return
+
+            routine_result = await self._maybe_handle_routines(
+                session, user_id, query, run_id, decision
+            )
+            if routine_result is not None:
+                async for item in _stream_text(routine_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            analysis_result = await self._maybe_handle_analysis(
+                session, user_id, query, run_id, decision
+            )
+            if analysis_result is not None:
+                async for item in _stream_text(analysis_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            minutes_result = await self._maybe_handle_minutes(
+                session, user_id, query, run_id, decision
+            )
+            if minutes_result is not None:
+                async for item in _stream_text(minutes_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            goal_result = await self._maybe_handle_goals(session, user_id, query, run_id, decision)
+            if goal_result is not None:
+                async for item in _stream_text(goal_result.message):
+                    yield item
+                yield _emit_done("completed")
+                return
+
+            task_result = await self._maybe_handle_tasks(session, user_id, query, run_id, decision)
+            if task_result is not None:
+                async for item in _stream_text(task_result.message):
+                    yield item
+                yield _sse(
+                    "citations",
+                    {"data": task_result.data, "approval_id": task_result.approval_id},
+                )
+                if task_result.status == "needs_approval":
+                    final_status = RunStatus.WAITING_APPROVAL
+                yield _emit_done(task_result.status)
+                return
+
             if decision.route_type is not RouteType.REJECT:
                 document_result = await self._maybe_handle_document(
                     session, user_id, query, effective_query, run_id, decision, conversation_id
@@ -320,6 +394,7 @@ class StreamMixin(SpecialistMixin):
                     route=route,
                 )
 
+            await self._remember_pending(session, conversation_id, user_id, result)
             if result.message:
                 async for item in _stream_text(result.message):
                     yield item
