@@ -50,4 +50,4 @@ The SQLite migration step of CI is the inline script in `ci.yml`. CodeQL (`.gith
 
 ## Layout
 
-See the "Cấu trúc thư mục" section of `README.md`. Tests mirror `app/` under `tests/unit/`; integration tests skip themselves when Postgres is unavailable.
+See the "Repository layout" section of `README.md`. Tests mirror `app/` under `tests/unit/`; integration tests skip themselves when Postgres is unavailable.

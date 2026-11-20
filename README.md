@@ -1,177 +1,177 @@
 # Personal AI Assistant
 
-Trợ lý cá nhân nói tiếng Việt, làm việc trên Google Workspace và kho tài liệu nội bộ của bạn.
+A Vietnamese-speaking personal assistant that works across Google Workspace and your internal document library.
 
-Hỏi lịch, đọc mail, tra văn bản, chuẩn bị họp, viết báo cáo từ tài liệu có sẵn — bằng câu thường, không cần nhớ lệnh. Việc chỉ đọc thì trợ lý làm luôn. Việc gửi đi, đặt lịch hay xóa thì dừng lại để bạn duyệt một lần.
+Ask about your calendar, read mail, look things up in documents, prepare for meetings, or write reports from existing material — in plain sentences, with no commands to remember. Read-only work happens right away. Anything that sends, schedules or deletes stops once for your approval.
 
-## Làm được gì
+## What it does
 
 **Google Workspace**
 
-- **Lịch** — xem hôm nay, ngày mai, tuần này; đặt cuộc họp khi bạn nói rõ giờ.
-- **Email** — đọc hộp thư, lọc theo người gửi; soạn nháp follow-up sau cuộc họp. Mỗi bản nháp được một bộ rà soát độc lập kiểm tra (chỗ trống, thiếu ý, bịa thông tin) và tự sửa trước khi bạn duyệt; trợ lý không bao giờ tự đoán người nhận — chưa rõ thì hỏi lại, rồi làm tiếp đúng yêu cầu đó khi bạn trả lời.
-- **Chuẩn bị họp** — gom lịch, mail khách mời và tài liệu liên quan thành một hồ sơ ngắn.
-- **Google Drive** — tìm và đọc file; thao tác ghi (chuyển, xóa) chỉ sau khi bạn đồng ý.
-- **Việc cần làm (Google Tasks)** — «việc cần làm?», «thêm việc: gọi anh Nam hạn thứ 6», «xong việc gọi anh Nam». Thêm và đánh dấu xong đều qua thẻ duyệt; việc quá hạn và đến hạn có trong bản tin sáng. Tài khoản đã kết nối trước đây cần bấm **Kết nối** lại để cấp quyền Tasks.
+- **Calendar** — view today, tomorrow or this week; book a meeting when you give a clear time.
+- **Email** — read the inbox and filter by sender; draft follow-ups after a meeting. Every draft goes through an independent reviewer (placeholders, missing points, invented facts) and is fixed before you approve it. The assistant never guesses a recipient: when it is unclear it asks, then carries on with the same request once you answer.
+- **Meeting prep** — gathers the event, attendees' mail and related documents into a short brief.
+- **Google Drive** — find and read files; write operations (move, delete) only after you agree.
+- **Tasks (Google Tasks)** — "việc cần làm?" (what's on my list?), "thêm việc: gọi anh Nam hạn thứ 6" (add a task with a due date), "xong việc gọi anh Nam" (mark it done). Adding and completing both go through an approval card; overdue and due tasks appear in the morning briefing. Accounts connected before this feature must press **Kết nối** (Connect) again to grant the Tasks scope.
 
-**Tự chủ động**
+**Proactive**
 
-- **Bản tin sáng** — mỗi sáng (mặc định 7:30) gom lịch hôm nay và email chưa đọc trong 24 giờ qua.
-- **Tự chuẩn bị họp** — khoảng 30 phút trước mỗi cuộc họp có khách mời, tự dựng hồ sơ họp (email gần đây của khách mời, tài liệu nội bộ liên quan).
-- **Sau họp** — khi một cuộc họp có khách mời kết thúc, gợi ý «Soạn follow-up»; nháp vẫn chờ bạn duyệt.
-- **Mail quan trọng** — cứ vài phút kiểm tra hộp thư, báo ngay mail quan trọng mới đến.
-- **Biên bản họp** — khi bản ghi lời thoại Google Meet (Transcript / Notes by Gemini) xuất hiện trong Drive, tự viết biên bản: nội dung chính, quyết định, việc cần làm. Hỏi tay: «biên bản cuộc họp hôm nay». Cần bật ghi lời thoại trong Meet.
-- Kết quả hiện ở **chuông thông báo** trên thanh tiêu đề, đẩy về trình duyệt ngay khi có (SSE). Trợ lý chỉ đọc; không tự gửi hay sửa gì.
+- **Morning briefing** — every morning (07:30 by default) it gathers today's events and the unread mail of the last 24 hours.
+- **Automatic meeting prep** — about 30 minutes before each meeting with guests it builds a meeting brief (the guests' recent mail, related internal documents).
+- **After the meeting** — when a meeting with guests ends it suggests "Soạn follow-up" (draft a follow-up); the draft still waits for your approval.
+- **Important mail** — checks the inbox every few minutes and flags important new mail right away.
+- **Meeting minutes** — when a Google Meet transcript (Transcript / Notes by Gemini) appears in Drive, it writes the minutes: key points, decisions, action items. To ask by hand: "biên bản cuộc họp hôm nay" (today's meeting minutes). Transcription must be enabled in Meet.
+- Results show up under the **notification bell** in the header and are pushed to the browser as soon as they exist (SSE). The assistant only reads; it never sends or changes anything on its own.
 
-**Mục tiêu dài hạn và theo dõi**
+**Long-term goals and watches**
 
-- «Đặt mục tiêu: chuẩn bị hội thảo trước 15/12» — trợ lý chia thành các bước có hạn, nhắc mỗi sáng khi có bước đến hạn; «tiến độ mục tiêu», «xong bước 2 của mục tiêu hội thảo».
-- «Báo tôi khi nam@congty.vn trả lời», «theo dõi email có «hợp đồng»», «báo khi có tài liệu mới về quy chế chi tiêu» — trợ lý chỉ báo vào chuông thông báo, không tự làm gì; «đang theo dõi gì?», «dừng theo dõi …».
+- "Đặt mục tiêu: chuẩn bị hội thảo trước 15/12" (set a goal with a deadline) — the assistant splits it into dated steps and reminds you each morning when a step is due; "tiến độ mục tiêu" (goal progress), "xong bước 2 của mục tiêu hội thảo" (step 2 done).
+- "Báo tôi khi nam@congty.vn trả lời" (tell me when someone replies), "theo dõi email có 'hợp đồng'" (watch mail containing a keyword), "báo khi có tài liệu mới về quy chế chi tiêu" (tell me about new documents on a topic) — the assistant only posts to the notification bell and takes no action; "đang theo dõi gì?" (what am I watching?), "dừng theo dõi …" (stop watching).
 
-**Quy trình tự động (skill của bạn)**
+**Your own automations (skills)**
 
-- «Tạo quy trình mỗi thứ 6 lúc 17h: tổng hợp email tuần này», «tạo quy trình ngày làm việc 7h: lịch hôm nay?» — trợ lý chạy đúng câu lệnh đó theo lịch, như chính bạn hỏi, và gửi kết quả vào chuông thông báo; việc cần ghi vẫn chờ duyệt. «Các quy trình của tôi», «xóa quy trình 2».
+- "Tạo quy trình mỗi thứ 6 lúc 17h: tổng hợp email tuần này" (every Friday at 17:00, summarise this week's mail), "tạo quy trình ngày làm việc 7h: lịch hôm nay?" (every working day at 07:00, today's calendar) — the assistant runs exactly that request on schedule, as if you had asked it, and posts the result to the notification bell; anything that writes still waits for approval. "Các quy trình của tôi" (my automations), "xóa quy trình 2" (delete automation 2).
 
-**Phân tích bảng tính**
+**Spreadsheet analysis**
 
-- «Phân tích file Doanh thu 2026: tổng doanh thu theo khu vực» — đọc Google Sheets / Excel trong Drive, mô hình chỉ lập *kế hoạch truy vấn* (lọc, nhóm, tổng, đếm, sắp xếp), hệ thống tự tính và trả bảng; không chạy code do mô hình viết.
+- "Phân tích file Doanh thu 2026: tổng doanh thu theo khu vực" (analyse a sheet: revenue by region) — reads Google Sheets / Excel from Drive. The model only writes a *query plan* (filter, group, sum, count, sort); the system computes it and returns the table. No model-written code is executed.
 
-**Bộ nhớ dài hạn**
+**Long-term memory**
 
-- Nói «nhớ rằng chữ ký của tôi là …», «quên số điện thoại cũ», «bạn nhớ gì về tôi?» ngay trong chat.
-- Trợ lý chỉ nhớ những gì bạn bảo nhớ; dùng khi soạn email (tên, chữ ký, giọng văn).
-- Xem, sửa, xóa từng mục ở **Cài đặt → Bộ nhớ**.
+- Say "nhớ rằng chữ ký của tôi là …" (remember my signature is …), "quên số điện thoại cũ" (forget the old phone number), "bạn nhớ gì về tôi?" (what do you remember about me?) right in the chat.
+- The assistant remembers only what you tell it to, and uses it when drafting mail (name, signature, tone).
+- View, edit or delete each item under **Cài đặt → Bộ nhớ** (Settings → Memory).
 
-**Tìm trên web**
+**Web search**
 
-- «Tìm trên web về …», «tra cứu trên mạng: …», «google: …», «tin tức …» — trả lời từ kết quả Tavily, mỗi ý gắn nguồn `[W1]` kèm đường link.
-- Chỉ khi bạn yêu cầu rõ; câu hỏi về tài liệu nội bộ không bao giờ tự gửi ra ngoài. Cần `TAVILY_API_KEY` (hoặc `WEB_SEARCH__API_KEY`).
+- "Tìm trên web về …", "tra cứu trên mạng: …", "google: …", "tin tức …" (search the web / news) — answers from Tavily results, each point tagged with a source `[W1]` and its link.
+- Only when you ask explicitly; questions about internal documents are never sent outside. Requires `TAVILY_API_KEY` (or `WEB_SEARCH__API_KEY`).
 
-**Kho tài liệu nội bộ**
+**Internal document library**
 
-- **Trả lời có dẫn chứng** — mỗi ý gắn trích dẫn tới đúng văn bản, mục và trang; không đủ căn cứ thì nói rõ thiếu gì.
-- **Đếm, liệt kê, lọc** — «có bao nhiêu quyết định năm 2025», «văn bản mới nhất của …» trả lời từ dữ liệu có cấu trúc, không đoán số.
-- **Quan hệ giữa văn bản** — bổ nhiệm, khen thưởng, thay thế, căn cứ… lấy từ quan hệ đã trích xuất, rồi viết lại thành câu trả lời tự nhiên.
-- **Hỏi tiếp** — «trình bày chi tiết giai đoạn 3», «bước bấm Restore» được hiểu theo câu trả lời trước.
-- **Hình và công thức** — ảnh chụp màn hình, sơ đồ của tài liệu hiện ngay dưới bước tương ứng; công thức hiển thị như công thức toán thật.
-- **Đọc được** PDF (có lớp chữ hoặc qua OCR), DOCX, Markdown và Excel.
+- **Answers with evidence** — every point cites the exact document, section and page; when the evidence is not enough it says what is missing.
+- **Count, list, filter** — "có bao nhiêu quyết định năm 2025" (how many decisions in 2025), "văn bản mới nhất của …" (latest document from …) are answered from structured data, never by guessing numbers.
+- **Relations between documents** — appointments, awards, replacements, legal bases… come from extracted relations and are rewritten into a natural answer.
+- **Follow-up questions** — "trình bày chi tiết giai đoạn 3" (explain phase 3 in detail), "bước bấm Restore" (the step where you click Restore) are read in the context of the previous answer.
+- **Figures and formulas** — screenshots and diagrams from a document appear right under the step they illustrate; formulas render as real math.
+- **Reads** PDF (with a text layer or through OCR), DOCX, Markdown and Excel.
 
-**Tạo tài liệu**
+**Document generation**
 
-- Báo cáo, tờ trình, kế hoạch, biên bản, công văn… từ các văn bản đã nạp: lập dàn ý → bạn sửa và duyệt → viết từng mục → tự rà soát và sửa mục sai.
-- Bảng Excel điền theo từng văn bản (ví dụ danh sách quyết định với số hiệu, ngày, người ký).
-- Xuất `.docx` / `.xlsx`: công thức là công thức Word, hình gốc kèm chú thích, hình và công thức đánh số theo mục của báo cáo.
+- Reports, proposals, plans, minutes, official letters… from ingested documents: draft an outline → you edit and approve → each section is written → the result is self-reviewed and wrong sections are fixed.
+- Excel tables filled per document (for example a list of decisions with number, date and signer).
+- Export to `.docx` / `.xlsx`: formulas become Word equations, original figures come with captions, and figures and formulas are numbered by report section.
 
-Ví dụ bạn có thể nói:
+Things you can say:
 
-- «Lịch ngày mai?»
-- «Đọc email mới nhất từ anh Nam»
-- «Trong các tài liệu có những quyết định bổ nhiệm nào?»
-- «Hướng dẫn tôi sao lưu bản quyền Windows bằng Dism++»
-- «Viết báo cáo tổng hợp các công nghệ dùng trong đồ án TechConsult»
-- «Chuẩn bị họp ngày mai với Nam»
+- "Lịch ngày mai?" (tomorrow's calendar?)
+- "Đọc email mới nhất từ anh Nam" (read the latest mail from Nam)
+- "Trong các tài liệu có những quyết định bổ nhiệm nào?" (which appointment decisions are in the documents?)
+- "Hướng dẫn tôi sao lưu bản quyền Windows bằng Dism++" (walk me through backing up a Windows licence with Dism++)
+- "Viết báo cáo tổng hợp các công nghệ dùng trong đồ án TechConsult" (write a report on the technologies used in the TechConsult project)
+- "Chuẩn bị họp ngày mai với Nam" (prepare tomorrow's meeting with Nam)
 
-## Giao diện
+## Interface
 
-Ứng dụng web **Noat** (React) — hỏi bằng câu thường, xem lịch và Gmail, chuẩn bị họp, tra cứu và tạo tài liệu, duyệt hành động ghi. Có chế độ tối và sáng.
+The **Noat** web app (React) — ask in plain sentences, view the calendar and Gmail, prepare meetings, search and generate documents, approve write actions. Dark and light themes. The interface is in Vietnamese.
 
-![Trợ lý điều hành — chế độ tối](docs/screenshots/assistant.png)
+![Executive assistant — dark theme](docs/screenshots/assistant.png)
 
-![Trợ lý điều hành — chế độ sáng](docs/screenshots/assistant-light.png)
+![Executive assistant — light theme](docs/screenshots/assistant-light.png)
 
-| Lịch Google | Hộp thư Gmail |
+| Google Calendar | Gmail inbox |
 |---|---|
-| ![Lịch Google](docs/screenshots/calendar.png) | ![Hộp thư Gmail](docs/screenshots/email.png) |
+| ![Google Calendar](docs/screenshots/calendar.png) | ![Gmail inbox](docs/screenshots/email.png) |
 
-| Hồ sơ họp | Kho tri thức |
+| Meeting briefs | Knowledge base |
 |---|---|
-| ![Hồ sơ họp](docs/screenshots/meetings.png) | ![Kho tri thức](docs/screenshots/knowledge.png) |
+| ![Meeting briefs](docs/screenshots/meetings.png) | ![Knowledge base](docs/screenshots/knowledge.png) |
 
-![Cài đặt hệ thống và liên kết Google](docs/screenshots/settings.png)
+![System settings and Google connection](docs/screenshots/settings.png)
 
-## Cách trợ lý làm việc
+## How it works
 
-**Định tuyến.** Câu hỏi một việc, một nguồn được xử lý thẳng; việc lặp lại (chuẩn bị họp) chạy theo kịch bản cố định; việc lan sang nhiều nguồn được lập kế hoạch rồi mới làm. Câu hỏi về tài liệu được chia theo hình dạng câu trả lời: con số và danh sách lấy từ SQL, quan hệ lấy từ bảng quan hệ, nội dung lấy từ tìm kiếm.
+**Routing.** A single-task, single-source question is handled directly; repeated jobs (meeting prep) follow a fixed workflow; work that spans several sources is planned first and then executed. Document questions are split by the shape of the answer: numbers and lists come from SQL, relations from the relation table, content from search.
 
-**Nạp tài liệu.** Mỗi file được phân tích thành cây mục (Docling hoặc PyMuPDF; Excel bằng openpyxl), rồi:
+**Ingestion.** Each file is parsed into a section tree (Docling or PyMuPDF; Excel with openpyxl), then:
 
-- lập *hồ sơ* văn bản (loại, số hiệu, ngày, cơ quan, người ký…) bằng luật, chỉ gọi LLM khi mơ hồ;
-- trích *quan hệ* giữa văn bản và người, đơn vị;
-- dựng lại công thức thành LaTeX từ lớp chữ PDF;
-- lưu ảnh (theo mã băm, mỗi ảnh một lần) và nhờ mô hình thị giác mô tả từng ảnh, giữ nhãn gốc «Hình 4.3» khi có;
-- chia mục cha/con và nhúng vector tiếng Việt vào PostgreSQL (pgvector + full-text).
+- a document *profile* (type, number, date, issuing body, signer…) is built with rules, calling the LLM only when ambiguous;
+- *relations* between documents and people or units are extracted;
+- formulas are rebuilt as LaTeX from the PDF text layer;
+- images are stored (by hash, each image once) and described by a vision model, keeping the original label such as "Hình 4.3" (Figure 4.3) when present;
+- sections are split into parent/child chunks and embedded with Vietnamese vectors in PostgreSQL (pgvector + full-text).
 
-**Trả lời.** Tìm lai dense + sparse, gộp thứ hạng, đóng gói bằng chứng theo ngân sách, kiểm tra đủ căn cứ, rồi tổng hợp với nhãn trích dẫn `[E1]…`. Mô hình chỉ thấy *mô tả* của ảnh và tự đặt `[Hình N]` dưới bước nó minh họa; hệ thống thay bằng ảnh thật (chỉ ảnh có trong bằng chứng). Bằng chứng mỗi lượt được lưu phía server để truy vết.
+**Answering.** Hybrid dense + sparse search, rank fusion, evidence packing within a budget, a sufficiency check, then synthesis with citation labels `[E1]…`. The model only sees image *descriptions* and places `[Hình N]` (figure N) under the step it illustrates; the system swaps in the real image (only images that are part of the evidence). The evidence of each turn is stored server-side for tracing.
 
-**An toàn.** Mọi hành động ghi — tạo/sửa/xóa lịch, gửi hay xóa mail, đổi file trên Drive — đều cần bạn xác nhận; token duyệt dùng một lần. Nội dung tài liệu được bọc trong ranh giới chống chèn lệnh. Dữ liệu và phiên hội thoại tách biệt theo từng tài khoản.
+**Safety.** Every write action — creating, editing or deleting events, sending or deleting mail, changing files on Drive — needs your confirmation; approval tokens are single-use. Document content is wrapped in a prompt-injection boundary. Data and conversations are isolated per account.
 
-## Cấu trúc thư mục
+## Repository layout
 
 ```
 app/
   api/routes/         HTTP: query (+SSE), conversations, documents, approvals, auth, health
-  core/               cấu hình (settings/), logging, gọi LLM, ảnh, tiện ích văn bản
-  domain/models/      mô hình dữ liệu thuần (Pydantic)
-  infrastructure/db/  SQLAlchemy models/, phiên DB, repository
+  core/               configuration (settings/), logging, LLM calls, images, text utilities
+  domain/models/      plain data models (Pydantic)
+  infrastructure/db/  SQLAlchemy models/, DB sessions, repositories
   services/
-    routing/          triage và QueryOrchestrator (followup, knowledge, specialists, streaming)
-    retrieval/        search/ → evidence/ → answer/, cùng metadata/ và relations/
+    routing/          triage and QueryOrchestrator (followup, knowledge, specialists, streaming)
+    retrieval/        search/ → evidence/ → answer/, plus metadata/ and relations/
     ingestion/        parsing/, profiling/, relations/, chunking/, enrichment/, maintenance/
     documents/        templates, writing/ (planner, writer, review, formulas, figures),
                       tables/, rendering/ (docx, xlsx, markdown)
-    google/, workflows/, approvals/, context/ …   lịch, mail, Drive, kịch bản, duyệt, bộ nhớ
-    proactive/        worker nền: bản tin sáng, tự chuẩn bị họp, thông báo
-  agents/, harness/, tools/, integrations/        agent chuyên trách, supervisor, công cụ Google
+    google/, workflows/, approvals/, context/ …   calendar, mail, Drive, workflows, approvals, memory
+    proactive/        background workers: morning briefing, automatic meeting prep, notifications
+  agents/, harness/, tools/, integrations/        specialist agents, supervisor, Google tools
 frontend/src/
   components/workspaces/   assistant, calendar, email, meetings, settings,
-                           documents/ (tạo tài liệu), knowledge/ (kho tri thức)
+                           documents/ (document generation), knowledge/ (knowledge base)
   hooks/                   useQueryStream, useConversations
 scripts/
-  ingestion/   ingest_corpus, inspect_ingestion, ocr_batch, export_corpus_md, make_parsing_fixtures
+  ingestion/   ingest_corpus, inspect_ingestion, ocr_batch, ocr_vl/, export_corpus_md, make_parsing_fixtures
   backfill/    backfill_profiles, backfill_relations, backfill_formulas
-  benchmarks/  eval_rag, benchmark_*
-  create_admin.py
-alembic/       migration CSDL
-tests/         unit/ (theo cấu trúc app), integration/, evaluation/
+  benchmarks/  eval_rag, eval_agent, hardening_report, benchmark_*
+  create_admin.py, mcp_server.py
+alembic/       database migrations
+tests/         unit/ (mirrors app/), integration/, evaluation/
 ```
 
-## Chạy trên máy bạn
+## Running locally
 
-Cần **Python 3.11–3.14** với [uv](https://docs.astral.sh/uv/), **Docker** (Postgres + Redis + backend + frontend; trên Windows chạy trong WSL), **Node 20+** nếu sửa giao diện, và một **cổng LLM tương thích OpenAI** (dự án dùng 9router). Tài khoản Google OAuth chỉ cần khi muốn lịch/mail/Drive thật.
+You need **Python 3.11–3.14** with [uv](https://docs.astral.sh/uv/), **Docker** (Postgres + Redis + backend + frontend; on Windows inside WSL), **Node 20+** if you change the frontend, and an **OpenAI-compatible LLM gateway** (the project uses 9router). A Google OAuth client is only needed for real calendar/mail/Drive access.
 
 ```bash
 uv sync --extra dev
 cp .env.example .env
 ```
 
-Điền `.env`:
+Fill in `.env`:
 
-- `SECURITY__API_KEY`, `SECURITY__APPROVAL_SIGNING_KEY` (tối thiểu 32 ký tự)
-- mật khẩu `POSTGRES_*`, `REDIS_PASSWORD`
-- cổng LLM: `ROUTER_BASE_URL`, `ROUTER_API_KEY`, `ROUTER_MODEL` (mô hình cần đọc được ảnh để mô tả hình khi nạp tài liệu)
-- nếu dùng Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `SECURITY__API_KEY`, `SECURITY__APPROVAL_SIGNING_KEY` (at least 32 characters)
+- passwords for `POSTGRES_*` and `REDIS_PASSWORD`
+- the LLM gateway: `ROUTER_BASE_URL`, `ROUTER_API_KEY`, `ROUTER_MODEL` (the model must accept images so it can describe figures during ingestion)
+- for Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 
-Tùy chọn cho phần chủ động (đều có mặc định): `PROACTIVE__ENABLED`, `PROACTIVE__BRIEFING_TIME` (ví dụ `07:30`), `PROACTIVE__MEETING_PREP_LEAD_MINUTES`, `PROACTIVE__TIMEZONE`.
+Optional settings for the proactive features (all have defaults): `PROACTIVE__ENABLED`, `PROACTIVE__BRIEFING_TIME` (for example `07:30`), `PROACTIVE__MEETING_PREP_LEAD_MINUTES`, `PROACTIVE__TIMEZONE`.
 
-Không commit `.env`.
+Never commit `.env`.
 
-Khởi động (backend tự chạy `alembic upgrade head` khi lên):
+Start the stack (the backend runs `alembic upgrade head` on startup):
 
 ```bash
 docker compose up -d
 ```
 
-Tạo tài khoản quản trị (mật khẩu đọc từ biến môi trường hoặc hỏi khi chạy, không nằm trong mã):
+Create the admin account (the password is read from the environment or prompted for, never stored in code):
 
 ```bash
 ADMIN_EMAIL=admin@example.com uv run python scripts/create_admin.py
 ```
 
-- Kiểm tra sống: `GET http://127.0.0.1:8000/health`
-- Tài liệu API: `http://127.0.0.1:8000/api/v1/docs`
-- Giao diện: `http://localhost:5173`
+- Health check: `GET http://127.0.0.1:8000/health`
+- API docs: `http://127.0.0.1:8000/api/v1/docs`
+- Web app: `http://localhost:5173`
 
-Phát triển giao diện ngoài Docker (Vite, proxy API về backend):
+Frontend development outside Docker (Vite, proxying the API to the backend):
 
 ```bash
 cd frontend
@@ -179,23 +179,23 @@ npm install
 npm run dev
 ```
 
-Backend có mount `./app`, nên sau khi sửa mã Python chỉ cần `docker restart assistant_backend`. Sau khi build lại image, dọn cache để ổ đĩa WSL không phình: `docker builder prune -af`.
+The backend mounts `./app`, so after a Python change `docker restart assistant_backend` is enough. After rebuilding images, clear the build cache so the WSL disk does not grow: `docker builder prune -af`.
 
-## Kết nối Google
+## Connecting Google
 
-Đăng nhập trên `http://localhost:5173`, bấm **Kết nối** trên thanh tiêu đề hoặc trong **Cài đặt**. Google hỏi quyền Lịch / Gmail / Drive / Danh bạ rồi đưa bạn trở lại ứng dụng.
+Sign in at `http://localhost:5173` and press **Kết nối** (Connect) in the header or in **Cài đặt** (Settings). Google asks for Calendar / Gmail / Drive / Contacts access and sends you back to the app.
 
 ## Telegram
 
-Tạo bot với @BotFather, đặt `TELEGRAM__BOT_TOKEN` (và `TELEGRAM__BOT_USERNAME`) trong `.env`, khởi động lại backend. Trong ứng dụng: **Cài đặt → Telegram → Tạo mã liên kết**, rồi gửi `/link <mã>` cho bot (mã dùng một lần, hết hạn sau 10 phút). Sau đó hỏi như trong ứng dụng; việc cần duyệt có nút **Duyệt / Từ chối**, thông báo (bản tin sáng, hồ sơ họp…) được gửi về chat. Bot dùng long polling nên không cần địa chỉ public. Lưu ý: nội dung trao đổi trên Telegram đi qua máy chủ của Telegram.
+Create a bot with @BotFather, set `TELEGRAM__BOT_TOKEN` (and `TELEGRAM__BOT_USERNAME`) in `.env`, and restart the backend. In the app open **Cài đặt → Telegram → Tạo mã liên kết** (Settings → Telegram → Create link code), then send `/link <code>` to the bot (the code is single-use and expires after 10 minutes). From then on, ask exactly as in the app; actions that need approval get **Duyệt / Từ chối** (Approve / Reject) buttons, and notifications (morning briefing, meeting briefs…) are delivered to the chat. The bot uses long polling, so no public address is needed. Note that Telegram conversations pass through Telegram's servers.
 
-## MCP (dùng trợ lý từ Claude Desktop và agent khác)
+## MCP (using the assistant from Claude Desktop and other agents)
 
-`scripts/mcp_server.py` là một MCP server qua stdio với các tool `ask_assistant`, `list_notifications`, `list_memories`, `remember`. Nó gọi API của trợ lý bằng token đăng nhập của bạn (`NOAT_TOKEN`, hoặc `NOAT_API_KEY` + `NOAT_USER_ID`), nên mọi kiểm tra quyền và an toàn vẫn áp dụng. Không có tool duyệt: thao tác ghi do agent khác đề xuất vẫn phải được bạn duyệt trong ứng dụng hoặc Telegram. Cấu hình mẫu cho Claude Desktop nằm ở đầu file script.
+`scripts/mcp_server.py` is a stdio MCP server with the tools `ask_assistant`, `list_notifications`, `list_memories` and `remember`. It calls the assistant's API with your login token (`NOAT_TOKEN`, or `NOAT_API_KEY` + `NOAT_USER_ID`), so every permission and safety check still applies. There is no approval tool: write actions proposed by another agent must still be approved by you in the app or in Telegram. A sample Claude Desktop configuration sits at the top of the script.
 
-## Nạp tài liệu
+## Ingesting documents
 
-Đặt file vào `data/<thư mục>/` (thư mục này không được commit) rồi nạp. Chạy trong container backend để dùng GPU (dừng backend trước để nhường bộ nhớ):
+Put files under `data/<folder>/` (this directory is never committed) and ingest them. Run inside the backend container to use the GPU (stop the backend first to free its memory):
 
 ```bash
 docker stop assistant_backend
@@ -205,42 +205,44 @@ docker compose run --rm --no-deps --entrypoint /app/.venv/bin/python \
 docker start assistant_backend
 ```
 
-- `--root` nhận một thư mục hoặc một file.
-- `--force` nạp lại cả file không đổi (tạo phiên bản mới, dùng khi đổi bộ phân tích).
-- `--no-llm-profile` chỉ dùng luật, không gọi LLM.
+- `--root` takes a folder or a single file.
+- `--force` re-ingests unchanged files too (creates a new version; use it after changing the parser).
+- `--no-llm-profile` uses rules only, without calling the LLM.
 
-Cập nhật dữ liệu đã nạp mà không phân tích hay nhúng lại:
+Refresh ingested data without parsing or embedding again:
 
 ```bash
-uv run python scripts/backfill/backfill_profiles.py     # --all: mọi văn bản; --no-llm: chỉ luật
+uv run python scripts/backfill/backfill_profiles.py     # --all: every document; --no-llm: rules only
 uv run python scripts/backfill/backfill_relations.py
 uv run python scripts/backfill/backfill_formulas.py
 ```
 
-Mỗi script có `--dry-run` để xem trước mà không ghi.
+Each script has `--dry-run` to preview without writing.
 
-PDF scan (ảnh) xử lý **ngoài** runtime, trên máy có GPU, rồi nạp file markdown. Engine `paddleocr_vl_1_6` dùng checkpoint PaddleOCR-VL 1.6 đã finetune (round 11): một thư mục transformers cục bộ gồm `config.json`, `model.safetensors`, code `*_paddleocr_vl.py` và tokenizer. Cách đọc giống đường scan của webapp OCR: PP-DocLayoutV2 (CPU) tìm block và thứ tự đọc, model VL đọc từng block theo prompt của nó (`OCR:`, `Table Recognition:`, `Formula Recognition:`), rồi ghép thành Markdown (bảng HTML, công thức `$$…$$`). Code nằm ở `scripts/ingestion/ocr_vl/`.
+### Scanned PDFs (OCR)
 
-Cài trong một venv riêng, không dùng venv của runtime:
+Scanned (image-only) PDFs are processed **outside** the runtime, on a GPU machine, and the resulting Markdown is ingested. The `paddleocr_vl_1_6` engine uses the finetuned PaddleOCR-VL 1.6 checkpoint (round 11): a local transformers folder with `config.json`, `model.safetensors`, the `*_paddleocr_vl.py` code and the tokenizer. It reads pages the same way as the OCR webapp's scan path: PP-DocLayoutV2 (CPU) finds the blocks and reading order, the VL model reads each block with its own prompt (`OCR:`, `Table Recognition:`, `Formula Recognition:`), and the blocks are assembled into Markdown (HTML tables, `$$…$$` formulas). The code lives in `scripts/ingestion/ocr_vl/`.
+
+Install into a separate venv, not the runtime one:
 
 ```bash
-UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv sync --frozen --python 3.12 --extra ocr-paddle   # hoặc --extra ocr-surya
+UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv sync --frozen --python 3.12 --extra ocr-paddle   # or --extra ocr-surya
 UV_PROJECT_ENVIRONMENT=~/.venvs/pai-ocr uv run --no-sync python scripts/ingestion/ocr_batch.py \
   --input-dir ./scanned_pdfs --output-dir ./parsed_md \
   --engine paddleocr_vl_1_6 --model-path /path/to/round11/ckpt --model-name round11 --device cuda:0
 ```
 
-- `--model-path` là bắt buộc (hoặc đặt biến `OCR_VL_MODEL_PATH`). `--model-name` chỉ để đọc cho dễ; mặc định là tên thư mục checkpoint.
-- Sidecar `.ocr.json` ghi `engine_version` dạng `round11 sha256:dcdbc90e51ce; paddleocr 3.7.0; pipeline scan-v1`. Hash lấy từ file trọng số, nên đổi checkpoint thì batch sau OCR lại và fingerprint ingestion cũng đổi.
-- Ảnh, con dấu và lề trang (header, footer, số trang, chú thích chân trang) không đưa vào Markdown; bảng vắt qua hai trang được nối lại thành một bảng.
-- `--vram-gb` (mặc định 5,5) giới hạn bộ nhớ GPU của tiến trình, hữu ích khi GPU dùng chung. GPU Ampere trở lên chạy bf16; Turing (GTX 16xx, T4) chạy fp16 như lúc đánh giá model.
-- Trên Windows, PyPI chỉ có torch bản CPU. Sau khi sync, cài lại torch bản CUDA cùng phiên bản, ví dụ `uv pip install --python ~/.venvs/pai-ocr torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126 --reinstall-package torch --reinstall-package torchvision`.
+- `--model-path` is required (or set `OCR_VL_MODEL_PATH`). `--model-name` is only a readable label; it defaults to the checkpoint folder name.
+- The `.ocr.json` sidecar records `engine_version` as `round11 sha256:dcdbc90e51ce; paddleocr 3.7.0; pipeline scan-v1`. The hash comes from the weight file, so switching checkpoints makes the next batch run OCR again and changes the ingestion fingerprint.
+- Images, stamps and page margins (headers, footers, page numbers, footnotes) are left out of the Markdown; a table that spans two pages is merged into one.
+- `--vram-gb` (default 5.5) caps the process's GPU memory, useful on a shared GPU. Ampere and newer GPUs run bf16; Turing (GTX 16xx, T4) runs fp16, as in the model's evaluation.
+- On Windows, PyPI only ships CPU builds of torch. After syncing, reinstall the CUDA build of the same version, for example `uv pip install --python ~/.venvs/pai-ocr torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126 --reinstall-package torch --reinstall-package torchvision`.
 
-Ảnh trích ra nằm ở `storage/doc_images/` (cũng không commit), phục vụ qua `GET /documents/images/{key}` cho người có quyền đọc văn bản chứa ảnh.
+Extracted images live in `storage/doc_images/` (also never committed) and are served through `GET /documents/images/{key}` only to users who can read a document that refers to them.
 
-## Gọi API
+## Calling the API
 
-Mọi câu hỏi đi qua `POST /query` (hoặc `POST /query/stream` để nhận token theo SSE). Gửi kèm token đăng nhập hoặc `X-API-Key`:
+Every question goes through `POST /query` (or `POST /query/stream` to receive tokens over SSE). Send a login token or `X-API-Key`:
 
 ```bash
 curl -s http://127.0.0.1:8000/query \
@@ -249,7 +251,7 @@ curl -s http://127.0.0.1:8000/query \
   -d '{"query": "Lịch ngày mai?"}'
 ```
 
-Khi cần duyệt, phản hồi có `approval_id`:
+When approval is needed, the response carries an `approval_id`:
 
 ```bash
 curl -s -X POST "http://127.0.0.1:8000/approvals/<approval_id>/approve" \
@@ -258,27 +260,27 @@ curl -s -X POST "http://127.0.0.1:8000/approvals/<approval_id>/approve" \
   -d '{"execute": true}'
 ```
 
-Không gửi `execute` thì bạn nhận token dùng một lần; lần sau gọi `POST /approvals/<id>/execute` với token đó.
+Without `execute` you receive a single-use token; call `POST /approvals/<id>/execute` with it later.
 
-Tạo tài liệu: `POST /documents/outline` (dàn ý) → `POST /documents/{id}/approve` (viết) → `GET /documents/{id}/download` (`.docx` / `.xlsx`); viết lại một mục theo góp ý bằng `POST /documents/{id}/sections/{index}/rewrite`.
+Document generation: `POST /documents/outline` (outline) → `POST /documents/{id}/approve` (write) → `GET /documents/{id}/download` (`.docx` / `.xlsx`); rewrite one section from feedback with `POST /documents/{id}/sections/{index}/rewrite`.
 
-## Phát triển
+## Development
 
 ```bash
-uv run pytest                 # unit + integration (integration tự bỏ qua khi không có Postgres)
+uv run pytest                 # unit + integration (integration tests skip themselves without Postgres)
 uv run ruff check .
 uv run ruff format --check .
 cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm run build
 ```
 
-Đo chất lượng trả lời trên bộ câu hỏi chuẩn (cần backend và LLM): `uv run python scripts/benchmarks/eval_rag.py`.
+Measure answer quality on the reference question set (needs the backend and an LLM): `uv run python scripts/benchmarks/eval_rag.py`.
 
-Đo hành vi của agent (định tuyến, chặn thao tác ghi, hỏi lại giữa chừng, bộ nhớ, chống chèn lệnh từ mail, việc cần làm, web) trên bộ kịch bản chuẩn, chạy offline không cần backend hay LLM: `uv run python scripts/benchmarks/eval_agent.py`. Bộ này cũng chạy trong pytest.
+Measure agent behaviour (routing, blocking writes, asking mid-task, memory, resisting injected instructions in mail, tasks, web) on the reference scenario set, offline with no backend or LLM: `uv run python scripts/benchmarks/eval_agent.py`. The same suite also runs in pytest.
 
-Tìm các luồng ReAct đã đủ ổn định để chuyển thành graph tĩnh (≥ 50 lượt, ≥ 90% theo cùng chuỗi tool), theo `docs/architecture/loop-vs-graph.md`: `uv run python scripts/benchmarks/hardening_report.py`.
+Find ReAct flows stable enough to harden into static graphs (≥ 50 turns, ≥ 90% following the same tool sequence), as described in `docs/architecture/loop-vs-graph.md`: `uv run python scripts/benchmarks/hardening_report.py`.
 
-Quy ước viết code và toàn bộ các bước CI cần chạy trước khi push (lint, kiểu, test + coverage, quét secret, lỗ hổng thư viện, bandit, Trivy) nằm trong [AGENTS.md](AGENTS.md). Trên GitHub còn chạy CodeQL và Dependabot.
+Coding conventions and every CI step to run before a push (lint, types, tests + coverage, secret scanning, dependency vulnerabilities, bandit, Trivy) are in [AGENTS.md](AGENTS.md). GitHub also runs CodeQL and Dependabot.
 
 ## Stack
 
-FastAPI · React (Vite) · PostgreSQL 16 + pgvector · Redis 7 · Docling / PyMuPDF / openpyxl · embedding và rerank tiếng Việt · Google Calendar / Gmail / Drive · temml (MathML) · python-docx (công thức OMML).
+FastAPI · React (Vite) · PostgreSQL 16 + pgvector · Redis 7 · Docling / PyMuPDF / openpyxl · Vietnamese embedding and reranking · Google Calendar / Gmail / Drive / Tasks · temml (MathML) · python-docx (OMML equations).
