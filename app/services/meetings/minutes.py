@@ -39,6 +39,7 @@ class Minutes:
     action_items: list[dict[str, str]] = field(default_factory=list)
 
     def markdown(self) -> str:
+        """Render the minutes as the Markdown shown in chat and notifications."""
         lines = [f"**Biên bản: {self.title}**" + (f" — {self.when}" if self.when else "")]
         if self.summary:
             lines += ["", "**Nội dung chính**", self.summary]

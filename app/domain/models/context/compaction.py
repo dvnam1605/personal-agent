@@ -1,4 +1,4 @@
-"""Domain models for token pressure and context compaction (spec P17-08..P17-10)."""
+"""Domain models for token pressure and context compaction."""
 
 from __future__ import annotations
 

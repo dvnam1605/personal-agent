@@ -38,11 +38,19 @@ def _norm(text: str) -> str:
 
 @dataclass
 class PreSynthesisVerdict:
+    """Whether to refuse before synthesis, and the identifiers the evidence lacks."""
+
     abstain: bool
     missing_identifiers: list[str] = field(default_factory=list)
 
 
 def check_identifiers(question: str, bundle: EvidenceBundle) -> PreSynthesisVerdict:
+    """Abstain when every document number the question names is absent from the evidence.
+
+    Content, stored number and title of each item are searched after
+    normalisation, so a match anywhere means the evidence is about the
+    right document.
+    """
     identifiers = [m.group(0).strip() for m in _IDENTIFIER_RE.finditer(question)]
     if not identifiers or not bundle.items:
         return PreSynthesisVerdict(abstain=False)
@@ -61,6 +69,7 @@ def check_identifiers(question: str, bundle: EvidenceBundle) -> PreSynthesisVerd
 
 
 def abstain_message(verdict: PreSynthesisVerdict, bundle: EvidenceBundle) -> str:
+    """Refusal naming the missing identifiers and the documents that were found instead."""
     titles: list[str] = []
     for item in bundle.items:
         title = item.anchors.get("profile_title") or item.title or item.filename
@@ -82,6 +91,8 @@ def abstain_message(verdict: PreSynthesisVerdict, bundle: EvidenceBundle) -> str
 
 @dataclass
 class GroundingReport:
+    """Data sentences of an answer that carry no citation; ``ok`` when there are none."""
+
     unsupported: list[str] = field(default_factory=list)
 
     @property

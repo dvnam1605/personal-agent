@@ -1,4 +1,4 @@
-"""SectionParentChunker: heading-scoped PARENT drafts (spec P9C-1 9.1).
+"""SectionParentChunker: heading-scoped PARENT drafts.
 
 Parents correspond to sections / logical section groups and never mix
 unrelated top-level headings. Oversized sections split greedily at node
@@ -6,7 +6,7 @@ unrelated top-level headings. Oversized sections split greedily at node
 node falls back sentence-packing -> hard token cut. Smaller-than-target
 natural sections stay intact.
 
-Provenance fidelity (review M2): every draft records ``segment_anchors`` —
+Provenance fidelity: every draft records ``segment_anchors`` —
 one ``(block_id, page_start, page_end)`` tuple per ``\\n\\n``-separated raw
 segment, aligned by index — so children can anchor to their specific source
 node instead of the whole-parent union.
@@ -80,6 +80,7 @@ class SectionParentChunker:
         self._admin_meta: dict[str, object] = {}
 
     def build_parents(self, document: ParsedDocument) -> list[ParentChunkDraft]:
+        """Group the document's nodes into parent chunks, one section (heading path) at a time."""
         self._admin_meta = dict(getattr(document.metadata, "administrative_metadata", {}))
         drafts: list[ParentChunkDraft] = []
 

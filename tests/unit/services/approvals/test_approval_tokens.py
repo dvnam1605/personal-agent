@@ -310,7 +310,7 @@ def test_decode_rejects_non_dict_and_non_int_exp() -> None:
     import hmac
     import json
 
-    from app.services.approvals import (
+    from app.services.approvals.tokens import (
         APPROVAL_TOKEN_PREFIX,
         _decode_approval_payload,
         _get_signing_key,

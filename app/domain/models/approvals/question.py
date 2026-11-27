@@ -1,4 +1,4 @@
-"""Question Plane domain models for structured human interaction (spec P18-02A).
+"""Question Plane domain models for structured human interaction.
 
 Provides typed question requests, options, intent framing, and structured answers,
 distinct from binary permission approvals.
@@ -62,7 +62,7 @@ class UserQuestionItem(BaseModel):
 
 
 class AskUserQuestionRequest(BaseModel):
-    """Structured question request emitted by agents via tool_ask_user (P18-02A)."""
+    """Structured question request emitted by agents via tool_ask_user."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

@@ -64,41 +64,6 @@ async def test_job_heartbeat_updates_claimed_at(
 
 
 @pytest.mark.asyncio
-async def test_claim_pending_reclaims_stale_jobs(
-    session_maker: async_sessionmaker[AsyncSession],
-) -> None:
-    """Verify that claim_pending recovers stale running jobs older than timeout."""
-    service = SqlAlchemyIngestionJobStore(session_maker=session_maker)
-    job_id = "job-stale-1"
-
-    # Pre-insert a RUNNING job with ancient claimed_at (e.g. 2000s ago)
-    stale_time = datetime.now(UTC) - timedelta(seconds=2000)
-    async with session_maker() as session:
-        record = IngestionJobRecord(
-            id=job_id,
-            source_id="src-stale",
-            status="RUNNING",
-            claimed_by="dead-worker",
-            claimed_at=stale_time,
-            payload={},
-        )
-        session.add(record)
-        await session.commit()
-
-    # New worker claims pending jobs with 900s timeout
-    claimed = await service.claim_pending(
-        worker_id="new-worker",
-        limit=5,
-        claim_timeout_seconds=900,
-    )
-
-    assert len(claimed) == 1
-    assert claimed[0].id == job_id
-    assert claimed[0].claimed_by == "new-worker"
-    assert claimed[0].status == "RUNNING"
-
-
-@pytest.mark.asyncio
 async def test_record_observability_inserts_fallback_when_row_missing(
     session_maker: async_sessionmaker[AsyncSession],
 ) -> None:

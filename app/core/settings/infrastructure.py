@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class DatabaseSettings(BaseModel):
+    """PostgreSQL connection URL and pool sizing."""
+
     url: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5434/assistant",
         description="PostgreSQL connection URL. Port 5434 is this project's dedicated instance; 5432 may belong to an unrelated local database.",
@@ -16,6 +18,8 @@ class DatabaseSettings(BaseModel):
 
 
 class RedisSettings(BaseModel):
+    """Redis connection URL, TTLs and socket timeout."""
+
     url: str = Field(
         default="redis://localhost:6379/0",
         description="Redis connection URL",
@@ -26,6 +30,8 @@ class RedisSettings(BaseModel):
 
 
 class LangSmithSettings(BaseModel):
+    """Optional LangSmith tracing endpoint, key and project."""
+
     tracing_enabled: bool = Field(default=False, description="Enable LangSmith tracing")
     endpoint: str = Field(
         default="https://api.smith.langchain.com", description="LangSmith API Endpoint"
@@ -50,7 +56,7 @@ class SecuritySettings(BaseModel):
         default=None,
         description=(
             "User id bound to the shared API key. Required in staging/production so "
-            "X-User-ID cannot impersonate another tenant (H3)."
+            "X-User-ID cannot impersonate another tenant."
         ),
     )
     approval_signing_key: str | None = Field(
@@ -79,6 +85,15 @@ class SecuritySettings(BaseModel):
         ),
     )
 
+    allow_registration: bool | None = Field(
+        default=None,
+        description=(
+            "Whether POST /auth/register accepts new accounts. Unset: open only in "
+            "development/testing; staging/production create accounts with "
+            "scripts/create_admin.py unless this is set to true."
+        ),
+    )
+
     @field_validator("trusted_proxies")
     @classmethod
     def validate_trusted_proxies(cls, value: list[str]) -> list[str]:
@@ -90,7 +105,7 @@ class SecuritySettings(BaseModel):
     @field_validator("cors_allowed_origins")
     @classmethod
     def reject_wildcard_cors(cls, value: list[str]) -> list[str]:
-        """M10: never allow a wildcard origin, even with credentials disabled."""
+        """Never allow a wildcard origin, even with credentials disabled."""
         cleaned = [origin.strip() for origin in value if origin and origin.strip()]
         if any(origin == "*" for origin in cleaned):
             raise ValueError("CORS allowlist must not include '*'.")

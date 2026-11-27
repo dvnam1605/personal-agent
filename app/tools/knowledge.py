@@ -1,6 +1,6 @@
-"""Deterministic internal-retrieval and web-search tool declarations (P13).
+"""Deterministic internal-retrieval and web-search tool declarations.
 
-``retrieval.retrieve`` / ``retrieval.synthesize`` wrap the P10 hybrid RAG
+``retrieval.retrieve`` / ``retrieval.synthesize`` wrap the hybrid RAG
 pipeline (fusion + rerank + sufficiency + synthesis); ``web.search`` fronts a
 pluggable provider seam (mock in tests/dev, real provider in later phases).
 All three tools are strictly read-only.
@@ -112,7 +112,7 @@ _DEFINITIONS_BY_NAME = {definition.name: definition for definition in KNOWLEDGE_
 
 
 def knowledge_tool_definitions() -> tuple[ToolDefinition, ...]:
-    """Return defensive copies of every P13 knowledge tool declaration."""
+    """Return defensive copies of every knowledge tool declaration."""
     return tuple(definition.model_copy(deep=True) for definition in KNOWLEDGE_TOOL_DEFINITIONS)
 
 
@@ -123,7 +123,7 @@ def build_knowledge_tool_registry() -> ToolRegistry:
 
 @runtime_checkable
 class WebSearchProvider(Protocol):
-    """Pluggable external search seam (spec P13 §2: mock transport in tests)."""
+    """Pluggable external search seam (tests use a mock transport)."""
 
     async def search(self, query: str, *, max_results: int = 5) -> WebSearchPage: ...
 
@@ -200,7 +200,7 @@ def _evidence_to_payload(item: Evidence, *, index: int) -> dict[str, Any]:
 
 
 class RetrievalTools:
-    """Tool wrapper exposing the P10 pipeline as deterministic tool results."""
+    """Tool wrapper exposing the retrieval pipeline as deterministic tool results."""
 
     def __init__(self, pipeline: RetrievalPipeline) -> None:
         self.pipeline = pipeline

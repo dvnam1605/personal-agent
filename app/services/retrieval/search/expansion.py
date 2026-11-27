@@ -1,4 +1,4 @@
-"""Expansion policies + context-unit builders (spec P10-08..P10-12).
+"""Expansion policies + context-unit builders.
 
 Deterministic rules only ("no LLM when code is enough"):
 
@@ -8,10 +8,10 @@ Deterministic rules only ("no LLM when code is enough"):
   explicit override — agent strategies own it; future dynamic routing hints
   can be registered without changing the core protocol);
 
-Parent grouping enforces one Evidence per parent id (P10-09) with the simple
+Parent grouping enforces one Evidence per parent id with the simple
 documented scoring baseline ``best_child_score + bonus * min(extra_hits, 5)``
-(P10-10, based on rerank_score if present, constant recorded for P10D ablations).
-TABLE_CHILD candidates are never swapped for their parent (P10-12): they become
+(based on rerank_score if present, constant kept for ablations).
+TABLE_CHILD candidates are never swapped for their parent: they become
 standalone TABLE_CHILD evidence carrying their heading-path caption context instead,
 interleaved seamlessly with other units according to their ranked score.
 """
@@ -55,7 +55,7 @@ _QUESTION_HINTS = (
     "phân tích",
     "compare",
 )
-_PARENT_PRIORITY_BONUS = 0.1  # documented baseline constant (P10-10)
+_PARENT_PRIORITY_BONUS = 0.1  # documented baseline constant
 _PARENT_BONUS_CAP_HITS = 5  # avoids runaway inflation on huge sections
 MAX_EXPANSION_PARENTS = 32
 
@@ -184,7 +184,7 @@ class ExpansionService:
     async def _parent_units(
         self, ranked_indexed: list[tuple[int, RetrievedChunk]], query: RetrievalQuery
     ) -> list[tuple[float, int, Evidence]]:
-        """Resolve child -> parent payloads, deduped, priority-ordered (P10-09, P10-10)."""
+        """Resolve child -> parent payloads, deduped, priority-ordered."""
         groups: dict[str, dict[str, Any]] = {}
         order: list[str] = []
         for idx, chunk in ranked_indexed:
@@ -284,7 +284,7 @@ class ExpansionService:
     async def _neighbor_units(
         self, ranked_indexed: list[tuple[int, RetrievedChunk]], query: RetrievalQuery
     ) -> list[tuple[float, int, Evidence]]:
-        """prev/hit/next windows strictly within each affected parent (P10-11)."""
+        """prev/hit/next windows strictly within each affected parent."""
         parent_order: list[str] = []
         hits_by_parent: dict[str, list[RetrievedChunk]] = {}
         parent_min_index: dict[str, int] = {}

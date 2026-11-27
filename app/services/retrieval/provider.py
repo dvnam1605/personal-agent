@@ -1,4 +1,4 @@
-"""Row-fetch abstraction for retrieval services (review M1/M4 fix).
+"""Row-fetch abstraction for retrieval services.
 
 Retrievers never open their own connections or hardcode credentials: they
 depend on this tiny provider. The default implementation runs statements
@@ -46,6 +46,7 @@ class SqlAlchemyRowProvider:
         return self._engine
 
     async def fetch(self, sql: str) -> list[dict[str, Any]]:
+        """Run ``sql`` (bind colons escaped) and return the rows as dicts."""
         engine = self._resolve_engine()
         async with engine.connect() as connection:
             result = await connection.execute(text(escape_bind_colons(sql)))

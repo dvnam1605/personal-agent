@@ -1,7 +1,6 @@
 import React from 'react'
-import temml from 'temml'
-import 'temml/dist/Temml-Local.css'
-import { apiClient } from '../../api/client'
+import { renderInline } from './markdown/inline'
+import { DocumentImage, Equation } from './markdown/media'
 import './MarkdownContent.css'
 
 interface MarkdownContentProps {
@@ -9,161 +8,30 @@ interface MarkdownContentProps {
   className?: string
 }
 
-// An image of a source document on its own line: "![Hình 4 — mô tả tự động: …](image:<key>)".
+/** An image of a source document on its own line: "![Hình 4 — mô tả tự động: …](image:<key>)". */
 const IMAGE_LINE = /^!\[([^\]\n]*)\]\(image:([0-9a-f]{24})\)$/
 
-const DocumentImage: React.FC<{ imageKey: string; alt: string }> = ({ imageKey, alt }) => {
-  const [url, setUrl] = React.useState<string | null>(null)
-  const [failed, setFailed] = React.useState(false)
-  React.useEffect(() => {
-    let objectUrl: string | null = null
-    let cancelled = false
-    apiClient
-      .fetchDocumentImage(imageKey)
-      .then((u) => {
-        objectUrl = u
-        if (cancelled) URL.revokeObjectURL(u)
-        else setUrl(u)
-      })
-      .catch(() => !cancelled && setFailed(true))
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [imageKey])
-  const label = alt.split(' — ')[0]
-  return (
-    <figure className="md-figure">
-      {url ? (
-        <img src={url} alt={alt} title={alt} className="md-figure-img" />
-      ) : (
-        <div className="md-figure-placeholder">{failed ? 'Không tải được hình' : 'Đang tải hình…'}</div>
-      )}
-      <figcaption className="md-figure-caption">{label}</figcaption>
-    </figure>
-  )
-}
-
-const InlineMath: React.FC<{ latex: string }> = ({ latex }) => {
-  const html = React.useMemo(
-    () => temml.renderToString(latex, { displayMode: false, throwOnError: false }),
-    [latex],
-  )
-  return <span className="md-inline-math" dangerouslySetInnerHTML={{ __html: html }} />
-}
-
-// A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)".
+/** A display equation on its own line, optionally numbered: "$$\frac{a}{b}$$ (3.2)". */
 const EQUATION_LINE = /^\$\$(.+?)\$\$\s*(?:\((\d+(?:\.\d+)+)\))?\s*$/
 
-// Temml escapes text and rejects \href-style commands by default, so its MathML is safe to inject.
-const Equation: React.FC<{ latex: string; number?: string }> = ({ latex, number }) => {
-  const html = React.useMemo(
-    () => temml.renderToString(latex, { displayMode: true, throwOnError: false }),
-    [latex],
-  )
-  return (
-    <div className="md-equation">
-      <span className="md-equation-body" dangerouslySetInnerHTML={{ __html: html }} />
-      {number && <span className="md-equation-number">({number})</span>}
-    </div>
-  )
-}
+const HEADING_LINE = /^(#{1,6}) (.*)$/
+const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
 
+/**
+ * A small Markdown renderer for assistant answers and generated documents.
+ *
+ * It walks the text line by line and builds blocks — fenced code, pipe tables, headings, rules,
+ * quotes, bullet and numbered lists, document images, display equations and paragraphs — while
+ * inline formatting is delegated to `markdown/inline`. Raw evidence ids that escaped the backend
+ * are stripped first. No HTML from the text is ever injected; only Temml's MathML is.
+ */
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className = '' }) => {
-  // Helper to render inline formatting: bold, italic, code, links
-  const renderInline = (text: string): React.ReactNode[] => {
-    // Regex for inline tokens: `code`, **bold**, *italic*, [label](url), [1] or [1, 2] citation badges, or raw hex hashes
-    const tokenRegex = /(\$(?=\S)[^$\n]+?(?<=\S)\$|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|\[\d+(?:\s*,\s*\d+)*\]|\[[0-9a-fA-F]{32}[^\]\n]*\]?)/g
-    const parts = text.split(tokenRegex)
-
-    return parts.map((part, index) => {
-      if (!part) return null
-
-      // Citation badge: [1], [2], or multi [1, 2]
-      if (/^\[\d+(?:\s*,\s*\d+)*\]$/.test(part)) {
-        const nums = part
-          .slice(1, -1)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-        return (
-          <React.Fragment key={index}>
-            {nums.map((num, nIdx) => (
-              <span key={`${index}-${nIdx}`} className="md-citation-badge" title={`Nguồn dẫn chứng [${num}]`}>
-                {num}
-              </span>
-            ))}
-          </React.Fragment>
-        )
-      }
-
-      // Inline math: $P_s$, $\mathbb{R}$
-      if (/^\$[^$\n]+\$$/.test(part)) {
-        return <InlineMath key={index} latex={part.slice(1, -1)} />
-      }
-
-      // Hide any raw evidence hash brackets that may have escaped backend replacement
-      if (/^\[?[0-9a-fA-F]{32}/.test(part)) {
-        return null
-      }
-
-      // Inline code: `code`
-      if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
-        return (
-          <code key={index} className="md-inline-code">
-            {part.slice(1, -1)}
-          </code>
-        )
-      }
-
-      // Bold: **bold**
-      if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-        return (
-          <strong key={index} className="md-bold">
-            {part.slice(2, -2)}
-          </strong>
-        )
-      }
-
-      // Italic: *italic*
-      if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
-        return (
-          <em key={index} className="md-italic">
-            {part.slice(1, -1)}
-          </em>
-        )
-      }
-
-      // Link: [label](url)
-      const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
-      if (linkMatch) {
-        const [, label, url] = linkMatch
-        const isExternal = url.startsWith('http://') || url.startsWith('https://')
-        return (
-          <a
-            key={index}
-            href={url}
-            target={isExternal ? '_blank' : undefined}
-            rel={isExternal ? 'noopener noreferrer' : undefined}
-            className="md-link"
-          >
-            {label}
-          </a>
-        )
-      }
-
-      return <span key={index}>{part}</span>
-    })
-  }
-
-  // Sanitize any raw evidence hash brackets (e.g. [5e294642...]) before parsing
   const cleanContent = content
     .replace(/\[\s*[0-9a-fA-F]{32}[^\]\n]*\]?/g, '')
     .replace(/\b[0-9a-fA-F]{32}\b/g, '')
     .replace(/\[\s*\]/g, '')
     .replace(/[ \t]+([.,;:])/, '$1')
 
-  // Parse markdown blocks
   const lines = cleanContent.split('\n')
   const elements: React.ReactNode[] = []
 
@@ -236,7 +104,6 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
-    // Code block toggle
     if (line.trim().startsWith('```')) {
       if (inCodeBlock) {
         elements.push(
@@ -284,15 +151,13 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       continue
     }
 
-    // Check table
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
       flushList()
       const cells = line
         .trim()
         .slice(1, -1)
         .split('|')
-      
-      // Check if separator line |---|---|
+
       const isSeparator = cells.every((c) => /^\s*:?-+:?\s*$/.test(c))
       if (isSeparator) {
         continue
@@ -310,71 +175,25 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       flushTable()
     }
 
-    // Check headings (from h6 down to h1, supports optional leading spaces)
-    const trimmedHeading = line.trimStart()
-    if (trimmedHeading.startsWith('###### ')) {
+    const heading = line.trimStart().match(HEADING_LINE)
+    if (heading) {
       flushList()
+      const level = heading[1].length
+      const Tag = HEADING_TAGS[level - 1]
       elements.push(
-        <h6 key={`h6-${elements.length}`} className="md-h6">
-          {renderInline(trimmedHeading.slice(7))}
-        </h6>
-      )
-      continue
-    }
-    if (trimmedHeading.startsWith('##### ')) {
-      flushList()
-      elements.push(
-        <h5 key={`h5-${elements.length}`} className="md-h5">
-          {renderInline(trimmedHeading.slice(6))}
-        </h5>
-      )
-      continue
-    }
-    if (trimmedHeading.startsWith('#### ')) {
-      flushList()
-      elements.push(
-        <h4 key={`h4-${elements.length}`} className="md-h4">
-          {renderInline(trimmedHeading.slice(5))}
-        </h4>
-      )
-      continue
-    }
-    if (trimmedHeading.startsWith('### ')) {
-      flushList()
-      elements.push(
-        <h3 key={`h3-${elements.length}`} className="md-h3">
-          {renderInline(trimmedHeading.slice(4))}
-        </h3>
-      )
-      continue
-    }
-    if (trimmedHeading.startsWith('## ')) {
-      flushList()
-      elements.push(
-        <h2 key={`h2-${elements.length}`} className="md-h2">
-          {renderInline(trimmedHeading.slice(3))}
-        </h2>
-      )
-      continue
-    }
-    if (trimmedHeading.startsWith('# ')) {
-      flushList()
-      elements.push(
-        <h1 key={`h1-${elements.length}`} className="md-h1">
-          {renderInline(trimmedHeading.slice(2))}
-        </h1>
+        <Tag key={`h${level}-${elements.length}`} className={`md-h${level}`}>
+          {renderInline(heading[2])}
+        </Tag>
       )
       continue
     }
 
-    // Check Horizontal Rule
     if (/^(\*\*\*|---|___)$/.test(line.trim())) {
       flushList()
       elements.push(<hr key={`hr-${elements.length}`} className="md-hr" />)
       continue
     }
 
-    // Check Blockquote
     if (line.startsWith('> ')) {
       flushList()
       elements.push(
@@ -385,7 +204,6 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       continue
     }
 
-    // Check Unordered List
     const ulMatch = line.match(/^(\s*)[-*+]\s+(.*)$/)
     if (ulMatch) {
       if (isNumberedList) flushList()
@@ -394,7 +212,6 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       continue
     }
 
-    // Check Ordered List
     const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/)
     if (olMatch) {
       if (!isNumberedList) flushList()
@@ -404,15 +221,12 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, class
       continue
     }
 
-    // If we were in a list and hit non-list line
     flushList()
 
-    // Empty line
     if (!line.trim()) {
       continue
     }
 
-    // Normal paragraph
     elements.push(
       <p key={`p-${elements.length}`} className="md-p">
         {renderInline(line)}

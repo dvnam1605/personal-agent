@@ -129,7 +129,7 @@ async def test_rotating_forwarded_for_does_not_bypass_the_register_limit(
             statuses = [
                 (
                     await client.post(
-                        "/api/v1/auth/register",
+                        "/auth/register",
                         json={"email": f"user{i}@example.com", "password": "dummy-pass-1"},
                         headers={"X-Forwarded-For": f"198.51.100.{i}"},
                     )

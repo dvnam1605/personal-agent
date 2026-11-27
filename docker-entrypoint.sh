@@ -26,15 +26,22 @@ wait_for_database() {
   echo "Warning: database host '$host' did not resolve within 30s"
 }
 
-# Run database schema migrations if DATABASE__URL is configured
+# A failed migration stops the container: serving against a half-migrated
+# schema corrupts data more quietly than a restart loop does.
 if [ -n "$DATABASE__URL" ]; then
   wait_for_database "$DATABASE__URL"
   echo "Applying database migrations with Alembic..."
-  alembic upgrade head || {
-    echo "Warning: Alembic migrations encountered an issue, proceeding to server startup..."
-  }
+  if ! alembic upgrade head; then
+    echo "Error: Alembic migrations failed; refusing to start the server." >&2
+    exit 1
+  fi
 fi
 
-# Execute main process
+# Auto-reload only for development, where ./app is bind-mounted.
+reload=""
+if [ "$ENVIRONMENT" = "development" ]; then
+  reload="--reload"
+fi
+
 echo "Starting Personal AI Assistant backend on port 8000..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload "$@"
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 $reload "$@"

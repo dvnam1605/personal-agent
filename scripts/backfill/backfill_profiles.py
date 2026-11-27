@@ -24,6 +24,7 @@ from app.services.ingestion.profiling import DocumentProfiler  # noqa: E402
 
 
 async def main() -> None:
+    """Re-profile stale (or, with --all, every) active document and print the report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="re-profile every active document")
     parser.add_argument("--dry-run", action="store_true", help="print, do not write")

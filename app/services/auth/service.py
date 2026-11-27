@@ -13,6 +13,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -22,10 +23,12 @@ from app.infrastructure.db.models import User
 
 logger = structlog.get_logger(__name__)
 
-# PBKDF2 parameters (OWASP recommended floor)
+# OWASP's current recommendation for PBKDF2-HMAC-SHA256. Existing hashes keep the
+# iteration count stored in them, so raising this only affects new passwords.
 HASH_ALGORITHM = "sha256"
-ITERATIONS = 100_000
+ITERATIONS = 600_000
 SALT_BYTES = 16
+MIN_PASSWORD_LENGTH = 8
 TOKEN_EXPIRY_SECONDS = 30 * 86400  # 30 days
 
 MIN_SIGNING_KEY_BYTES = 32
@@ -91,7 +94,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against stored PBKDF2 hash."""
+    """Verify a password against a stored PBKDF2 hash.
+
+    The hash string ``pbkdf2:<algo>:<iterations>$<salt>$<hex>`` carries its own
+    iteration count, so hashes made before ``ITERATIONS`` was raised still verify.
+    """
     if not hashed or not password:
         return False
     try:
@@ -147,7 +154,6 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
         if not secrets.compare_digest(expected_sig, signature):
             return None
 
-        # Re-add padding for urlsafe_b64decode
         padded = b64_payload + "=" * (-len(b64_payload) % 4)
         payload_data = json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8"))
         if not isinstance(payload_data, dict):
@@ -161,11 +167,15 @@ def verify_access_token(token: str) -> dict[str, Any] | None:
         return None
 
 
-# Dummy hash with 100k iterations used to eliminate side-channel timing attacks
+# Verified when the email is unknown so a failed login costs the same as a real check
+# and response time does not reveal which emails have accounts.
 DUMMY_PASSWORD_HASH = (
-    "pbkdf2:sha256:100000$0123456789abcdef0123456789abcdef$"
+    f"pbkdf2:sha256:{ITERATIONS}$0123456789abcdef0123456789abcdef$"
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
+
+
+EMAIL_TAKEN_MESSAGE = "Email này đã được đăng ký tài khoản."
 
 
 class AuthService:
@@ -178,14 +188,15 @@ class AuthService:
         password: str,
         full_name: str | None = None,
     ) -> User:
+        """Create an active account; a taken email, even by a concurrent request, is refused."""
         clean_email = email.strip().lower()
-        if len(password) < 6:
-            raise ValueError("Mật khẩu phải có ít nhất 6 ký tự.")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise ValueError(f"Mật khẩu phải có ít nhất {MIN_PASSWORD_LENGTH} ký tự.")
 
         stmt = select(User).where(func.lower(User.email) == clean_email)
         res = await session.execute(stmt)
         if res.scalar_one_or_none() is not None:
-            raise ValueError("Email này đã được đăng ký tài khoản.")
+            raise ValueError(EMAIL_TAKEN_MESSAGE)
 
         user = User(
             id=str(uuid.uuid4()),
@@ -195,7 +206,11 @@ class AuthService:
             is_active=True,
         )
         session.add(user)
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            raise ValueError(EMAIL_TAKEN_MESSAGE) from exc
         await session.refresh(user)
         return user
 
@@ -205,13 +220,17 @@ class AuthService:
         email: str,
         password: str,
     ) -> tuple[User, str]:
+        """Check credentials and return the user with a fresh session token.
+
+        Unknown emails, wrong passwords and disabled accounts all fail with the same
+        message and comparable cost, so the response does not reveal which one it was.
+        """
         clean_email = email.strip().lower()
         stmt = select(User).where(func.lower(User.email) == clean_email)
         res = await session.execute(stmt)
         user = res.scalar_one_or_none()
 
         if user is None or not user.hashed_password:
-            # Perform dummy verification to consume constant CPU time and prevent timing attacks
             verify_password(password, DUMMY_PASSWORD_HASH)
             raise ValueError("Email hoặc mật khẩu không chính xác.")
 

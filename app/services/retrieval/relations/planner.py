@@ -59,12 +59,16 @@ _BARE_NUMBER = re.compile(
 
 @dataclass(frozen=True)
 class NumberAnchor:
+    """A document number in the question; ``is_source`` when it is the subject document."""
+
     raw: str
     is_source: bool  # True: the question is about this document's own relations
 
 
 @dataclass(frozen=True)
 class RelationPlan:
+    """What a relation question asks: relation types and the numbers, names and dates to match."""
+
     types: tuple[RelationType, ...]
     numbers: tuple[NumberAnchor, ...] = ()
     names: tuple[str, ...] = ()  # folded target names (people / units)
@@ -83,6 +87,7 @@ def detect_types(folded: str) -> tuple[RelationType, ...]:
 
 
 def question_numbers(question: str, folded: str) -> list[str]:
+    """Document numbers in the question, else bare numbers that are not years."""
     numbers = [re.sub(r"\s+", "", m.group(1)) for m in _DOC_NUMBER.finditer(question)]
     if not numbers:
         numbers = [
@@ -114,6 +119,8 @@ def match_names(folded: str, names: Iterable[str]) -> list[str]:
 
 
 class RelationQueryPlanner:
+    """Rule-based planner recognising relation questions (replaces, amends, signed by …)."""
+
     def plan(
         self,
         question: str,
@@ -122,6 +129,11 @@ class RelationQueryPlanner:
         known_names: Iterable[str] = (),
         is_source_number: Callable[[str], bool] = lambda raw: False,
     ) -> RelationPlan | None:
+        """A relation plan for ``question``, or ``None`` when it asks about no relation.
+
+        Matching runs on the unaccented question; ``is_source_number`` tells a
+        number naming the subject document from one naming a related target.
+        """
         folded = unaccent_vietnamese(question)
         types = detect_types(folded)
         if not types:

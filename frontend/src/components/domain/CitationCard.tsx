@@ -23,6 +23,7 @@ function sufficiencyLabel(sufficiency: string): string {
   }
 }
 
+/** The sources behind a RAG answer: one entry per retrieved passage plus the evidence-sufficiency label; clicking an entry opens the citation drawer. */
 export const CitationCard: React.FC<CitationCardProps> = ({
   citations,
   sufficiency,

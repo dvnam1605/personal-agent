@@ -1,4 +1,4 @@
-"""Pure fingerprint computation for ingestion idempotency (spec P9A-3)."""
+"""Pure fingerprint computation for ingestion idempotency."""
 
 from __future__ import annotations
 

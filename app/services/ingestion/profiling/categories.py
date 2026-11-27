@@ -37,6 +37,8 @@ class SubtypeRule:
 
 @dataclass(frozen=True)
 class CategorySpec:
+    """How one category is recognised: title subtypes, filename tokens and body markers."""
+
     category: DocCategory
     # Title lines in the document header (strongest signal).
     subtypes: tuple[SubtypeRule, ...] = ()

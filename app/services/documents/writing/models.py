@@ -17,6 +17,8 @@ MAX_SECTIONS = 8
 
 
 class OutlineSection(BaseModel):
+    """One planned section and the source headings that steer its retrieval."""
+
     heading: str = Field(min_length=1, max_length=200)
     purpose: str = Field(default="", max_length=400)
     # Source-document headings this section draws on; they steer its retrieval.
@@ -24,6 +26,8 @@ class OutlineSection(BaseModel):
 
 
 class DocumentOutline(BaseModel):
+    """The approved plan: prose sections (.docx) or table columns per source (.xlsx)."""
+
     template_key: str
     title: str = Field(min_length=1, max_length=300)
     # "document" (prose sections, .docx) or "table" (columns per source, .xlsx).
@@ -45,6 +49,8 @@ class DocumentOutline(BaseModel):
 
 
 class WrittenSection(BaseModel):
+    """One written section with its status, citations and review outcome."""
+
     heading: str
     text: str
     status: str
@@ -54,6 +60,8 @@ class WrittenSection(BaseModel):
 
 
 class WrittenDocument(BaseModel):
+    """All written sections with the global citation list."""
+
     sections: list[WrittenSection]
     citations: list[dict[str, Any]]
     # Sentences dropped because a figure in them was not in the evidence.

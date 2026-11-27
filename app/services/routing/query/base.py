@@ -2,10 +2,10 @@
 
 The orchestrator is built as a chain — OrchestratorBase → FollowupMixin →
 KnowledgeMixin → MemoryMixin → WebMixin → ClarificationMixin → TaskMixin →
-GoalMixin → MinutesMixin → AnalysisMixin →
-RoutineMixin → SpecialistMixin →
+GoalMixin → MinutesMixin → AnalysisMixin → RoutineMixin → SpecialistMixin →
 StreamMixin → QueryOrchestrator — so each part sees the attributes and methods of
-the parts before it.
+the parts before it. The command mixins live in ``commands/``, ClarificationMixin in
+``mail/``.
 """
 
 from __future__ import annotations
@@ -34,7 +34,15 @@ from .models import (
 
 
 class OrchestratorBase:
-    """Injected services and the run lifecycle helpers."""
+    """Injected services and the run lifecycle helpers.
+
+    Every collaborator can be injected (tests and offline evaluation do) and otherwise
+    is built lazily from settings: the Google service factories (calendar, mail, tasks,
+    Drive), retrieval and its pipeline, the personal-memory factory, the web answerer,
+    the draft critic (structural checks plus a model review when an LLM is configured),
+    the email composer and the goal planner. ``phrase_structured`` lets one short LLM
+    call reword SQL answers whose facts are already verified.
+    """
 
     def __init__(
         self,
@@ -58,10 +66,10 @@ class OrchestratorBase:
         compose_email_fn: Any | None = None,
         goal_planner: Any | None = None,
         drive_for_user: Any | None = None,
+        agentic_builder: Any | None = None,
     ) -> None:
         self._metadata_service = metadata_service
         self._relation_service = relation_service
-        # SQL answers are reworded by one short LLM call (facts verified).
         self._phrase_structured = phrase_structured
         self._document_service: Any | None = None
         self._triage = triage or FastTriage()
@@ -73,21 +81,14 @@ class OrchestratorBase:
         self._new_run_id = new_run_id or (lambda: str(uuid.uuid4()))
         self._summarize_emails_fn = summarize_emails_fn
         self._pipeline: Any | None = pipeline
-        # Builds the PersonalMemoryService for a request session (tests inject one).
         self._memory_factory = memory_factory
-        # Answers explicit web requests; built from settings when not injected.
         self._web_answer_service = web_answer_service
-        # Reviews email drafts before approval; the default runs structural checks plus
-        # a model review when an LLM is configured.
         self._draft_critic = draft_critic
-        # Builds the Google Tasks adapter for a user (tests inject a fake).
         self._tasks_for_user = tasks_for_user
-        # Writes email drafts; the default calls the LLM (offline evaluation injects one).
         self._compose_email_fn = compose_email_fn
-        # Plans a goal's steps; the default asks the LLM and falls back to a generic plan.
         self._goal_planner = goal_planner
-        # Builds the read-only Drive service for a user (tests inject a fake).
         self._drive_for_user = drive_for_user
+        self._agentic_builder = agentic_builder
 
     async def _calendar(self, session: AsyncSession, user_id: str) -> Any:
         if self._calendar_for_user is not None:
@@ -114,7 +115,12 @@ class OrchestratorBase:
         return CommunicationService.from_client(client)
 
     @staticmethod
-    async def _ensure_user(session: AsyncSession, user_id: str) -> None:
+    async def ensure_user(session: AsyncSession, user_id: str) -> None:
+        """Create a placeholder user row for ``user_id`` when none exists yet.
+
+        Runs reference the user by foreign key, so callers that persist a run for a
+        user known only from a token make sure the row exists first.
+        """
         if await session.get(User, user_id) is not None:
             return
         collision = await session.scalar(

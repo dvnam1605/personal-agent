@@ -34,6 +34,7 @@ RESULTS_DIR = REPO_ROOT / "eval_results"
 
 
 def main() -> int:
+    """Run the RAG gold set against the backend, print the summary and compare with a baseline."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://localhost:8000")
     parser.add_argument("--gold", type=Path, default=DEFAULT_GOLD)

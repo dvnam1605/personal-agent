@@ -9,6 +9,7 @@ interface CalendarCardProps {
   window?: { start: string; end: string }
 }
 
+/** Card listing the Google Calendar events (time, place) found for an assistant reply. */
 export const CalendarCard: React.FC<CalendarCardProps> = ({ events, window }) => {
   if (!events || events.length === 0) {
     return (

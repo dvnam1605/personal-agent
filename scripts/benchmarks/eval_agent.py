@@ -25,6 +25,7 @@ from tests.evaluation.agent_eval import GOLD, run_all, scorecard  # noqa: E402
 
 
 def main() -> int:
+    """Run the agent scenarios, print the scorecard and return 1 when any scenario fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gold", type=Path, default=GOLD, help="Scenario file")
     parser.add_argument("--json", type=Path, default=None, help="Also write the scorecard here")

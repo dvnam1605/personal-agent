@@ -93,6 +93,9 @@ def split_due(text: str, today: date) -> tuple[str, date | None]:
     return _clean(title), due
 
 
+_LEAP_CYCLE_YEARS = 8  # the longest gap between two 29 Februaries (e.g. 2096 -> 2104)
+
+
 def _is_name(folded: str, match: re.Match[str]) -> bool:
     """Whether a bare "mai" is the name Mai rather than "tomorrow".
 
@@ -107,17 +110,21 @@ def _is_name(folded: str, match: re.Match[str]) -> bool:
 
 
 def _resolve(match: re.Match[str], today: date) -> date | None:
+    """Turn the matched date phrase into a calendar date relative to ``today``.
+
+    A day/month without a year means its next occurrence; "29/2" therefore lands on
+    the next leap year rather than failing. An impossible date gives ``None``.
+    """
     when = match.group("when")
     if match.group("d"):
         day, month = int(match.group("d")), int(match.group("m"))
-        year = int(match.group("y")) if match.group("y") else today.year
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            return None
-        if not match.group("y") and candidate < today:
-            candidate = date(year + 1, month, day)
-        return candidate
+        if match.group("y"):
+            return _date_or_none(int(match.group("y")), month, day)
+        for year in range(today.year, today.year + _LEAP_CYCLE_YEARS + 1):
+            candidate = _date_or_none(year, month, day)
+            if candidate is not None and candidate >= today:
+                return candidate
+        return None
     if when == "hom nay":
         return today
     if when in ("ngay mai", "mai"):
@@ -127,6 +134,13 @@ def _resolve(match: re.Match[str], today: date) -> date | None:
     target = 6 if when == "chu nhat" else _WEEKDAYS[when.split()[-1]]
     days = (target - today.weekday()) % 7 or 7
     return today + timedelta(days=days)
+
+
+def _date_or_none(year: int, month: int, day: int) -> date | None:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
 
 
 def _clean(text: str) -> str:

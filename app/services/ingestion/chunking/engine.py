@@ -1,4 +1,4 @@
-"""P9C chunking engine: ParsedDocument -> deterministic parent/child drafts.
+"""Chunking engine: ParsedDocument -> deterministic parent/child drafts.
 
 Pure orchestration over the two strategies; no I/O and no embedding calls.
 """

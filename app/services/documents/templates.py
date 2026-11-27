@@ -16,6 +16,8 @@ from app.core.text import unaccent_vietnamese
 
 @dataclass(frozen=True)
 class SectionSpec:
+    """One section a template asks for, and what it should cover."""
+
     heading: str
     purpose: str
     # Expanded by the outline planner into one section per topic of the sources.
@@ -24,6 +26,8 @@ class SectionSpec:
 
 @dataclass(frozen=True)
 class DocTemplate:
+    """A document type to write: trigger phrases, sections, tone and layout."""
+
     key: str
     label: str
     category: str  # DocCategory value of the produced document
@@ -233,6 +237,7 @@ def is_generation_request(text: str) -> bool:
 
 
 def select_template(text: str) -> DocTemplate:
+    """The first template whose trigger phrase is in ``text``, else the default report."""
     folded = unaccent_vietnamese(text)
     for template in TEMPLATES:
         if any(re.search(rf"\b{re.escape(t)}\b", folded) for t in template.triggers):

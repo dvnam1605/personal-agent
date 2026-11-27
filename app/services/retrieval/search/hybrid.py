@@ -1,4 +1,4 @@
-"""Parallel hybrid retrieval fused with Reciprocal Rank Fusion (spec P10-05).
+"""Parallel hybrid retrieval fused with Reciprocal Rank Fusion.
 
 Dense and sparse run concurrently (``asyncio.gather``); each candidate keeps
 its per-source ranks and receives ``fusion_score = sum(1 / (k + rank))`` over
@@ -35,6 +35,7 @@ class HybridRetrievalService:
         self._k = k
 
     async def retrieve(self, query: RetrievalQuery) -> list[RetrievedChunk]:
+        """Dense and sparse results in parallel, fused by reciprocal rank."""
         dense_results, sparse_results = await asyncio.gather(
             self._dense.retrieve(query),
             self._sparse.retrieve(query),

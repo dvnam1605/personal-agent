@@ -26,6 +26,7 @@ interface EmailWorkspaceProps {
 
 type OmnibarMode = 'search' | 'compose' | 'summarize'
 
+/** Email workspace: loads recent Gmail messages through the assistant, filters them and offers prompts to draft replies (sending still needs approval). */
 export const EmailWorkspace: React.FC<EmailWorkspaceProps> = ({
   onSelectEmail,
   onDraftEmail,

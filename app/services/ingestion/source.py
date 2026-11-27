@@ -1,4 +1,4 @@
-"""Source discovery helpers: checksums and SourceDocument construction (P9A-2)."""
+"""Source discovery helpers: checksums and SourceDocument construction."""
 
 from __future__ import annotations
 

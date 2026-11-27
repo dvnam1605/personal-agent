@@ -72,3 +72,54 @@ def coerce_report_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     if isinstance(status, str):
         coerced["status"] = status.strip().lower()
     return coerced
+
+
+PROPOSE_TOOL_NAME = "specialist.propose_action"
+PROPOSABLE_TOOLS = ("gmail.create_draft",)
+
+PROPOSE_TOOL_DEFINITION = ToolDefinition(
+    name=PROPOSE_TOOL_NAME,
+    description=(
+        "Propose a write you are not allowed to run yourself (for example an email draft). "
+        "It ends your task; a person reviews and approves it before anything is written. "
+        "For gmail.create_draft give arguments {to: [emails], subject, body}."
+    ),
+    category="specialist",
+    capabilities=["specialist.propose"],
+    parameters_schema={
+        "type": "object",
+        "required": ["tool_name", "arguments"],
+        "properties": {
+            "tool_name": {"type": "string", "enum": list(PROPOSABLE_TOOLS)},
+            "arguments": {
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to": {"type": "array", "items": {"type": "string"}},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+            },
+            "summary": {"type": "string"},
+        },
+    },
+)
+
+
+def report_from_proposal(call: ToolCallRequest) -> SpecialistReport:
+    """Turn a ``specialist.propose_action`` call into a needs-approval report."""
+    tool_name = str(call.arguments.get("tool_name") or "")
+    arguments = call.arguments.get("arguments")
+    if tool_name not in PROPOSABLE_TOOLS or not isinstance(arguments, dict):
+        raise ReportValidationError(
+            f"Only {', '.join(PROPOSABLE_TOOLS)} can be proposed, with an arguments object."
+        )
+    missing = [key for key in ("to", "subject", "body") if not arguments.get(key)]
+    if missing:
+        raise ReportValidationError(f"Proposal arguments are missing: {', '.join(missing)}.")
+    summary = str(call.arguments.get("summary") or f"Proposed {tool_name} for approval.")
+    return SpecialistReport(
+        status=SpecialistStatus.NEEDS_APPROVAL,
+        summary=summary,
+        data={"proposed_action": {"tool_name": tool_name, "arguments": arguments}},
+    )

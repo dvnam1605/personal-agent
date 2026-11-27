@@ -1,7 +1,7 @@
-"""First-party PolicyEngine for fail-closed mutation governance (spec P18-01).
+"""First-party PolicyEngine for fail-closed mutation governance.
 
 Enforces per-session approval policies, delegation pinning, risk-level classification,
-and stale action target validation without framework dependencies (spec §18A.5).
+and stale action target validation without framework dependencies.
 """
 
 from __future__ import annotations
@@ -66,7 +66,6 @@ class PolicyEngine:
            without hanging the graph.
         4. Interactive sessions (approval_policy=ASK) halt execution awaiting human confirmation.
         """
-        # 1. Non-mutation actions do not require approval
         if not action.requires_approval or action.risk_level == ActionRiskLevel.READ_ONLY:
             return PolicyDecision(
                 allowed=True,
@@ -76,8 +75,6 @@ class PolicyEngine:
                 risk_level=action.risk_level,
             )
 
-        # 2. Delegation policy pinning (P18-01A, §17.1)
-        # Delegated specialists cannot self-approve. Policy is captured and frozen at delegation time.
         if delegation is not None:
             child_policy = (
                 delegation.approval_policy.value
@@ -96,7 +93,6 @@ class PolicyEngine:
                     risk_level=action.risk_level,
                 )
 
-        # 3. Session approval policy (interactive vs unattended)
         raw_policy = (
             session_policy.value
             if isinstance(session_policy, ApprovalPolicy)
@@ -116,7 +112,6 @@ class PolicyEngine:
             )
 
         if resolved_policy is ApprovalPolicy.NEVER:
-            # Deterministic auto-reject in headless/unattended mode: NEVER hangs the graph.
             return PolicyDecision(
                 allowed=False,
                 needs_approval=False,
@@ -125,7 +120,6 @@ class PolicyEngine:
                 risk_level=action.risk_level,
             )
 
-        # 4. Interactive session (ApprovalPolicy.ASK)
         return PolicyDecision(
             allowed=False,
             needs_approval=True,
@@ -140,7 +134,7 @@ class PolicyEngine:
         current_fingerprint: str | None,
         expected_fingerprint: str | None,
     ) -> bool:
-        """Revalidate target state before executing an approved mutation (spec P18-05, H3).
+        """Revalidate target state before executing an approved mutation .
 
         For tools that require resource fingerprinting, missing fingerprints fail closed.
         When expected_fingerprint is present, current_fingerprint must match exactly.

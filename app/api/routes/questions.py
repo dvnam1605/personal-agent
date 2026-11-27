@@ -1,4 +1,4 @@
-"""FastAPI routes for Question Plane interaction (spec P18-04)."""
+"""FastAPI route for answering the structured questions an agent run asks the user."""
 
 from __future__ import annotations
 
@@ -12,8 +12,11 @@ from app.api.dependencies import get_current_user_id
 from app.domain.models import UserQuestionAnswer
 from app.infrastructure.db.session import get_db_session
 from app.services.approvals.question_plane import QuestionPlaneService
+from app.services.platform.run_persistence import RunPersistenceService
 
 router = APIRouter(tags=["questions"])
+
+QUESTION_NOT_FOUND = "Không tìm thấy câu hỏi."
 
 
 class AnswerQuestionRequestBody(BaseModel):
@@ -56,30 +59,20 @@ async def answer_question(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> AnswerQuestionResponse:
-    q = await QuestionPlaneService.get_question_request(session, id)
-    if q is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Question request not found: {id}",
-        )
-    if not q.run_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Question request does not belong to the current user",
-        )
-    from app.services.platform.run_persistence import RunPersistenceService
+    """Record the caller's answers to a pending question on one of their runs.
 
-    run = await RunPersistenceService.get_run(session, q.run_id)
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run associated with question request not found: {q.run_id}",
-        )
-    if run.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Question request does not belong to the current user",
-        )
+    A question that is missing, has no run, or belongs to another user's run all
+    answer the same 404 so ids cannot be probed. A stale ``expected_version``
+    answers 409.
+    """
+    q = await QuestionPlaneService.get_question_request(session, id)
+    run = (
+        await RunPersistenceService.get_run(session, q.run_id)
+        if q is not None and q.run_id
+        else None
+    )
+    if run is None or run.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=QUESTION_NOT_FOUND)
 
     try:
         answered = await QuestionPlaneService.record_answers(
@@ -92,8 +85,7 @@ async def answer_question(
         )
     except PermissionError as exc:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Question request does not belong to the current user",
+            status_code=status.HTTP_404_NOT_FOUND, detail=QUESTION_NOT_FOUND
         ) from exc
     except ValueError as exc:
         detail = str(exc)

@@ -58,5 +58,6 @@ class SupervisorChannels(TypedDict, total=False):
     handled_missing_context: Annotated[list[str], operator.add]
     handled_missing_task_ids: Annotated[list[str], operator.add]
     replan_count: int
+    previous_plans: Annotated[list[ExecutionPlan], operator.add]
     final_synthesis: str | None
     status: str

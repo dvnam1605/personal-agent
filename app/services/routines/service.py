@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models import Routine
 from app.services.context.personal_memory import parse_memory_command
+from app.services.platform.naming import normalized_name
 from app.services.routines.commands import parse_routine_command
-from app.services.skills.matching import unaccent_vietnamese
 
 MAX_ACTIVE_ROUTINES = 10
 CATCH_UP = timedelta(hours=2)
@@ -27,6 +27,7 @@ class RoutineService:
     async def create(
         session: AsyncSession, user_id: str, query: str, weekdays: tuple[int, ...], run_time: time
     ) -> Routine:
+        """Save a routine; it may not create routines or edit memory, and the count is capped."""
         if parse_routine_command(query) is not None or parse_memory_command(query) is not None:
             raise RoutineError("Quy trình không được tự tạo quy trình hay sửa bộ nhớ.")
         if len(await RoutineService.active(session, user_id)) >= MAX_ACTIVE_ROUTINES:
@@ -53,14 +54,23 @@ class RoutineService:
 
     @staticmethod
     async def delete(session: AsyncSession, user_id: str, target: str) -> list[Routine]:
-        """Deactivate routines named by number ("1") or by words of their request."""
+        """Deactivate the one routine named by its number ("1") or by its exact name.
+
+        Names are compared after folding accents, case, spacing and surrounding quotes,
+        but never as a substring: "xóa quy trình a" must not switch off every routine
+        whose request happens to contain an "a". No match, or a name shared by several
+        routines, deactivates nothing and returns an empty list, so the caller tells the
+        user nothing matched and they can pick by number from the listing.
+        """
         routines = await RoutineService.active(session, user_id)
         if target.strip().isdigit():
             index = int(target) - 1
             chosen = [routines[index]] if 0 <= index < len(routines) else []
         else:
-            words = unaccent_vietnamese(target).split()
-            chosen = [r for r in routines if all(w in unaccent_vietnamese(r.query) for w in words)]
+            wanted = normalized_name(target)
+            chosen = [r for r in routines if wanted and normalized_name(r.name) == wanted]
+            if len(chosen) > 1:
+                chosen = []
         for routine in chosen:
             routine.active = False
         await session.flush()

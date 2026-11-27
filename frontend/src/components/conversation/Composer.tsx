@@ -1,17 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Sparkles, Command } from 'lucide-react'
+import { Send, Sparkles, Command, Square } from 'lucide-react'
 import { Button } from '../ui/Button'
 import './Composer.css'
 
 interface ComposerProps {
   onSendMessage: (text: string) => void
-  isLoading: boolean
+  isBusy: boolean
+  onStop?: () => void
   placeholder?: string
 }
 
+/**
+ * The message box under the conversation: auto-growing textarea, Enter to send, and a "/" menu of
+ * quick prompts. While a reply is streaming (`isBusy`) sending is locked and, when `onStop` is
+ * given, the send button becomes a stop button.
+ */
 export const Composer: React.FC<ComposerProps> = ({
   onSendMessage,
-  isLoading,
+  isBusy,
+  onStop,
   placeholder = 'Nhập câu hỏi hoặc yêu cầu (ví dụ: Lịch ngày mai, tóm tắt email...)...',
 }) => {
   const [text, setText] = useState('')
@@ -25,7 +32,6 @@ export const Composer: React.FC<ComposerProps> = ({
     { label: '/tailieu', desc: 'Tra cứu quy chế và văn bản nội bộ', prompt: 'Tài liệu nội bộ nói gì về: ' },
   ]
 
-  // Auto-resize textarea height
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -41,7 +47,7 @@ export const Composer: React.FC<ComposerProps> = ({
   }
 
   const handleSend = () => {
-    if (!text.trim() || isLoading) return
+    if (!text.trim() || isBusy) return
     onSendMessage(text.trim())
     setText('')
     setShowSlashMenu(false)
@@ -68,7 +74,6 @@ export const Composer: React.FC<ComposerProps> = ({
 
   return (
     <div className="composer-wrapper">
-      {/* Slash command popup */}
       {showSlashMenu && (
         <div className="slash-menu animate-slide-in">
           <div className="slash-menu__header">
@@ -96,7 +101,7 @@ export const Composer: React.FC<ComposerProps> = ({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
-          disabled={isLoading}
+          disabled={isBusy}
           rows={1}
         />
 
@@ -107,16 +112,22 @@ export const Composer: React.FC<ComposerProps> = ({
             </span>
           </div>
 
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={handleSend}
-            disabled={!text.trim() || isLoading}
-            isLoading={isLoading}
-            rightIcon={<Send size={13} />}
-          >
-            Gửi
-          </Button>
+          {isBusy && onStop ? (
+            <Button size="sm" variant="secondary" onClick={onStop} rightIcon={<Square size={12} />}>
+              Dừng
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={handleSend}
+              disabled={!text.trim() || isBusy}
+              isLoading={isBusy}
+              rightIcon={<Send size={13} />}
+            >
+              Gửi
+            </Button>
+          )}
         </div>
       </div>
     </div>

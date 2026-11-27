@@ -19,6 +19,8 @@ class _Extras(BaseModel):
 
 
 class AdminExtras(_Extras):
+    """Category extras of administrative documents (signer, type, replaced numbers)."""
+
     signer: str | None = None
     signer_role: str | None = None
     doc_type: str | None = None
@@ -26,12 +28,16 @@ class AdminExtras(_Extras):
 
 
 class ReportExtras(_Extras):
+    """Category extras of reports (period, unit, reporter)."""
+
     period: str | None = None
     reporting_unit: str | None = None
     reporter: str | None = None
 
 
 class ContractExtras(_Extras):
+    """Category extras of contracts (parties, value, validity dates)."""
+
     parties: list[str] = []
     value: str | None = None
     currency: str | None = None
@@ -40,6 +46,8 @@ class ContractExtras(_Extras):
 
 
 class MinutesExtras(_Extras):
+    """Category extras of meeting minutes (date, place, chair, attendees, decisions)."""
+
     meeting_date: str | None = None
     location: str | None = None
     chair: str | None = None
@@ -48,6 +56,8 @@ class MinutesExtras(_Extras):
 
 
 class TechnicalExtras(_Extras):
+    """Category extras of technical documents (product, version, authors, ISBN)."""
+
     product: str | None = None
     version: str | None = None
     authors: list[str] = []
@@ -55,6 +65,8 @@ class TechnicalExtras(_Extras):
 
 
 class AcademicExtras(_Extras):
+    """Category extras of theses and academic work (authors, supervisor, programme)."""
+
     authors: list[str] = []
     student_id: str | None = None
     supervisor: str | None = None
@@ -65,6 +77,8 @@ class AcademicExtras(_Extras):
 
 
 class SpreadsheetExtras(_Extras):
+    """Category extras of spreadsheets (sheet names and row counts)."""
+
     sheets: list[str] = []
     row_counts: dict[str, int] = {}
 

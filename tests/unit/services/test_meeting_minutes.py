@@ -15,7 +15,7 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import User
 from app.services.meetings import minutes as minutes_module
 from app.services.meetings.minutes import Minutes, find_transcript, transcript_query, write_minutes
-from app.services.proactive.minutes import MeetingMinutesJob
+from app.services.proactive.jobs.minutes import MeetingMinutesJob
 from app.services.routing.query import QueryOrchestrator
 from tests.unit.services.proactive._fakes import FakeCalendar, FakeSources, local, make_event
 

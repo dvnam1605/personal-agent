@@ -143,6 +143,7 @@ def _paragraph(text: str, style: str | None = None) -> str:
 
 
 def make_docx(paragraphs: list[str]) -> bytes:
+    """Build a minimal valid .docx from WordprocessingML paragraphs."""
     document = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<w:document xmlns:w="{_W_NS}"><w:body>' + "".join(paragraphs) + "</w:body></w:document>"
@@ -163,6 +164,7 @@ def make_docx(paragraphs: list[str]) -> bytes:
 
 
 def build_pdf_fixtures() -> tuple[dict[str, bytes], dict[str, bytes]]:
+    """Generate the text-layer PDF fixtures and the PDFs that must fail parsing."""
     normal_text = make_pdf(
         [
             [
@@ -252,6 +254,7 @@ def build_pdf_fixtures() -> tuple[dict[str, bytes], dict[str, bytes]]:
 
 
 def build_docx_fixtures() -> dict[str, bytes]:
+    """Generate the DOCX fixtures: headings, lists, tables and a long hierarchy."""
     headings = make_docx(
         [
             _paragraph("Project Handbook", "Heading1"),
@@ -330,6 +333,7 @@ Revert to the previous artifact and re-run smoke tests.
 
 
 def main() -> None:
+    """Write every fixture under tests/fixtures/parsing/, creating folders as needed."""
     pdf_fixtures, failure_pdf = build_pdf_fixtures()
     targets: dict[Path, bytes] = {}
 

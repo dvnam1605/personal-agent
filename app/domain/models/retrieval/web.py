@@ -1,4 +1,4 @@
-"""Web search domain contracts (spec P13).
+"""Web search domain contracts.
 
 Minimal frozen models for external web results consumed by the
 KnowledgeResearchAgent. Web content is untrusted external data: it is always
@@ -48,7 +48,7 @@ class WebSearchResultItem(BaseModel):
 
 
 class WebSearchPage(BaseModel):
-    """One page of external web results (spec P13 §3.1 Mode 2)."""
+    """One page of external web results."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

@@ -27,6 +27,7 @@ class QueryRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def strip_query(cls, value: str) -> str:
+        """Trim the question and reject one that is only whitespace."""
         stripped = value.strip()
         if not stripped:
             raise ValueError("query must not be blank")
@@ -53,6 +54,7 @@ async def submit_query(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     orchestrator: QueryOrchestrator = Depends(get_query_orchestrator),  # noqa: B008
 ) -> QueryResult:
+    """Answer one request and return the full result."""
     correlation_id = request.headers.get("X-Request-ID")
     return await orchestrator.handle(
         session,
@@ -74,6 +76,7 @@ async def submit_query_stream(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     orchestrator: QueryOrchestrator = Depends(get_query_orchestrator),  # noqa: B008
 ) -> StreamingResponse:
+    """Answer one request as a server-sent event stream."""
     correlation_id = request.headers.get("X-Request-ID")
     return StreamingResponse(
         orchestrator.handle_stream(

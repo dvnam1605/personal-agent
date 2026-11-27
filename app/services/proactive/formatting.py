@@ -23,6 +23,20 @@ def plain(value: object, max_len: int = 200) -> str:
     return inert_markdown(text)
 
 
+def mail_action(from_email: str) -> dict[str, str]:
+    """Button data that lets the user ask to read the newest mail from ``from_email``.
+
+    Only the sender's address goes into the suggested request, never the subject, so
+    the text the assistant later receives cannot carry instructions from the sender.
+    """
+    if not from_email:
+        return {}
+    return {
+        "action_label": "Đọc email",
+        "suggested_query": f"Đọc email mới nhất từ {from_email}",
+    }
+
+
 def sender_name(value: object) -> str:
     """ "Anh Nam <nam@x.vn>" → "Anh Nam"; a bare address stays as it is."""
     text = str(value or "").strip()

@@ -10,7 +10,7 @@ from app.domain.enums import ActionRiskLevel, ApprovalOutcome
 
 
 class ProposedAction(BaseModel):
-    """A proposed mutation action requiring policy validation or human confirmation (spec P18-02)."""
+    """A proposed mutation action requiring policy validation or human confirmation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -71,7 +71,7 @@ class ProposedAction(BaseModel):
 
 
 class ActionApproval(BaseModel):
-    """Recorded human confirmation decision for a proposed action (spec P18-01)."""
+    """Recorded human confirmation decision for a proposed action."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

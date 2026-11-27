@@ -1,10 +1,10 @@
-"""Static workflow registry and metadata specifications (P15 / §18A.5).
+"""Static workflow registry: declarative specifications FastTriage matches against.
 
 Static workflows represent frequently executed, standardized multi-step
 sequences with known dependencies. They bypass the expensive Supervisor LLM
 planning loop.
 
-In strict compliance with §18A.5:
+Layering rules this module keeps:
 - ``app/services/`` maintains ZERO framework imports (no langgraph).
 - Compiled StateGraph subgraphs live exclusively under ``app/harness/workflows/``.
 - ``StaticWorkflowRegistry`` holds declarative specifications, domain contracts,

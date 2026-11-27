@@ -1,4 +1,4 @@
-"""Parse-quality gating before chunking (spec P9B-3).
+"""Parse-quality gating before chunking.
 
 Pure function over a ParsedDocument; no I/O and no engine knowledge. Broken
 parses get typed statuses (NEEDS_OCR / CORRUPT) so a batch continues with the

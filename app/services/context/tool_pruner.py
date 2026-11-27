@@ -53,7 +53,7 @@ class ToolResultPruner:
                 # Replace with compact summary
                 summary = self._summarize_tool_content(msg.content)
                 chars_reclaimed += max(0, len(msg.content) - len(summary))
-                pruned_messages.append(ChatMessage(role="tool", content=summary))
+                pruned_messages.append(msg.model_copy(update={"content": summary}))
             else:
                 pruned_messages.append(msg)
 

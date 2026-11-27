@@ -41,6 +41,7 @@ def render_table_markdown(
     *,
     created: date | None = None,
 ) -> str:
+    """The table as markdown with its sources listed under it."""
     created = created or date.today()
     names = ["STT", *[c["name"] for c in columns], "Nguồn"]
     parts = [
@@ -85,6 +86,7 @@ def render_table_xlsx(
     request: str = "",
     created: date | None = None,
 ) -> Path:
+    """Write the table to ``path`` as .xlsx: STT, the columns, and a Nguồn column per row."""
     created = created or date.today()
     path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()

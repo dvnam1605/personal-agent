@@ -57,7 +57,7 @@ class AgentDefinition(BaseModel):
     inherits_parent_tools: bool = Field(
         default=False,
         description=(
-            "Reserved delegation-policy flag (P12+): when True, a delegated "
+            "Reserved delegation-policy flag: when True, a delegated "
             "child's tool scope may be widened with the parent's allowed tool "
             "categories. NOT enforced by DelegationService yet."
         ),
@@ -172,7 +172,7 @@ class TaskResult(BaseModel):
 
 
 class DelegationResult(BaseModel):
-    """Normalized result of one delegated specialist execution (P11-07).
+    """Normalized result of one delegated specialist execution.
 
     Standalone model (no longer extends the removed ``AgentResult``): the P11
     runtime returns :class:`SpecialistOutcome`, and the delegation entry point
@@ -206,6 +206,10 @@ class DelegationResult(BaseModel):
         default=False,
         description="Whether delegated execution paused awaiting user/policy approval.",
     )
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured report data, e.g. a ``proposed_action`` awaiting approval.",
+    )
     delegation_depth: int = Field(
         default=0,
         ge=0,
@@ -213,5 +217,5 @@ class DelegationResult(BaseModel):
     )
     usage: BudgetUsage = Field(
         default_factory=BudgetUsage,
-        description="Specialist budget usage captured even when the child times out (M5).",
+        description="Specialist budget usage captured even when the child times out.",
     )

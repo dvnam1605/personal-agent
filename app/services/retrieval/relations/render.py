@@ -123,6 +123,7 @@ def render_relation_answer(
     facts: list[dict[str, Any]],
     total: int,
 ) -> tuple[str, list[Citation]]:
+    """Deterministic answer grouping the facts by document, with one citation per document."""
     by_doc: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for fact in facts:
         by_doc[str(fact["document_id"])].append(fact)

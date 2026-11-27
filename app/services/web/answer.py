@@ -58,6 +58,7 @@ class WebAnswerService:
         self._max_results = max_results
 
     async def answer(self, question: str) -> WebAnswer:
+        """Search the web and answer from the results, citing them as W1, W2, ..."""
         page = await self._provider.search(question, max_results=self._max_results)
         if not page.items:
             return WebAnswer(

@@ -30,7 +30,7 @@ async def override_db_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest.mark.asyncio
 async def test_timing_mitigation_dummy_hash_format() -> None:
     """Verify that DUMMY_PASSWORD_HASH is a valid PBKDF2 hash string and consumes compute time."""
-    assert DUMMY_PASSWORD_HASH.startswith("pbkdf2:sha256:100000$")
+    assert DUMMY_PASSWORD_HASH.startswith("pbkdf2:sha256:600000$")
     is_valid = verify_password("wrong_password_test", DUMMY_PASSWORD_HASH)
     assert is_valid is False
 

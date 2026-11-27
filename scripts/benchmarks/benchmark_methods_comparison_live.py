@@ -219,6 +219,7 @@ def evaluate_ranking(
     case: dict,
     doc_meta_map: dict[str, dict],
 ) -> tuple[int, float]:
+    """Rank of the first chunk matching the expected document or signer (0 if none), and its reciprocal rank."""
     expected_doc = case.get("expected_doc_number")
     expected_signer = case.get("expected_signer")
 
@@ -244,9 +245,9 @@ def evaluate_ranking(
 
 
 async def main() -> None:
+    """Run every retrieval configuration over the gold queries and print the comparison table."""
     session_factory = get_session_factory()
 
-    # Load metadata
     doc_meta_map = {}
     async with session_factory() as session:
         rows = (
@@ -265,7 +266,6 @@ async def main() -> None:
                 "signer_name": admin.get("signer_name"),
             }
 
-    # Initialize models
     model_name = settings.embedding.model
     model_path = snapshot_download(
         model_name, revision=settings.embedding.revision, local_files_only=True
@@ -297,7 +297,6 @@ async def main() -> None:
     for case in BENCHMARK_CASES:
         qtext = case["query"]
 
-        # Base retrieval query
         q = RetrievalQuery(
             original_query=qtext,
             search_query=qtext,

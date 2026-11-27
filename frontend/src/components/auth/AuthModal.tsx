@@ -13,6 +13,7 @@ interface AuthModalProps {
   onSuccess: (user: UserProfile) => void
 }
 
+/** Sign-in / sign-up dialog: switches between login and registration, calls the auth API and hands the signed-in profile back to the app. */
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [isRegister, setIsRegister] = useState(false)
   const [email, setEmail] = useState('')

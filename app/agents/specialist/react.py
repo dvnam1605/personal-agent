@@ -20,11 +20,14 @@ from dataclasses import dataclass, field
 from app.agents.specialist.guard import RepeatToolGuard, normalize_arguments
 from app.agents.specialist.protocols import ChatBackend, ToolExecutor
 from app.agents.specialist.report import (
+    PROPOSE_TOOL_DEFINITION,
+    PROPOSE_TOOL_NAME,
     REPORT_TOOL_DEFINITION,
     REPORT_TOOL_NAME,
     ReportValidationError,
     coerce_report_arguments,
     parse_report_call,
+    report_from_proposal,
     report_from_stop,
 )
 from app.core.sanitization import sanitize_payload, strip_sensitive_keys
@@ -97,6 +100,22 @@ def _summarize_output(output: object, *, limit: int) -> str:
     return text
 
 
+def _with_call_ids(turn: AssistantTurn, iteration: int) -> AssistantTurn:
+    """Give every tool call an id so its result can be paired with it in the transcript."""
+    if all(call.call_id for call in turn.tool_calls):
+        return turn
+    calls = [
+        call if call.call_id else call.model_copy(update={"call_id": f"call_{iteration}_{index}"})
+        for index, call in enumerate(turn.tool_calls)
+    ]
+    return turn.model_copy(update={"tool_calls": calls})
+
+
+def _tool_message(call: ToolCallRequest, observation: str) -> ChatMessage:
+    """The tool result answering ``call``, linked by its call id."""
+    return ChatMessage(role="tool", content=observation, tool_call_id=call.call_id)
+
+
 class SpecialistRunner:
     """Execute one specialist activation under explicit bounds."""
 
@@ -112,6 +131,7 @@ class SpecialistRunner:
         repeat_breaker_after: int = 3,
         observation_truncate: int = 500,
         compactor: ContextCompactor | None = None,
+        offer_proposals: bool = False,
     ) -> None:
         if no_progress_limit < 1:
             raise ValueError("no_progress_limit must be >= 1")
@@ -127,6 +147,7 @@ class SpecialistRunner:
         self._repeat_remind_after = repeat_remind_after
         self._repeat_breaker_after = repeat_breaker_after
         self._observation_truncate = observation_truncate
+        self._offer_proposals = offer_proposals
         self._compactor = compactor
 
     async def run(
@@ -233,6 +254,7 @@ class SpecialistRunner:
                 )
             ),
             REPORT_TOOL_DEFINITION,
+            *((PROPOSE_TOOL_DEFINITION,) if self._offer_proposals else ()),
         ]
         context = ToolContext(
             run_id=run_id,
@@ -306,7 +328,12 @@ class SpecialistRunner:
                     report_from_stop(budget_stop, self._stop_summary(budget_stop)),
                 )
             state.usage.record_react_step()
-            messages.append(ChatMessage(role="assistant", content=turn.text or "(tool calls)"))
+            turn = _with_call_ids(turn, iteration)
+            messages.append(
+                ChatMessage(role="assistant", content=turn.text, tool_calls=turn.tool_calls)
+                if turn.tool_calls
+                else ChatMessage(role="assistant", content=turn.text or "(no answer)")
+            )
 
             if not turn.tool_calls:
                 return self._finish(
@@ -357,6 +384,18 @@ class SpecialistRunner:
         iteration: int,
     ) -> tuple[SpecialistReport, StopReason, bool] | None:
         """Execute one call; non-None means the activation terminates."""
+        if call.tool_name == PROPOSE_TOOL_NAME and self._offer_proposals:
+            try:
+                report = report_from_proposal(call)
+            except ReportValidationError as exc:
+                observation = f"Proposal rejected: {exc}"
+                self._record_step(
+                    state, iteration, call, observation, success=False, reminder=False
+                )
+                messages.append(_tool_message(call, observation))
+                return None
+            return report, StopReason.SUCCESS, True
+
         if call.tool_name == REPORT_TOOL_NAME:
             try:
                 report = parse_report_call(
@@ -367,9 +406,7 @@ class SpecialistRunner:
                 self._record_step(
                     state, iteration, call, observation, success=False, reminder=False
                 )
-                # Keep the tool-call/tool-result pairing intact so real chat
-                # backends never see a dangling tool_call in the transcript.
-                messages.append(ChatMessage(role="tool", content=observation))
+                messages.append(_tool_message(call, observation))
                 return None
             return report, StopReason.SUCCESS, report.status is SpecialistStatus.NEEDS_APPROVAL
 
@@ -378,7 +415,7 @@ class SpecialistRunner:
         except (NotFoundError, PermissionDeniedError):
             observation = f"Tool '{call.tool_name}' is not available to agent '{agent.name}'."
             self._record_step(state, iteration, call, observation, success=False, reminder=False)
-            messages.append(ChatMessage(role="tool", content=observation))
+            messages.append(_tool_message(call, observation))
             return None
 
         if definition.is_mutation:
@@ -414,7 +451,20 @@ class SpecialistRunner:
                     )
                     else SpecialistStatus.BLOCKED
                 )
-                report = SpecialistReport(status=status, summary=summary, blockers=[summary])
+                # Keep what the model wanted to write, so a person can approve exactly that.
+                proposal = (
+                    {
+                        "proposed_action": {
+                            "tool_name": call.tool_name,
+                            "arguments": proposed_action.parameters,
+                        }
+                    }
+                    if status is SpecialistStatus.NEEDS_APPROVAL
+                    else {}
+                )
+                report = SpecialistReport(
+                    status=status, summary=summary, blockers=[summary], data=proposal
+                )
                 return report, StopReason.POLICY, status is SpecialistStatus.NEEDS_APPROVAL
 
         if state.usage.tool_calls >= task.budget.max_tool_calls:
@@ -463,9 +513,10 @@ class SpecialistRunner:
             output=guard_output,
             error=guard_error,
         )
+        messages.append(_tool_message(call, observation or "(empty)"))
         if decision.reminder is not None:
+            # After the tool result: a tool message must directly follow its call.
             messages.append(ChatMessage(role="system", content=decision.reminder))
-        messages.append(ChatMessage(role="tool", content=observation or "(empty)"))
         self._record_step(
             state,
             iteration,

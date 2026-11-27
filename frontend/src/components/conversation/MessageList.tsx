@@ -68,6 +68,7 @@ interface MessageListProps {
   onRetryQuery?: (query: string) => void
 }
 
+/** The conversation feed: a greeting with quick prompts, every turn as a `MessageItem`, a typing indicator while the first token is awaited, and auto-scroll to the newest message. */
 export const MessageList: React.FC<MessageListProps> = ({
   turns,
   isLoading,

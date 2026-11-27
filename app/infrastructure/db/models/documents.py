@@ -73,6 +73,7 @@ class Document(Base, TimestampMixin):
             sqlite_where=text("is_active = 1"),
         ),
         Index("ix_documents_logical_fingerprint", "logical_document_id", "fingerprint"),
+        Index("ix_documents_user", "user_id"),
         CheckConstraint(
             "status IN ('pending', 'processing', 'ready', 'active', 'failed', 'archived')",
             name="ck_documents_status",
@@ -234,7 +235,7 @@ class DocumentRelation(Base):
 
 
 class IngestionJobRecord(Base):
-    """Durable ingestion job with worker-safe claims (spec P9D-3, P3 patterns)."""
+    """Durable ingestion job with worker-safe claims."""
 
     __tablename__ = "ingestion_jobs"
 

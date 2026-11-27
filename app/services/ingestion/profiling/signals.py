@@ -27,6 +27,8 @@ _LEADER_DOTS = re.compile(r"\.{4,}")
 
 @dataclass(frozen=True)
 class DocumentSignals:
+    """What profiling reads from a document: filename, header/tail lines and structure counts."""
+
     filename: str
     header_lines: tuple[str, ...]
     tail_lines: tuple[str, ...]
@@ -81,6 +83,7 @@ def build_signals_from_text(
     node_count: int = 0,
     page_count: int | None = None,
 ) -> DocumentSignals:
+    """Signals from plain text: its first and last non-empty lines plus the given counts."""
     lines = _clean_lines(text)
     header = tuple(lines[:HEADER_LINES])
     tail = tuple(lines[-TAIL_LINES:]) if len(lines) > HEADER_LINES else ()

@@ -32,6 +32,7 @@ _CATEGORY_NOUN = {
 
 
 def describe_noun(spec: MetadataFilterSpec) -> str:
+    """Vietnamese noun for what the spec lists: its subtypes, categories, or "tài liệu"."""
     if spec.subtypes:
         return " / ".join(s.lower() for s in spec.subtypes)
     if spec.categories:
@@ -68,6 +69,7 @@ def _line(idx: int, row: dict) -> str:
 def render_metadata_answer(
     spec: MetadataFilterSpec, result: StructuredResult
 ) -> tuple[str, list[Citation]]:
+    """Deterministic answer listing the matched documents, each cited by its document id."""
     noun = describe_noun(spec)
     filters = describe_filters(spec)
     rows = list(result.rows)[:MAX_LISTED]

@@ -1,4 +1,4 @@
-"""Retention service and scheduled operational purge worker for P3 telemetry."""
+"""Retention service and scheduled operational purge worker for run telemetry."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
@@ -82,7 +82,7 @@ class RetentionService:
                 )
             )
         )
-        # tool_executions, llm_executions, and audit_events are append-only (M7).
+        # tool_executions, llm_executions, and audit_events are append-only audit records.
         deleted["tool_executions"] = 0
         deleted["llm_executions"] = 0
         deleted["audit_events"] = 0
@@ -101,7 +101,7 @@ class RetentionService:
                     delete(ApprovalRequest).where(ApprovalRequest.run_id.in_(expired_run_ids))
                 )
             )
-            # Keep assistant_runs: they parent append-only tool/llm/audit rows (M7).
+            # Keep assistant_runs: they parent append-only tool/llm/audit rows.
             deleted["assistant_runs"] = 0
         else:
             deleted.update(messages=0, workflow_runs=0, approval_requests=0, assistant_runs=0)

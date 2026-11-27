@@ -28,7 +28,6 @@ def _sanitize_name(suggested_name: str | None, default: str = "output") -> str:
     """Sanitize suggested name to a single safe filename segment."""
     if not suggested_name:
         return default
-    # Strip any path separators, parent traversal, or invalid chars
     cleaned = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", suggested_name.strip())
     cleaned = re.sub(r"\.+", ".", cleaned)
     cleaned = cleaned.strip("._")
@@ -42,7 +41,6 @@ def _utf8_truncate_head(text: str, max_bytes: int) -> str:
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
         return text
-    # Truncate raw bytes and decode ignoring partial multibyte char at the boundary
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
@@ -53,7 +51,6 @@ def _utf8_truncate_tail(text: str, max_bytes: int) -> str:
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
         return text
-    # Take slice from the end and decode ignoring partial multibyte char at start of boundary
     return encoded[-max_bytes:].decode("utf-8", errors="ignore")
 
 
@@ -104,6 +101,7 @@ class InMemorySpillStore(SpillStore):
         call_id: str | None = None,
         suggested_name: str | None = None,
     ) -> SpillRef:
+        """Keep ``content`` in memory under a new per-session locator."""
         if not session_id or not session_id.strip():
             raise ValidationError("session_id must be provided to save spill text.")
 
@@ -134,6 +132,7 @@ class InMemorySpillStore(SpillStore):
         return ref
 
     def read_text(self, locator: str, offset: int = 0, limit: int | None = None) -> str:
+        """Return a character slice of a stored artifact."""
         if locator not in self._entries:
             raise NotFoundError(
                 f"Spill artifact '{locator}' was not found.",
@@ -178,9 +177,9 @@ class LocalFileSpillStore(SpillStore):
                 self._cipher = FernetTokenCipher.from_settings()
             except Exception as exc:  # noqa: BLE001 - cipher init is optional unless required
                 if require_encryption:
-                    logger.error("spill_encryption_required_failed", extra={"error": str(exc)})
+                    logger.error("spill_encryption_required_failed", error=str(exc))
                     raise
-                logger.warning("spill_cipher_init_failed", extra={"error": str(exc)})
+                logger.warning("spill_cipher_init_failed", error=str(exc))
                 self._cipher = None
 
     def _session_dir(self, session_id: str) -> Path:
@@ -190,31 +189,33 @@ class LocalFileSpillStore(SpillStore):
         try:
             dir_path.chmod(0o700)
         except OSError as exc:
-            logger.debug("spill_dir_chmod_failed", extra={"path": str(dir_path), "error": str(exc)})
+            logger.debug("spill_dir_chmod_failed", path=str(dir_path), error=str(exc))
         return dir_path
 
     def _resolve_locator_path(self, locator: str) -> Path:
         """Resolve locator to a secure local path, verifying it cannot escape base_dir."""
         if locator.startswith("spill://"):
-            # Format: spill://session_id/artifact_id
             parts = locator[len("spill://") :].split("/", 1)
             if len(parts) != 2:
                 raise ValidationError(f"Invalid spill URI locator format: {locator}")
             session_id, artifact_id = parts
-            session_dir = self._session_dir(session_id)
+            session_dir = self._session_dir(session_id).resolve()
+            # Older stores named session directories with a 16-character hash.
+            legacy_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:16]
+            legacy_dir = (self.base_dir / f"session-{legacy_hash}").resolve()
             target_path = (session_dir / f"{artifact_id}.txt").resolve()
             if not target_path.exists():
-                # Backwards-compatible check for legacy 16-character session directories
-                legacy_hash = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:16]
-                legacy_path = (
-                    self.base_dir / f"session-{legacy_hash}" / f"{artifact_id}.txt"
-                ).resolve()
+                legacy_path = (legacy_dir / f"{artifact_id}.txt").resolve()
                 if legacy_path.exists():
                     target_path = legacy_path
+            if target_path.parent not in (session_dir, legacy_dir):
+                raise ValidationError(
+                    "Security violation: spill artifact must stay inside its session directory.",
+                    details={"locator": locator},
+                )
         else:
             target_path = Path(locator).resolve()
 
-        # Strict containment check
         try:
             target_path.relative_to(self.base_dir)
         except ValueError as exc:
@@ -234,6 +235,9 @@ class LocalFileSpillStore(SpillStore):
         call_id: str | None = None,
         suggested_name: str | None = None,
     ) -> SpillRef:
+        """Write ``content`` (encrypted when a cipher is configured) and its metadata file
+        into the session's directory and return the reference.
+        """
         if not session_id or not session_id.strip():
             raise ValidationError("session_id must be provided to save spill text.")
 
@@ -264,7 +268,6 @@ class LocalFileSpillStore(SpillStore):
             created_at=datetime.now(UTC),
         )
 
-        # Write text (encrypted if cipher configured) and metadata
         if self._require_encryption and self._cipher is None:
             raise ValidationError("Spill encryption is required but no cipher is configured.")
         payload = self._cipher.encrypt(content) if self._cipher is not None else content
@@ -272,21 +275,18 @@ class LocalFileSpillStore(SpillStore):
         try:
             file_path.chmod(0o600)
         except OSError as exc:
-            logger.debug(
-                "spill_file_chmod_failed", extra={"path": str(file_path), "error": str(exc)}
-            )
+            logger.debug("spill_file_chmod_failed", path=str(file_path), error=str(exc))
         meta_path.write_text(ref.model_dump_json(indent=2), encoding="utf-8")
         try:
             meta_path.chmod(0o600)
         except OSError as exc:
-            logger.debug(
-                "spill_file_chmod_failed", extra={"path": str(meta_path), "error": str(exc)}
-            )
+            logger.debug("spill_file_chmod_failed", path=str(meta_path), error=str(exc))
         self._meta_cache[locator] = ref
 
         return ref
 
     def read_text(self, locator: str, offset: int = 0, limit: int | None = None) -> str:
+        """Read and, if needed, decrypt an artifact, then return a character slice."""
         file_path = self._resolve_locator_path(locator)
         if not file_path.is_file():
             raise NotFoundError(
@@ -301,7 +301,9 @@ class LocalFileSpillStore(SpillStore):
             except TokenEncryptionError as exc:
                 logger.error(
                     "spill_decrypt_failed",
-                    extra={"locator": locator, "path": str(file_path), "error": str(exc)},
+                    locator=locator,
+                    path=str(file_path),
+                    error=str(exc),
                 )
                 raise ValidationError(
                     "Unable to decrypt spill artifact.",
@@ -318,6 +320,7 @@ class LocalFileSpillStore(SpillStore):
         return content[offset : offset + limit]
 
     def get_ref(self, locator: str) -> SpillRef | None:
+        """Load an artifact's metadata, or ``None`` when it is missing or unreadable."""
         if locator in self._meta_cache:
             return self._meta_cache[locator]
 
@@ -330,11 +333,12 @@ class LocalFileSpillStore(SpillStore):
                 self._meta_cache[locator] = ref
                 return ref
         except Exception:  # noqa: BLE001 - missing/corrupt spill meta is a cache miss
-            logger.debug("spill_meta_load_failed", extra={"locator": locator}, exc_info=True)
+            logger.debug("spill_meta_load_failed", locator=locator, exc_info=True)
             return None
         return None
 
     def list_spills(self, session_id: str) -> list[SpillRef]:
+        """Metadata of every readable artifact in the session's directory."""
         session_dir = self._session_dir(session_id)
         results: list[SpillRef] = []
         for meta_file in session_dir.glob("*.meta.json"):
@@ -342,9 +346,7 @@ class LocalFileSpillStore(SpillStore):
                 data = json.loads(meta_file.read_text(encoding="utf-8"))
                 results.append(SpillRef.model_validate(data))
             except Exception:  # noqa: BLE001 - skip unreadable spill meta files
-                logger.debug(
-                    "spill_meta_list_failed", extra={"path": str(meta_file)}, exc_info=True
-                )
+                logger.debug("spill_meta_list_failed", path=str(meta_file), exc_info=True)
                 continue
         return results
 
@@ -377,7 +379,6 @@ class SpillPolicy:
         if not result.success or result.output is None:
             return result
 
-        # Convert output to text representation
         text_content: str | None = None
         if isinstance(result.output, str):
             text_content = result.output
@@ -400,7 +401,6 @@ class SpillPolicy:
             )
             return result
 
-        # Best effort attempt to save text
         try:
             spill_ref = self.store.save_text(
                 session_id=session_id,
@@ -418,7 +418,6 @@ class SpillPolicy:
 
         spilled_output = self.compose_bounded_preview(text_content, spill_ref)
 
-        # Update output
         return result.model_copy(
             update={
                 "output": spilled_output.formatted_content,
@@ -430,7 +429,6 @@ class SpillPolicy:
         max_bytes = self.config.max_inline_bytes
         raw_bytes = ref.byte_count
 
-        # Estimate notice size and structural separator overheads ("\n...\n" is 5 bytes, "\n\n" is 2 bytes)
         sample_notice = f"(Omitted {raw_bytes} bytes. Full formatted result stored at: {ref.locator}. {ref.retrieval_hint})"
         notice_bytes = len(sample_notice.encode("utf-8"))
         structural_overhead = 7  # 5 for "\n...\n", 2 for "\n\n"
@@ -462,7 +460,6 @@ class SpillPolicy:
             preview = ""
             formatted = notice
 
-        # Strict safety check: if multi-byte variations caused slight overshoot, trim preview
         overshoot = len(formatted.encode("utf-8")) - max_bytes
         if overshoot > 0:
             excess = overshoot + 8

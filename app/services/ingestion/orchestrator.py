@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -63,6 +64,21 @@ def _parser_version_for(source: SourceDocument) -> str:
     return docling_version()
 
 
+def _accepts_batch_callback(embedding: Any) -> bool:
+    """Whether ``embedding.embed_documents`` takes a ``batch_callback`` keyword.
+
+    Test doubles and older services may not, so support is checked up front
+    instead of catching a ``TypeError`` that could come from inside the call.
+    """
+    try:
+        params = inspect.signature(embedding.embed_documents).parameters
+    except (TypeError, ValueError):
+        return False
+    return "batch_callback" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+
+
 def _parser_name_for(source: SourceDocument) -> str:
     return "markdown" if source.source_type == "preparsed_markdown" else "docling"
 
@@ -109,6 +125,11 @@ class IngestionOrchestrator:
         force_reindex: bool = False,
         parsed_result: ParseResult | None = None,
     ) -> IngestionObservability:
+        """Run one source through the pipeline and return its observability record.
+
+        Unchanged fingerprints skip; failures are recorded, never raised.
+        LLM work (profiling, relations) runs before the persistence transaction.
+        """
         obs = _Obs(job_id or str(uuid4()), source, len(content))
         if parsed_result is not None and parsed_result.document is not None:
             meta = parsed_result.document.metadata
@@ -196,7 +217,7 @@ class IngestionOrchestrator:
             if self._formula_rebuilder is not None:
                 tree = await self._formula_rebuilder.arebuild(tree)
             # Image files are kept whatever happens next; chunks refer to them by key.
-            store_images(tree)
+            await asyncio.to_thread(store_images, tree)
             tree = adopt_captions(tree)
             if self._image_describer is not None:
                 tree = await self._image_describer.adescribe(tree)
@@ -240,19 +261,14 @@ class IngestionOrchestrator:
             obs.durations["children"] = stage_elapsed()
 
             await mark(IngestionStatus.EMBEDDING)
-            try:
-                heartbeat_fn = self._heartbeat
-                batch_cb = (
-                    (lambda *a, **k: heartbeat_fn(obs.job_id)) if heartbeat_fn is not None else None
-                )
+            texts = [child.embedding_text for child, _ in children]
+            heartbeat_fn = self._heartbeat
+            if heartbeat_fn is not None and _accepts_batch_callback(self._embedding):
                 vectors = await self._embedding.embed_documents(
-                    [child.embedding_text for child, _ in children],
-                    batch_callback=batch_cb,
+                    texts, batch_callback=lambda: heartbeat_fn(obs.job_id)
                 )
-            except TypeError:
-                vectors = await self._embedding.embed_documents(
-                    [child.embedding_text for child, _ in children]
-                )
+            else:
+                vectors = await self._embedding.embed_documents(texts)
             obs.durations["embedding"] = stage_elapsed()
 
             await mark(IngestionStatus.PERSISTING)
@@ -326,7 +342,7 @@ class IngestionOrchestrator:
     async def sync_decision(
         self, source: SourceDocument
     ) -> tuple[str, StoredFingerprintState | None]:
-        """NEW / MODIFIED / UNCHANGED without ingesting (spec P9D-4)."""
+        """NEW / MODIFIED / UNCHANGED without ingesting."""
         inputs = self._fingerprint_inputs(source)
         logical_id = logical_document_id_for(source.source_id)
         state = await self._repository.latest_state(logical_id)

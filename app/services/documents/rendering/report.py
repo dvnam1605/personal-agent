@@ -38,6 +38,7 @@ _INLINE_MATH = re.compile(r"(?<!\$)\$(?=\S)([^$\n]+?)(?<=\S)\$(?!\$)")
 
 
 def source_line(c: dict[str, Any]) -> str:
+    """ "Title, mục …, tr. …" source line for one citation."""
     bits = [str(c.get("title") or c.get("document_id"))]
     if c.get("section_title"):
         bits.append(f"mục {c['section_title']}")
@@ -54,6 +55,7 @@ def render_markdown(
     template: DocTemplate,
     created: date | None = None,
 ) -> str:
+    """The written document as markdown: heading, sections and numbered sources."""
     created = created or date.today()
     parts = [f"# {title}", f"_{template.label} — ngày {created:%d/%m/%Y}_", ""]
     for s in sections:
@@ -194,6 +196,7 @@ def render_docx(
     issuer: str | None = None,
     created: date | None = None,
 ) -> Path:
+    """Write the document to ``path`` as .docx, with a formal header when the template asks."""
     created = created or date.today()
     doc = DocxDocument()
     normal = cast(ParagraphStyle, doc.styles["Normal"])

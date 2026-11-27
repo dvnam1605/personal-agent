@@ -18,7 +18,7 @@ scratch/
 .agents
 skills-lock.json
 
-# RAG gold-set evaluation runs (scripts/eval_rag.py)
+# RAG gold-set evaluation runs (scripts/benchmarks/eval_rag.py)
 eval_results/
 
 # Generated files and local DB backups

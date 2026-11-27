@@ -17,6 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create generated_documents (JSONB on PostgreSQL, JSON elsewhere)."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = postgresql.JSONB() if is_pg else sa.JSON()
     op.create_table(

@@ -38,6 +38,7 @@ class DriveService:
         retry_policy: RetryPolicy | None = None,
         sleep: Sleep | None = None,
     ) -> DriveService:
+        """Build the service around one already-authorized client."""
         kwargs: dict[str, Any] = {}
         if retry_policy is not None:
             kwargs["retry_policy"] = retry_policy

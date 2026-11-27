@@ -25,6 +25,8 @@ MIN_WINNING_SCORE = 1.4
 
 @dataclass(frozen=True)
 class Classification:
+    """The chosen category and subtype, with confidence and the per-category scores."""
+
     category: DocCategory
     subtype: str | None
     confidence: float
@@ -49,6 +51,10 @@ class RuleClassifier:
     """Deterministic classifier over :class:`DocumentSignals`."""
 
     def classify(self, signals: DocumentSignals) -> Classification:
+        """Score every category from title lines, filename and body markers; pick the best.
+
+        A subtype title near the top is the strongest signal; markers only add.
+        """
         header = signals.header_folded.split("\n")[:TITLE_SCAN_LINES]
         markers_text = f"{signals.header_folded}\n{signals.tail_folded}"
         scores: dict[DocCategory, float] = {}

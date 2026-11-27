@@ -72,7 +72,7 @@ class Replies:
 
     async def __call__(self, system: str, user: str, **_: Any) -> dict[str, Any] | None:
         doc = "d1" if "Liên hoan" in user else "d2"
-        self.calls.append((doc, "review" if system.startswith("Bạn thẩm định") else "extract"))
+        self.calls.append((doc, "review" if "Bạn thẩm định" in system else "extract"))
         return self.script[doc].pop(0)
 
 
@@ -249,7 +249,7 @@ async def test_short_documents_are_read_in_full_instead_of_retrieved() -> None:
 
     async def reply(system: str, user: str, **_: Any) -> dict[str, Any] | None:
         seen.append(user)
-        if system.startswith("Bạn thẩm định"):
+        if "Bạn thẩm định" in system:
             return {"issues": []}
         return {"rows": [{"c1": {"v": "Văn phòng", "src": [2]}, "c2": {"v": "", "src": []}}]}
 
@@ -263,6 +263,6 @@ async def test_short_documents_are_read_in_full_instead_of_retrieved() -> None:
     rows, citations = await TableWriter(NoRetrieval(), json_call=reply).write(
         outline, "lập bảng", None, metadata=META, full_texts=full
     )
-    assert "[2] Văn phòng; Ban Thư ký biên tập." in seen[0]
+    assert '[2] <retrieved_document id="2">\nVăn phòng; Ban Thư ký biên tập.' in seen[0]
     assert rows[0]["cells"][1]["value"] == "Văn phòng"
     assert citations[0]["chunk_id"] == "p1"

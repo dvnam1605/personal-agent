@@ -20,6 +20,10 @@ from pydantic import BaseModel, Field
 from app.core.llm import llm_json, llm_text
 from app.core.text import unaccent_vietnamese
 from app.services.documents.writing.quality import _LIST_MARKER, _sentences
+from app.services.retrieval.answer.injection_boundary import (
+    BOUNDARY_INSTRUCTIONS,
+    clip_retrieved_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ def structural_issues(text: str) -> list[ReviewIssue]:
 
 
 REVIEWER_SYSTEM_PROMPT = (
+    f"{BOUNDARY_INSTRUCTIONS}\n\n"
     "Bạn là chuyên viên thẩm định văn bản. Kiểm tra TỪNG CÂU của một mục tài liệu so với các "
     "bằng chứng được đánh số [1], [2], … mà câu đó trích dẫn.\n"
     "Chỉ báo lỗi về NỘI DUNG, thuộc một trong các loại:\n"
@@ -73,6 +78,7 @@ REVIEWER_SYSTEM_PROMPT = (
 )
 
 REVISER_SYSTEM_PROMPT = (
+    f"{BOUNDARY_INSTRUCTIONS}\n\n"
     "Bạn là chuyên viên soạn thảo văn bản. Viết lại MỘT mục tài liệu, sửa đúng các lỗi nội dung "
     "được người thẩm định chỉ ra, chỉ dựa trên các bằng chứng được đánh số [1], [2], ….\n"
     "1. Câu sai thì sửa theo bằng chứng; thông tin không có trong bằng chứng thì bỏ hẳn.\n"
@@ -88,12 +94,16 @@ REVISER_SYSTEM_PROMPT = (
 
 
 class ReviewIssue(BaseModel):
+    """A reviewer's complaint about one sentence."""
+
     sentence: str
     problem: str
     explanation: str = ""
 
 
 class SectionReview(BaseModel):
+    """Self-review outcome of one section: verdict, issues and removed sentences."""
+
     # ok | revised | trimmed (flagged sentences removed) | skipped (reviewer unavailable)
     verdict: str
     issues: list[ReviewIssue] = Field(default_factory=list)
@@ -106,8 +116,10 @@ TextCall = Callable[..., Awaitable[str | None]]
 
 
 def _evidence_block(evidence: dict[int, str]) -> str:
+    """Numbered evidence for the reviewer, each unit clipped but still inside its boundary."""
     return "\n\n".join(
-        f"[{n}] {text.strip()[:MAX_EVIDENCE_CHARS]}" for n, text in sorted(evidence.items())
+        f"[{n}] {clip_retrieved_block(text, MAX_EVIDENCE_CHARS, label=str(n))}"
+        for n, text in sorted(evidence.items())
     )
 
 
@@ -158,6 +170,8 @@ def _clean_citations(text: str, allowed: set[int]) -> str:
 
 
 class SectionReviewer:
+    """LLM self-review of written sections: find issues, then rewrite or trim."""
+
     def __init__(self, *, json_call: JsonCall = llm_json, text_call: TextCall = llm_text) -> None:
         self._json = json_call
         self._text = text_call
@@ -199,6 +213,7 @@ class SectionReviewer:
         issues: list[ReviewIssue],
         evidence: dict[int, str],
     ) -> str | None:
+        """``text`` rewritten to fix ``issues`` from the evidence only; ``None`` on failure."""
         problems = "\n".join(f'- "{i.sentence}" → {i.problem}: {i.explanation}' for i in issues)
         user = (
             f'Mục: "{heading}" — {purpose}\nVăn phong: {style}\n\n'

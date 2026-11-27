@@ -23,7 +23,7 @@ from app.tools.registry import ToolRegistryView, capability_matches
 
 @dataclass(frozen=True)
 class SkillActivation:
-    """Prepared specialist activation for one skill. Execution stays in P11 runtime."""
+    """Prepared specialist activation for one skill. Execution stays in the specialist runtime."""
 
     skill: SkillDefinition
     tool_view: ToolRegistryView
@@ -32,7 +32,17 @@ class SkillActivation:
 
 
 class SkillExecutor:
-    """Authorize a skill and emit procedural guidance. Never evals skill files."""
+    """Authorize a skill and emit procedural guidance. Never evals skill files.
+
+    Known limitation: mutation steps never arm here. Approval tokens are bound to the
+    hash of one concrete proposal, and ``verify_approval_token_sync`` rejects a
+    hash-bound token that is checked without that hash, even as a non-consuming peek.
+    A skill activation has no single proposal to hash, so ``mutations_armed`` stays
+    false and every write is left to the specialist runtime, which returns
+    ``NEEDS_APPROVAL`` and goes through the normal approval request. This fails safe;
+    arming a skill would need the approved proposal's hash passed in explicitly.
+    (Currently only the tests construct ``SkillExecutor``.)
+    """
 
     def __init__(self, telemetry: SkillTelemetry | None = None) -> None:
         self.telemetry = telemetry or SkillTelemetry()
@@ -163,7 +173,12 @@ def authorize_skill_step(
     run_id: str | None = None,
     user_id: str | None = None,
 ) -> None:
-    """Fail-closed check for one skill step against the intersected tool view."""
+    """Fail-closed check for one skill step against the intersected tool view.
+
+    A mutation step needs a token that verifies for its own tool; as explained on
+    :class:`SkillExecutor`, a proposal-bound token cannot pass this check without the
+    proposal hash, so mutation steps are rejected rather than run.
+    """
     if step.tool_name is None:
         return
     if step.tool_name not in view:
@@ -190,7 +205,6 @@ def authorize_skill_step(
             f"Mutation skill step '{step.name}' requires an approval token.",
             details={"skill": skill.metadata.name, "tool": step.tool_name},
         )
-    # H-REMAIN1: verify token cryptographically for the specific tool
     if not verify_approval_token_sync(
         approval_token,
         step.tool_name,

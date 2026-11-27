@@ -1,4 +1,4 @@
-"""High-precision heuristic and LLM-assisted metadata extractor for Vietnamese administrative documents.
+"""High-precision heuristic metadata extractor for Vietnamese administrative documents.
 
 Follows official Vietnamese administrative drafting regulations (Nghị định 30/2020/NĐ-CP)
 to extract document number (Số hiệu), promulgation date (Ngày ban hành), document type,
@@ -7,14 +7,11 @@ issuing authority, subject, and signatory (Người ký & Chức vụ) with zero
 
 from __future__ import annotations
 
-import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import ClassVar
 
-import httpx
-
-from app.core.config import settings
 from app.domain.models.ingestion.administrative_metadata import AdministrativeMetadata
 
 logger = logging.getLogger(__name__)
@@ -49,8 +46,41 @@ _ARTICLE_ONE_ACTION = re.compile(
 )
 
 
+# Filename tokens (split on _ - . and spaces) naming the type: "CT12", "45CT", "1139QD".
+_FILENAME_TYPE_TOKENS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^(?:\d*CT\d*|CHITHI)$"), "Chỉ thị"),
+    (re.compile(r"^(?:\d*Q[DĐ]\d*|QUYETDINH)$"), "Quyết định"),
+)
+_HEADER_TYPES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?i)^CHỈ\s+THỊ\b"), "Chỉ thị"),
+    (re.compile(r"(?i)^QUYẾT\s+ĐỊNH\b"), "Quyết định"),
+    (re.compile(r"(?i)^QUY\s+CHẾ\b"), "Quy chế"),
+    (re.compile(r"(?i)^THÔNG\s+BÁO\b"), "Thông báo"),
+)
+
+
+@dataclass(frozen=True)
+class AdministrativeFields:
+    """Rule-extracted fields of one administrative document, for the profiler.
+
+    ``subject_source`` is ``"rule"`` for the title line, ``"rule_article1"``
+    when the subject was rebuilt from Điều 1, ``None`` without a subject.
+    ``document_type`` is ``None`` when neither the hint, the filename nor the
+    header names one.
+    """
+
+    document_number: str | None
+    filename_number: str | None
+    promulgation_date: str | None
+    subject: str | None
+    subject_source: str | None
+    document_type: str | None
+    signer_name: str | None
+    signer_role: str | None
+
+
 class AdministrativeMetadataExtractor:
-    """Extracts structured administrative attributes using layout algorithms and LLM assistance."""
+    """Extracts structured administrative attributes using layout algorithms."""
 
     AUTHORITY_PREFIX_PATTERNS: ClassVar[list[tuple[re.Pattern[str], str | None]]] = [
         (re.compile(r"(?i)\bĐÀI\s+TIẾNG\s+NÓI\s+VIỆT\s+NAM\b"), "Đài Tiếng nói Việt Nam"),
@@ -191,22 +221,11 @@ class AdministrativeMetadataExtractor:
         header_text = "\n".join(lines[:35]) if lines else ""
         tail_text = "\n".join(lines[-40:]) if lines else ""
 
-        # 1. Document Type (Thể loại văn bản)
         doc_type = cls._extract_document_type(header_text, filename)
-
-        # 2. Document Number (Số ký hiệu văn bản)
         doc_number = cls._extract_document_number(header_text, filename, doc_type)
-
-        # 3. Promulgation Date (Ngày ban hành)
         promulgation_date = cls._extract_promulgation_date(header_text, filename)
-
-        # 4. Issuing Authority (Cơ quan ban hành)
         authority = cls._extract_authority(header_text)
-
-        # 5. Subject (Trích yếu nội dung)
         subject = cls._extract_subject(header_text)
-
-        # 6. Signer & Role (Người ký & Chức vụ)
         signer_name, signer_role = cls._extract_signatory(tail_text)
 
         confidence = 1.0
@@ -231,153 +250,64 @@ class AdministrativeMetadataExtractor:
         )
 
     @classmethod
-    async def aextract_with_llm(cls, raw_text: str, filename: str = "") -> AdministrativeMetadata:
-        """Extract metadata using LLM reasoning over document header and tail."""
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-        header = "\n".join(lines[:30]) if lines else ""
-        tail = "\n".join(lines[-30:]) if lines else ""
-
-        prompt = (
-            f"Hãy trích xuất metadata từ văn bản sau thành một khối JSON duy nhất với các trường:\n"
-            f"- document_type: thể loại văn bản (ví dụ: Quyết định, Chỉ thị, Thông báo, Quy chế...)\n"
-            f"- document_number: số hiệu văn bản (ví dụ: 1139/QĐ-TNVN)\n"
-            f"- promulgation_date: ngày ban hành (định dạng YYYY-MM-DD hoặc null)\n"
-            f"- issuing_authority: tên cơ quan ban hành (ví dụ: Đài Tiếng nói Việt Nam, Bộ Tài chính...)\n"
-            f"- subject: trích yếu nội dung (về việc gì)\n"
-            f"- signer_name: họ và tên chính xác của người ký văn bản (sửa lỗi OCR/chính tả nếu có)\n"
-            f"- signer_role: chức danh của người ký (ví dụ: Tổng Giám đốc, Phó Tổng Giám đốc, Bộ trưởng...)\n\n"
-            f"TÊN FILE GỐC (nếu có tham khảo): {filename}\n\n"
-            f"--- PHẦN ĐẦU VĂN BẢN (HEADER) ---\n{header}\n\n"
-            f"--- PHẦN CUỐI VĂN BẢN (TAIL) ---\n{tail}\n"
-        )
-
-        raw_llm = await cls._call_llm_stream(prompt)
-        clean_json = re.sub(r"^```(?:json)?\s*", "", raw_llm.strip())
-        clean_json = re.sub(r"\s*```$", "", clean_json.strip())
-        data = json.loads(clean_json)
-
-        return AdministrativeMetadata(
-            document_number=data.get("document_number"),
-            document_type=data.get("document_type") or "Quyết định",
-            issuing_authority=data.get("issuing_authority"),
-            promulgation_date=data.get("promulgation_date"),
-            signer_name=data.get("signer_name"),
-            signer_role=data.get("signer_role"),
-            subject=data.get("subject"),
-            confidence=0.95,
-            extra_fields={"filename": filename, "extractor": "llm"}
-            if filename
-            else {"extractor": "llm"},
-        )
-
-    @classmethod
-    async def aextract(
+    def extract_fields(
         cls,
-        raw_text: str,
+        header_text: str,
+        tail_text: str,
         filename: str = "",
-        use_llm_fallback: bool = True,
-    ) -> AdministrativeMetadata:
-        """Hybrid metadata extraction: fast algorithmic parser first, fallback to LLM when incomplete."""
-        meta = cls.extract(raw_text, filename=filename)
+        document_type: str | None = None,
+    ) -> AdministrativeFields:
+        """Number, date, subject, type and signatory for the profiler's admin rules.
 
-        # Return fast if algorithmic parser extracted complete core fields with high confidence
-        if (
-            meta.signer_name
-            and meta.document_number
-            and meta.promulgation_date
-            and meta.confidence >= 0.8
-        ):
-            return meta
-
-        if not use_llm_fallback:
-            return meta
-
-        try:
-            llm_meta = await cls.aextract_with_llm(raw_text, filename=filename)
-            return AdministrativeMetadata(
-                document_number=meta.document_number or llm_meta.document_number,
-                document_type=meta.document_type or llm_meta.document_type,
-                issuing_authority=meta.issuing_authority or llm_meta.issuing_authority,
-                promulgation_date=meta.promulgation_date or llm_meta.promulgation_date,
-                signer_name=meta.signer_name or llm_meta.signer_name,
-                signer_role=meta.signer_role or llm_meta.signer_role,
-                subject=meta.subject or llm_meta.subject,
-                confidence=max(meta.confidence, llm_meta.confidence),
-                extra_fields={**meta.extra_fields, **llm_meta.extra_fields},
-            )
-        except Exception as exc:  # noqa: BLE001 - rules-only metadata is the fallback
-            logger.warning("llm_metadata_extraction_fallback_failed error=%s", exc)
-            return meta
-
-    @classmethod
-    async def _call_llm_stream(cls, prompt: str) -> str:
-        api_key = str(settings.llm.openai_api_key or "")
-        url = settings.llm.chat_completions_url()
-        timeout = settings.timeouts.llm_request_seconds
-        system_content = (
-            "Bạn là chuyên gia trích xuất siêu dữ liệu (metadata) từ văn bản hành chính Việt Nam. "
-            "Chỉ trả về duy nhất một khối JSON hợp lệ trong cặp ```json ``` hoặc thuần JSON, không giải thích thêm."
+        The subject loses whatever OCR merged after its first ";" and, when the
+        title line is missing, is rebuilt from the Điều 1 action. The signatory
+        is read from ``tail_text``, or the header when there is no tail. Numbers
+        follow the caller's ``document_type`` hint only: a type guessed from the
+        header must not turn date-like filename parts into a "…/CT" number.
+        """
+        subject = cls._extract_subject(header_text)
+        subject_source: str | None = "rule"
+        if subject:
+            subject = subject.split(";")[0].strip(" ,.")
+        else:
+            subject = cls._extract_subject_from_article1(f"{header_text}\n{tail_text}")
+            subject_source = "rule_article1" if subject else None
+        signer, role = cls._extract_signatory(tail_text or header_text)
+        return AdministrativeFields(
+            document_number=cls._extract_document_number(header_text, filename, document_type),
+            filename_number=cls._extract_number_from_filename(filename, document_type),
+            promulgation_date=cls._extract_promulgation_date(header_text, filename),
+            subject=subject or None,
+            subject_source=subject_source,
+            document_type=document_type or cls._extract_document_type(header_text, filename),
+            signer_name=signer,
+            signer_role=role,
         )
-        chunks: list[str] = []
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST",
-                url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": settings.llm.primary_model,
-                    "messages": [
-                        {"role": "system", "content": system_content},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.0,
-                    "stream": True,
-                },
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        payload = json.loads(data_str)
-                        choices = payload.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta", {}).get("content")
-                            if delta:
-                                chunks.append(delta)
-                    except (ValueError, AttributeError, IndexError, TypeError):
-                        continue
-        return "".join(chunks).strip()
 
     @classmethod
-    def _extract_document_type(cls, header_text: str, filename: str) -> str:
-        fn_upper = filename.upper()
-        if "_CT" in fn_upper or "CT_" in fn_upper or "CHITHI" in fn_upper:
-            return "Chỉ thị"
-        if "_QD" in fn_upper or "QD_" in fn_upper or "QUYETDINH" in fn_upper:
-            return "Quyết định"
+    def _extract_document_type(cls, header_text: str, filename: str) -> str | None:
+        """The type named by a filename token or a header line, else ``None``.
 
+        Filename tokens must match whole ("..._CTSV" is not a Chỉ thị); header
+        lines are scanned until the legal basis ("Căn cứ") begins.
+        """
+        for token in re.split(r"[_\-.\s]+", filename.upper()):
+            for pattern, name in _FILENAME_TYPE_TOKENS:
+                if pattern.match(token):
+                    return name
         for line in header_text.splitlines():
             clean = line.strip().lstrip("#").strip()
-            if re.match(r"(?i)^CHỈ\s+THỊ\b", clean):
-                return "Chỉ thị"
-            if re.match(r"(?i)^QUYẾT\s+ĐỊNH\b", clean):
-                return "Quyết định"
-            if re.match(r"(?i)^QUY\s+CHẾ\b", clean):
-                return "Quy chế"
-            if re.match(r"(?i)^THÔNG\s+BÁO\b", clean):
-                return "Thông báo"
+            for pattern, name in _HEADER_TYPES:
+                if pattern.match(clean):
+                    return name
             if re.match(r"(?i)^-?\s*Căn\s+cứ\b", clean):
                 break
-
-        return "Quyết định"
+        return None
 
     @classmethod
-    def _extract_document_number(cls, header_text: str, filename: str, doc_type: str) -> str | None:
+    def _extract_document_number(
+        cls, header_text: str, filename: str, doc_type: str | None
+    ) -> str | None:
         fn_num = cls._extract_number_from_filename(filename, doc_type)
 
         pre_heading_lines: list[str] = []
@@ -418,7 +348,7 @@ class AdministrativeMetadataExtractor:
         return None
 
     @classmethod
-    def _extract_number_from_filename(cls, filename: str, doc_type: str) -> str | None:
+    def _extract_number_from_filename(cls, filename: str, doc_type: str | None) -> str | None:
         if not filename:
             return None
         m_qd = re.search(r"_(\d+)(?:QD|QĐ)(?:_([A-ZĐ]+))?(?:_|\.|$)", filename, re.IGNORECASE)
@@ -560,7 +490,6 @@ class AdministrativeMetadataExtractor:
         detected_role: str | None = None
         role_idx: int = -1
 
-        # Scan bottom-up for the last signature role indicator
         for idx in range(len(lines) - 1, -1, -1):
             line = lines[idx]
             for pat, role in cls.ROLE_SIGNATURE_PATTERNS:
@@ -574,7 +503,6 @@ class AdministrativeMetadataExtractor:
         if not detected_role or role_idx < 0:
             return None, None
 
-        # Search subsequent lines following the role block for the signer's name
         for line in lines[role_idx + 1 :]:
             clean_line = re.sub(r"^[#\s\*_()\-<]+|[#\s\*_()\-/>]+$", "", line).strip()
             clean_line = re.sub(r"<[^>]+>", "", clean_line).strip()
@@ -596,7 +524,6 @@ class AdministrativeMetadataExtractor:
             if 2 <= len(words) <= 5:
                 lower_words = [w.lower() for w in words]
                 if not any(w in cls._EXCLUDE_NAME_WORDS for w in lower_words):
-                    # Validate that all words contain valid Vietnamese alphabetical characters
                     if all(re.match(r"^[A-ZĐÀ-Ỹa-zđà-ỹ]+$", w) for w in words):
                         signer_name = " ".join(w.capitalize() for w in words)
                         return signer_name, detected_role

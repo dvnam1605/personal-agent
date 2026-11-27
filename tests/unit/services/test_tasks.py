@@ -69,6 +69,13 @@ def test_due_dates() -> None:
     assert split_due("không hạn", TODAY) == ("không hạn", None)
 
 
+def test_leap_day_without_year_means_the_next_leap_year() -> None:
+    assert split_due("x 29/2", date(2024, 3, 1)) == ("x", date(2028, 2, 29))
+    assert split_due("x 29/2", TODAY) == ("x", date(2028, 2, 29))
+    assert split_due("x 29/2", date(2028, 1, 10)) == ("x", date(2028, 2, 29))
+    assert split_due("x 29/2/2027", TODAY) == ("x", None)
+
+
 class FakeTransport:
     """Records requests; answers from a queue."""
 

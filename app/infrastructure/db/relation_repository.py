@@ -24,6 +24,8 @@ class RelationTarget:
 
 
 class SqlAlchemyRelationRepository:
+    """Stores the typed relations a document version states, replacing them on re-extraction."""
+
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker
 

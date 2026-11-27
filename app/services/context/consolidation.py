@@ -1,4 +1,9 @@
-"""Background memory consolidation worker (spec P17-07)."""
+"""Memory consolidation queue: completed turns become episodic memory later.
+
+Turns are queued so answering never waits on memory writes, and processed by
+``drain``. The queue is bounded: when it is full the oldest turn is dropped, so a
+process that never drains cannot grow without limit.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +13,11 @@ from typing import Any
 from app.services.context.entity_resolver import EntityResolver
 from app.services.context.episodic_service import EpisodicMemoryService
 
+MAX_PENDING_TURNS = 1000
+
 
 class BackgroundConsolidationWorker:
-    """Consolidates turn interactions into episodic and entity memory asynchronously without blocking user response."""
+    """Queue completed turns and fold them into episodic memory on ``drain``."""
 
     def __init__(
         self,
@@ -19,8 +26,7 @@ class BackgroundConsolidationWorker:
     ) -> None:
         self._episodic = episodic_service
         self._resolver = entity_resolver
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self._running = False
+        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=MAX_PENDING_TURNS)
         self._processed_count = 0
 
     def enqueue_turn(
@@ -30,7 +36,10 @@ class BackgroundConsolidationWorker:
         assistant_response: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Enqueue a completed conversational turn for non-blocking consolidation."""
+        """Enqueue a completed turn, dropping the oldest one when the queue is full."""
+        if self._queue.full():
+            self._queue.get_nowait()
+            self._queue.task_done()
         self._queue.put_nowait(
             {
                 "user_id": user_id,
@@ -51,7 +60,6 @@ class BackgroundConsolidationWorker:
             user_prompt = item["user_prompt"]
             assistant_response = item["assistant_response"]
 
-            # 1. If turn contains milestone facts, record to episodic memory
             if not self._episodic.is_ephemeral_chatter(user_prompt):
                 fact_summary = (
                     f"User: {user_prompt[:120]} -> Resolution: {assistant_response[:120]}"

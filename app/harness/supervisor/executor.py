@@ -10,6 +10,7 @@ from typing import Any
 
 from app.agents.specialist.delegation import DelegationService
 from app.domain.enums import EvidenceType, SpecialistStatus
+from app.domain.models.platform.budget import ExecutionBudget
 from app.domain.models.retrieval.evidence import EvidenceItem, EvidenceSource
 from app.domain.models.supervisor.specialist import DelegationRequest
 from app.harness.supervisor.channels import TaskDispatchChannel
@@ -19,8 +20,16 @@ def build_delegation_task_executor(
     delegation: DelegationService,
     *,
     parent_agent: str,
+    preambles: dict[str, tuple[str, ...]] | None = None,
+    task_budget: ExecutionBudget | None = None,
 ) -> Any:
-    """Return a LangGraph Send executor that delegates to a specialist."""
+    """Return a LangGraph Send executor that delegates to a specialist.
+
+    ``preambles`` maps an agent name to the system instructions its delegated task
+    starts with (its role and the rules for proposing writes); ``task_budget`` replaces
+    the default per-task budget.
+    """
+    agent_preambles = dict(preambles or {})
 
     async def _execute(payload: TaskDispatchChannel) -> dict[str, Any]:
         task_id = payload["task_id"]
@@ -37,6 +46,8 @@ def build_delegation_task_executor(
                 "user_id": payload.get("user_id"),
             },
             tool_restriction=payload.get("tool_restriction"),
+            system_preamble=agent_preambles.get(payload["assigned_agent"], ()),
+            **({"budget": task_budget} if task_budget is not None else {}),
         )
         result = await delegation.delegate(request)
         report_status = (result.status or "").strip().lower()
@@ -79,7 +90,11 @@ def build_delegation_task_executor(
         if status == SpecialistStatus.NEEDS_MORE_CONTEXT.value:
             out["missing_context"] = missing or [f"Task {task_id} needs more context"]
         if result.needs_approval or status == SpecialistStatus.NEEDS_APPROVAL.value:
-            out["needs_approval"] = [{"task_id": task_id, "agent": result.agent_name}]
+            entry: dict[str, Any] = {"task_id": task_id, "agent": result.agent_name}
+            proposed = result.data.get("proposed_action")
+            if isinstance(proposed, dict):
+                entry["proposed_action"] = proposed
+            out["needs_approval"] = [entry]
         if status == "failed":
             out["branch_errors"] = [result.output or f"Task {task_id} failed"]
         out["usage"] = result.usage.model_dump()

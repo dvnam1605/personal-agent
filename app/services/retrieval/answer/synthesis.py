@@ -1,8 +1,8 @@
-"""Answer synthesis separated from retrieval (spec P10-18 + P10-19).
+"""Answer synthesis separated from retrieval.
 
 The ``AnswerSynthesizer`` protocol defines the seam; the default
 ``PromptAnswerSynthesizer`` builds a structured prompt with evidence
-framed as untrusted data (P10-20) and extracts citations from the model
+framed as untrusted data and extracts citations from the model
 response.
 
 The protocol is async to support LLM backends; callers that only need the
@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 
 class SynthesisResult(BaseModel):
-    """Structured output from answer synthesis (spec P10-18)."""
+    """Structured output from answer synthesis."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -89,14 +89,14 @@ class SynthesisResult(BaseModel):
     synthesis_trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     # Sentences stating data (amounts, dates, %) without a citation badge.
     unsupported_claims: list[str] = Field(default_factory=list)
-    # Server-side snapshot of every evidence unit shown to the model (P2).
+    # Server-side snapshot of every evidence unit shown to the model.
     retrieval_trace_id: str | None = None
     evidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @runtime_checkable
 class AnswerSynthesizer(Protocol):
-    """Pluggable synthesis seam (spec P10-18)."""
+    """Pluggable synthesis seam."""
 
     async def synthesize(
         self,
@@ -128,7 +128,7 @@ class AnswerSynthesizer(Protocol):
 
 
 class PromptAnswerSynthesizer:
-    """Default synthesis using a structured prompt (P10-18).
+    """Default synthesis using a structured prompt.
 
     This implementation builds the prompt messages and delegates to a
     caller-supplied ``generate`` callback for the actual LLM call, keeping
@@ -162,6 +162,12 @@ class PromptAnswerSynthesizer:
         system_prompt: str | None = None,
         extra_images: str = "",
     ) -> SynthesisResult:
+        """Answer ``question`` from ``bundle`` with numbered citations.
+
+        Refuses without calling the LLM when there is no evidence; an LLM
+        failure falls back to the top evidence as citations, and an answer
+        without real citations is never SUFFICIENT.
+        """
         if not bundle.items:
             return SynthesisResult(
                 answer=(
@@ -194,13 +200,9 @@ class PromptAnswerSynthesizer:
         except Exception as gen_err:  # noqa: BLE001 - fallback to raw evidence on LLM failure
             # Error details stay in the log; the user gets a stable message.
             logger.error("synthesis_generate_failed error=%s", gen_err)
-            fallback_eids = [it.evidence_id for it in bundle.items[:3]]
-            citations = build_citations_from_bundle(fallback_eids, bundle)
+            citations = _fallback_citations(bundle)
             return SynthesisResult(
-                answer=(
-                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
-                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
-                ),
+                answer=_LLM_DOWN_NOTE,
                 citations=citations,
                 status=SufficiencyStatus.PARTIAL if citations else SufficiencyStatus.INSUFFICIENT,
                 retrieval_trace_id=bundle.retrieval_trace_id,
@@ -293,7 +295,6 @@ class PromptAnswerSynthesizer:
                     buf = buf[bracket_pos:]
                     continue
 
-                # buf starts with '['
                 close_pos = buf.find("]")
                 if close_pos != -1:
                     tag = buf[: close_pos + 1]
@@ -308,7 +309,6 @@ class PromptAnswerSynthesizer:
                     buf = buf[close_pos + 1 :]
                     continue
 
-                # No closing ']' yet
                 if force:
                     if not numberer.mentions_evidence(buf):
                         out += buf
@@ -319,7 +319,6 @@ class PromptAnswerSynthesizer:
                     buf = buf[1:]
                     continue
 
-                # Need more characters to determine
                 break
             return out
 
@@ -348,7 +347,6 @@ class PromptAnswerSynthesizer:
             logger.error("synthesis_stream_generate_failed error=%s", stream_err)
             failure = "error"
 
-        # Flush any remaining buffer
         final_emitted = _process_buffer(force=True)
         if final_emitted:
             emitted_any = True
@@ -360,15 +358,14 @@ class PromptAnswerSynthesizer:
             status = SufficiencyStatus.PARTIAL
             yield {
                 "type": "token",
-                "delta": _INTERRUPTED_NOTE
-                if emitted_any
-                else (
-                    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
-                    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:\n"
-                ),
+                "delta": _INTERRUPTED_NOTE if emitted_any else _LLM_DOWN_NOTE + "\n",
             }
 
-        citations = build_citations_from_bundle(numberer.cited_ids, bundle)
+        citations = (
+            _fallback_citations(bundle)
+            if failure is not None and not emitted_any
+            else build_citations_from_bundle(numberer.cited_ids, bundle)
+        )
         grounding = check_answer(strip_images("".join(streamed)))
         if failure is None:
             status = _uncited_status("".join(streamed), citations, status)
@@ -441,6 +438,17 @@ def _grounded_status(status: SufficiencyStatus, grounding: GroundingReport) -> S
         logger.info("synthesis_unsupported_claims count=%d", len(grounding.unsupported))
         return SufficiencyStatus.PARTIAL
     return status
+
+
+_LLM_DOWN_NOTE = (
+    "⚠️ Không thể kết nối đến mô hình AI để tạo tóm tắt chi tiết. "
+    "Dưới đây là các tài liệu liên quan được trích xuất từ kho tri thức:"
+)
+
+
+def _fallback_citations(bundle: EvidenceBundle) -> list[Citation]:
+    """The top evidence as citations, shown when the LLM failed before answering."""
+    return build_citations_from_bundle([it.evidence_id for it in bundle.items[:3]], bundle)
 
 
 _INTERRUPTED_NOTE = (

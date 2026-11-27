@@ -9,6 +9,7 @@ from enum import StrEnum
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.settings.agentic import AgenticSettings
 from app.core.settings.budgets import (
     LLMBudgetSettings,
     ReActBudgetSettings,
@@ -67,6 +68,8 @@ __all__ = [
 
 
 class Environment(StrEnum):
+    """Deployment environment; staging and production enforce authentication."""
+
     DEVELOPMENT = "development"
     TESTING = "testing"
     STAGING = "staging"
@@ -83,7 +86,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "Independent deployment target: local | staging | production. "
-            "If staging/production, ENVIRONMENT must not be development/testing (H5)."
+            "If staging/production, ENVIRONMENT must not be development/testing."
         ),
     )
     debug: bool = False
@@ -103,7 +106,7 @@ class Settings(BaseSettings):
     google_redirect_uri: str | None = Field(default=None, repr=False, exclude=True)
     google_token_encryption_key: str | None = Field(default=None, repr=False, exclude=True)
     google_token_encryption_key_file: str | None = Field(default=None, repr=False, exclude=True)
-    # Backward-compatible flat LLM env vars (M6)
+    # Backward-compatible flat LLM env vars
     openai_api_key: str | None = Field(default=None, repr=False, exclude=True)
     anthropic_api_key: str | None = Field(default=None, repr=False, exclude=True)
     gemini_api_key: str | None = Field(default=None, repr=False, exclude=True)
@@ -123,6 +126,7 @@ class Settings(BaseSettings):
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     react_budget: ReActBudgetSettings = Field(default_factory=ReActBudgetSettings)
     supervisor_budget: SupervisorBudgetSettings = Field(default_factory=SupervisorBudgetSettings)
+    agentic: AgenticSettings = Field(default_factory=AgenticSettings)
     llm_budget: LLMBudgetSettings = Field(default_factory=LLMBudgetSettings)
     timeouts: TimeoutsSettings = Field(default_factory=TimeoutsSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
@@ -137,7 +141,7 @@ class Settings(BaseSettings):
 
     @property
     def docs_enabled(self) -> bool:
-        """API docs (/docs, /openapi.json) are enabled in development/testing, or when debug is True (M10)."""
+        """API docs (/docs, /openapi.json) are enabled in development/testing, or when debug is True."""
         if self.environment in (Environment.DEVELOPMENT, Environment.TESTING):
             return True
         return bool(self.debug)
@@ -184,7 +188,7 @@ class Settings(BaseSettings):
             merged.update(updates)
             self.google = GoogleOAuthSettings.model_validate(merged)
 
-        # Merge flat LLM settings (M6) plus Kira / local-router modes
+        # Merge flat LLM settings plus Kira / local-router modes
         llm_updates: dict[str, str] = {}
         openai_key = (self.openai_api_key or "").strip()
         anthropic_key = (self.anthropic_api_key or "").strip()
@@ -232,7 +236,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_deploy_target_and_local_urls(self) -> "Settings":
-        """Refuse fail-open: remote URLs cannot run as development; deploy_target pins env (H5)."""
+        """Refuse fail-open: remote URLs cannot run as development; deploy_target pins env."""
         target = (self.deploy_target or "").strip().lower() or None
         if target is not None and target not in {"local", "staging", "production"}:
             raise ValueError("DEPLOY_TARGET must be one of: local, staging, production.")
@@ -268,13 +272,13 @@ class Settings(BaseSettings):
             if self.security.api_key and not bound:
                 raise ValueError(
                     "SECURITY__API_KEY_USER_ID must be set in staging/production so the "
-                    "shared API key cannot impersonate arbitrary X-User-ID values (H3)."
+                    "shared API key cannot impersonate arbitrary X-User-ID values."
                 )
         return self
 
     @model_validator(mode="after")
     def validate_production_credentials(self) -> "Settings":
-        """Reject default development database/redis credentials in production/staging (H6)."""
+        """Reject default development database/redis credentials in production/staging."""
         if self.environment in (Environment.PRODUCTION, Environment.STAGING):
             db_url = self.database.url.lower()
             if "postgres:postgres@" in db_url or "localhost:5434" in db_url:

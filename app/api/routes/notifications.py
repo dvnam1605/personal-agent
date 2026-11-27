@@ -132,5 +132,5 @@ async def mark_notification_read(
 ) -> NotificationReadResponse:
     """Mark one of the caller's notifications read; another user's id is reported as missing."""
     if not await NotificationService.mark_read(session, user_id, notification_id):
-        raise NotFoundError("Notification not found.")
+        raise NotFoundError("Không tìm thấy thông báo.")
     return NotificationReadResponse(updated=1)

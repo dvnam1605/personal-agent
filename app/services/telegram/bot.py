@@ -25,15 +25,17 @@ logger = structlog.get_logger(__name__)
 HELP = (
     "Xin chào! Tôi là trợ lý Noat.\n"
     "1. Mở ứng dụng → Cài đặt → Telegram → “Tạo mã liên kết”.\n"
-    "2. Gửi cho tôi: /link <mã 6 số>.\n"
+    "2. Gửi cho tôi: /link <mã 8 ký tự>.\n"
     "Sau đó hỏi tôi như trong ứng dụng; việc cần duyệt sẽ có nút Duyệt / Từ chối.\n"
     "/unlink để hủy liên kết."
 )
 NOT_LINKED = "Chat này chưa liên kết tài khoản. Gửi /start để xem cách liên kết."
 MAX_LINK_ATTEMPTS = 5
+# Failed /link attempts from all chats together; stops many accounts guessing in parallel.
+MAX_GLOBAL_LINK_FAILURES = 30
 LINK_WINDOW_SECONDS = 600
 MAX_FORWARDED = 10
-_LINK = re.compile(r"^/link(?:@\w+)?\s+(\d{6})\s*$")
+_LINK = re.compile(r"^/link(?:@\w+)?\s+([A-Za-z0-9]{8})\s*$")
 
 
 def to_plain(markdown: str) -> str:
@@ -66,8 +68,10 @@ class TelegramBot:
         self._execution_service = execution_service
         self._clock = clock or (lambda: datetime.now(UTC))
         self._link_attempts: dict[int, list[float]] = defaultdict(list)
+        self._link_failures: list[float] = []
 
     async def handle_update(self, update: dict[str, Any]) -> None:
+        """Handle one Telegram update (message or button) in its own transaction."""
         async with self._session_factory() as session:
             try:
                 if isinstance(update.get("callback_query"), dict):
@@ -126,11 +130,15 @@ class TelegramBot:
         await self._client.send_message(chat_id, to_plain(result.message), buttons)
 
     async def _link(self, session: AsyncSession, chat_id: int, text: str) -> str:
+        """Redeem a link code, limited per chat and across all chats within a time window."""
         now = time.monotonic()
         attempts = [t for t in self._link_attempts[chat_id] if now - t < LINK_WINDOW_SECONDS]
+        self._link_failures = [t for t in self._link_failures if now - t < LINK_WINDOW_SECONDS]
         if len(attempts) >= MAX_LINK_ATTEMPTS:
             self._link_attempts[chat_id] = attempts
             return "Thử quá nhiều lần. Đợi 10 phút rồi thử lại."
+        if len(self._link_failures) >= MAX_GLOBAL_LINK_FAILURES:
+            return "Tạm thời không nhận liên kết mới do có quá nhiều lần thử sai. Đợi 10 phút rồi thử lại."
         match = _LINK.match(text)
         link = (
             await TelegramLinkService.redeem(session, match.group(1), chat_id, now=self._clock())
@@ -139,6 +147,7 @@ class TelegramBot:
         )
         if link is None:
             self._link_attempts[chat_id] = [*attempts, now]
+            self._link_failures.append(now)
             return "Mã không đúng hoặc đã hết hạn. Tạo mã mới trong ứng dụng rồi gửi /link <mã>."
         self._link_attempts.pop(chat_id, None)
         return "Đã liên kết! Bạn có thể hỏi tôi ngay tại đây."

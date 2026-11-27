@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
 from app.core.images import MEDIA_TYPES, image_file
-from app.infrastructure.db.models import Document, DocumentChunk, GeneratedDocument
+from app.infrastructure.db.models import (
+    Conversation,
+    Document,
+    DocumentChunk,
+    GeneratedDocument,
+)
 from app.infrastructure.db.session import get_db_session
 from app.services.documents.service import (
     DocumentGenerationService,
@@ -25,20 +30,29 @@ from app.services.routing.query.parsing import retrieval_requester_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+DOCUMENT_NOT_FOUND = "Không tìm thấy tài liệu."
+CONVERSATION_NOT_FOUND = "Không tìm thấy cuộc trò chuyện."
+
 
 class OutlineRequest(BaseModel):
+    """A writing request, optionally tied to one of the caller's conversations."""
+
     model_config = ConfigDict(extra="forbid")
     request: str = Field(min_length=3, max_length=2000)
     conversation_id: str | None = Field(default=None, max_length=64)
 
 
 class SectionIn(BaseModel):
+    """One section of an edited document outline."""
+
     model_config = ConfigDict(extra="forbid")
     heading: str = Field(min_length=1, max_length=200)
     purpose: str = Field(default="", max_length=400)
 
 
 class ColumnIn(BaseModel):
+    """One column of an edited table outline."""
+
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=300)
@@ -46,21 +60,25 @@ class ColumnIn(BaseModel):
 
 
 class ApproveRequest(BaseModel):
+    """The outline the user approves, with optional edits; table fields apply to tables."""
+
     model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, max_length=300)
     sections: list[SectionIn] | None = Field(default=None, max_length=8)
-    # Table outlines: edited columns and what one row is.
     columns: list[ColumnIn] | None = Field(default=None, max_length=12)
     row_unit: str | None = Field(default=None, max_length=120)
     multi_rows: bool | None = None
 
 
 class RewriteRequest(BaseModel):
+    """User feedback for rewriting one finished section."""
+
     model_config = ConfigDict(extra="forbid")
     feedback: str = Field(min_length=3, max_length=1000)
 
 
 def _service() -> DocumentGenerationService:
+    """Build the generation service over a retrieval pipeline tuned for drafting."""
     from app.services.retrieval.factory import build_retrieval_pipeline
     from app.services.retrieval.metadata import MetadataLookupService
 
@@ -81,6 +99,7 @@ def _file_format(row: GeneratedDocument) -> str | None:
 
 
 def _view(row: GeneratedDocument) -> dict[str, Any]:
+    """The JSON view of a generated document returned by every route."""
     return {
         "id": row.id,
         "status": row.status,
@@ -98,10 +117,11 @@ def _view(row: GeneratedDocument) -> dict[str, Any]:
 
 
 async def _owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedDocument:
+    """Load the caller's generated document, else answer 404."""
     try:
         return await DocumentGenerationService.get_owned(session, user_id, doc_id)
     except DocumentNotFoundError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.") from None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, DOCUMENT_NOT_FOUND) from None
 
 
 @router.get("/images/{key}", summary="An image of an ingested document")
@@ -110,7 +130,7 @@ async def document_image(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> FileResponse:
-    # Served only when an active document the user can read refers to it.
+    """Serve an extracted image only when an active document the user can read refers to it."""
     path = image_file(key)
     requester = retrieval_requester_id(user_id)
     owner = Document.user_id.is_(None)
@@ -131,7 +151,7 @@ async def document_image(
             )
         ).scalar_one_or_none()
     if path is None or visible is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy hình ảnh.")
     return FileResponse(
         path,
         media_type=MEDIA_TYPES[path.suffix.lstrip(".")],
@@ -144,6 +164,7 @@ async def list_documents(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> list[dict[str, Any]]:
+    """List the caller's 50 newest generated documents."""
     rows = (
         await session.execute(
             select(GeneratedDocument)
@@ -172,6 +193,15 @@ async def create_outline(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
+    """Propose an outline for the request; a conversation id must be the caller's own.
+
+    An unknown or foreign conversation id answers 404 instead of linking the
+    document to someone else's thread (or failing on the foreign key).
+    """
+    if body.conversation_id is not None:
+        conversation = await session.get(Conversation, body.conversation_id)
+        if conversation is None or conversation.user_id != user_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, CONVERSATION_NOT_FOUND)
     row = await _service().create_outline(
         session,
         user_id=user_id,
@@ -190,6 +220,7 @@ async def approve(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
+    """Write the document from the approved (optionally edited) outline."""
     await _owned(session, user_id, doc_id)
     row = await _service().approve_and_write(
         session,
@@ -217,6 +248,7 @@ async def rewrite_section(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
+    """Rewrite one section following feedback; 404 for a bad index, 409 when not finished."""
     await _owned(session, user_id, doc_id)
     try:
         row = await _service().rewrite_section(
@@ -228,7 +260,9 @@ async def rewrite_section(
             feedback=body.feedback.strip(),
         )
     except IndexError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Section not found.") from None
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Không tìm thấy phần này của tài liệu."
+        ) from None
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     await session.commit()
@@ -241,6 +275,7 @@ async def get_document(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
+    """Return one of the caller's generated documents: outline, Markdown and status."""
     return _view(await _owned(session, user_id, doc_id))
 
 
@@ -250,12 +285,12 @@ async def download(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> FileResponse:
+    """Download the generated file, served only from the generated-docs directory."""
     row = await _owned(session, user_id, doc_id)
     path = Path(row.docx_path or "")
-    # Only serve files from the generated-docs directory, never an arbitrary path.
     base = generated_docs_dir().resolve()
     if not row.docx_path or not path.resolve().is_relative_to(base) or not path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not available.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tệp chưa sẵn sàng để tải về.")
     safe_title = "".join(ch for ch in row.title if ch.isalnum() or ch in " -_").strip()[:80]
     suffix = path.suffix.lower()
     return FileResponse(

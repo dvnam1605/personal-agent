@@ -161,6 +161,11 @@ class KnowledgeQueryPlanner:
         known_people: Iterable[tuple[str, str]] = (),
         known_issuers: Iterable[tuple[str, str]] = (),
     ) -> KnowledgePlan:
+        """Turn a metadata question into filters (category, dates, people, issuers).
+
+        ``known_people`` / ``known_issuers`` are (folded, display) pairs from the
+        catalogue, so names are matched without hardcoding any of them.
+        """
         today = today or date.today()
         folded = unaccent_vietnamese(question)
         descriptions: list[str] = []

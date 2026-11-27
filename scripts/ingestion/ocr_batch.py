@@ -1,4 +1,4 @@
-"""Offline OCR batch script: folder of scanned PDFs -> folder of Markdown (spec P9E).
+"""Offline OCR batch script: folder of scanned PDFs -> folder of Markdown.
 
 Runs OUTSIDE the assistant runtime on a strong-GPU machine, one-shot, never in
 the request path. Output feeds ingestion through
@@ -15,7 +15,7 @@ Engines:
 - ``paddle_ppstructurev3``: stock PP-StructureV3 from ``paddleocr``.
 - ``surya_2``: Surya OCR.
 
-Dependency isolation (P9E-2, option a): paddle/torch/surya live in optional groups
+Dependency isolation: paddle/torch/surya live in optional groups
 (``pip install -e ".[ocr-paddle]"`` / ``".[ocr-surya]"``) installed only on the
 external machine; imports happen lazily inside engine constructors so CI and
 the runtime suite never touch them.
@@ -133,6 +133,7 @@ class OcrEngine:
         self._pipeline: VlPipeline | None = None
 
     def load(self) -> None:
+        """Record engine versions; for the VL engine, validate the checkpoint and load the models."""
         if self.name != VL_ENGINE:
             dependency = ENGINE_DEPENDENCIES[self.name][0]
             self.version = _dependency_versions(ENGINE_DEPENDENCIES[self.name])[dependency]
@@ -149,6 +150,7 @@ class OcrEngine:
         )
 
     def pages(self, pdf_path: Path) -> list[PageResult]:
+        """OCR every page of one PDF with the selected engine."""
         if self.name == VL_ENGINE:
             return self._vl_pages(pdf_path)
         if self.name == "surya_2":
@@ -235,6 +237,8 @@ def _surya_pages(pdf_path: Path, device: str) -> list[PageResult]:
 
 @dataclass
 class FileOutcome:
+    """What happened to one PDF: processed, skipped, planned or failed, and why."""
+
     pdf: Path
     status: str  # "processed" | "skipped" | "planned" | "failed"
     detail: str = ""
@@ -243,8 +247,9 @@ class FileOutcome:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Command-line options of the OCR batch."""
     parser = argparse.ArgumentParser(
-        description="Offline OCR batch: scanned PDFs folder -> Markdown folder (spec P9E).",
+        description="Offline OCR batch: scanned PDFs folder -> Markdown folder.",
     )
     parser.add_argument("--input-dir", required=True, type=Path, help="folder of scanned *.pdf")
     parser.add_argument("--output-dir", required=True, type=Path, help="mirrored Markdown tree")
@@ -376,6 +381,7 @@ def build_sidecar(
 
 
 def process_pdf(pdf: Path, args: argparse.Namespace, engine: OcrEngine) -> FileOutcome:
+    """OCR one PDF into Markdown plus a sidecar, unless an up-to-date output already exists."""
     started = time.perf_counter()
     checksum = checksum_file(pdf)
     md_path, sidecar_path = output_paths_for(pdf, args.input_dir, args.output_dir)
@@ -429,6 +435,7 @@ def process_pdf(pdf: Path, args: argparse.Namespace, engine: OcrEngine) -> FileO
 
 
 def run_batch(args: argparse.Namespace, engine: OcrEngine) -> list[FileOutcome]:
+    """Process every discovered PDF; one failed file is recorded and the batch continues."""
     outcomes: list[FileOutcome] = []
     for pdf in discover_pdfs(args.input_dir, recursive=args.recursive):
         try:
@@ -443,6 +450,8 @@ def run_batch(args: argparse.Namespace, engine: OcrEngine) -> list[FileOutcome]:
 def write_report(
     outcomes: list[FileOutcome], output_dir: Path, input_dir: Path | None = None
 ) -> Path:
+    """Write the batch report JSON into the output folder and return its path."""
+
     def _rel_pdf(p: Path) -> str:
         if input_dir is not None:
             try:
@@ -468,6 +477,7 @@ def write_report(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Load the engine unless --dry-run, run the batch, write the report; return the exit code."""
     args = parse_args(argv)
     engine = OcrEngine(
         args.engine,

@@ -7,10 +7,15 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.domain.enums import RunStatus
+from app.domain.errors import ValidationError
 from app.domain.models import AssistantState, ProposedAction
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import User
-from app.services.approvals import ApprovalRequestService
+from app.services.approvals import (
+    PARAMETERS_SECRET_MESSAGE,
+    PARAMETERS_TOO_LARGE_MESSAGE,
+    ApprovalRequestService,
+)
 from app.services.platform.run_persistence import RunPersistenceService
 
 
@@ -47,7 +52,7 @@ async def test_approval_request_create_decide_and_resume(db_session: AsyncSessio
         action_type="send_email",
         description="Send the message",
         tool_name="gmail.send",
-        parameters={"to": "alice@example.com", "api_key": "sk-secret"},
+        parameters={"to": "alice@example.com", "subject": "Hello"},
     )
     state = AssistantState(
         run_id=run.id,
@@ -64,7 +69,7 @@ async def test_approval_request_create_decide_and_resume(db_session: AsyncSessio
         state=state,
     )
     assert request.status == "pending"
-    assert request.parameters["api_key"] == "[REDACTED_SECRET]"
+    assert request.parameters == {"to": "alice@example.com", "subject": "Hello"}
     assert run.status == RunStatus.WAITING_APPROVAL.value
 
     duplicate = await ApprovalRequestService.create_request(
@@ -96,6 +101,66 @@ async def test_approval_request_create_decide_and_resume(db_session: AsyncSessio
     assert resumed.approvals[0].action_id == action.id
     assert resumed.continuation_context["approved_request_id"] == request.id
     assert "approval_token" not in resumed.continuation_context
+
+
+async def _waiting_run(db_session: AsyncSession, run_id: str) -> str:
+    user = User(email=f"{run_id}@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    run = await RunPersistenceService.create_run(
+        db_session,
+        run_id=run_id,
+        user_id=user.id,
+        request="Draft a mail",
+        route_type="direct_specialist",
+        domains=["communication"],
+        complexity="direct",
+        correlation_id=f"corr_{run_id}",
+    )
+    return run.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("parameters", "message"),
+    [
+        ({"to": ["a@x.vn"], "body_text": "x" * 10_001}, PARAMETERS_TOO_LARGE_MESSAGE),
+        (
+            {"to": [f"u{i}@x.vn" for i in range(101)], "body_text": "hi"},
+            PARAMETERS_TOO_LARGE_MESSAGE,
+        ),
+        ({"to": ["a@x.vn"], "api_key": "abc"}, PARAMETERS_SECRET_MESSAGE),
+        ({"to": ["a@x.vn"], "body_text": "key sk-abcdef123456"}, PARAMETERS_SECRET_MESSAGE),
+    ],
+)
+async def test_proposal_is_rejected_instead_of_silently_altered(
+    db_session: AsyncSession, parameters: dict[str, object], message: str
+) -> None:
+    """What is stored and executed must be exactly what the user saw on the card."""
+    run_id = await _waiting_run(db_session, "run_lossy")
+    action = ProposedAction(
+        action_type="create_draft",
+        description="Draft",
+        tool_name="gmail.create_draft",
+        parameters=parameters,
+    )
+    with pytest.raises(ValidationError) as caught:
+        await ApprovalRequestService.create_request(db_session, run_id, action)
+    assert caught.value.message == message
+
+
+@pytest.mark.asyncio
+async def test_long_but_allowed_body_is_stored_unchanged(db_session: AsyncSession) -> None:
+    run_id = await _waiting_run(db_session, "run_long_body")
+    body = "Nội dung dài.\n" * 500
+    action = ProposedAction(
+        action_type="create_draft",
+        description="Draft",
+        tool_name="gmail.create_draft",
+        parameters={"to": ["a@x.vn"], "subject": "S", "body_text": body},
+    )
+    request = await ApprovalRequestService.create_request(db_session, run_id, action)
+    assert request.parameters["body_text"] == body
 
 
 @pytest.mark.asyncio

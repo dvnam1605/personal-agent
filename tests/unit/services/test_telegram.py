@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.dependencies import get_current_user_id
 from app.api.routes.telegram import router as telegram_router
 from app.core.settings.telegram import TelegramSettings
-from app.domain.errors import ExternalServiceError
+from app.domain.errors import AppError, ExternalServiceError
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import TelegramLink, User
 from app.infrastructure.db.session import get_db_session
@@ -25,8 +25,9 @@ from app.integrations.telegram import TelegramClient
 from app.services.approvals.execution import ApprovalExecutionService
 from app.services.proactive import NotificationService
 from app.services.routing.query import QueryOrchestrator
-from app.services.telegram.bot import TelegramBot, to_plain
-from app.services.telegram.linking import TelegramLinkService
+from app.services.telegram import linking as linking_module
+from app.services.telegram.bot import MAX_GLOBAL_LINK_FAILURES, TelegramBot, to_plain
+from app.services.telegram.linking import CODE_ALPHABET, CODE_LENGTH, TelegramLinkService
 from app.tools.google_tasks import GoogleTasksTools
 
 NOW = datetime(2026, 10, 27, 2, 0, tzinfo=UTC)
@@ -166,6 +167,37 @@ async def test_link_attempts_are_rate_limited(factory: async_sessionmaker[AsyncS
     assert "Thử quá nhiều lần" in client.sent[-1][1]
 
 
+async def test_link_codes_are_long_and_case_insensitive(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    code = await _code(factory, "user_a")
+    assert len(code) == CODE_LENGTH and set(code) <= set(CODE_ALPHABET)
+    async with factory() as session:
+        assert await TelegramLinkService.redeem(session, code.lower(), 100) is not None
+
+
+async def test_failed_links_are_limited_across_chats(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    bot, client = _bot(factory, FakeTasks())
+    for chat_id in range(MAX_GLOBAL_LINK_FAILURES):
+        await bot.handle_update(_message(1000 + chat_id, "/link AAAAAAAA"))
+    code = await _code(factory, "user_a")
+    await bot.handle_update(_message(100, f"/link {code}"))
+    assert "quá nhiều lần thử sai" in client.sent[-1][1]
+
+
+async def test_issue_code_reports_an_app_error_when_no_code_is_free(
+    factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with factory() as session:
+        held, _ = await TelegramLinkService.issue_code(session, "user_a", ttl=timedelta(minutes=5))
+        monkeypatch.setattr(linking_module, "_new_code", lambda: held)
+        with pytest.raises(AppError) as caught:
+            await TelegramLinkService.issue_code(session, "user_b", ttl=timedelta(minutes=5))
+    assert caught.value.status_code == 503 and "thử lại" in caught.value.message
+
+
 async def test_expired_code_and_chat_moving_accounts(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -259,7 +291,7 @@ async def test_link_api(factory: async_sessionmaker[AsyncSession]) -> None:
             status = (await http.get("/telegram/status")).json()
             assert status["linked"] is False
             code = (await http.post("/telegram/link-code")).json()["code"]
-            assert len(code) == 6 and code.isdigit()
+            assert len(code) == CODE_LENGTH and set(code) <= set(CODE_ALPHABET)
             link = await TelegramLinkService.redeem(session, code, 100)
             assert link is not None
             assert (await http.get("/telegram/status")).json()["linked"] is True

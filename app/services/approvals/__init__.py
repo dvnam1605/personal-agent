@@ -1,6 +1,7 @@
 """Durable human-approval lifecycle and run continuation service."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -9,17 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sanitization import sanitize_payload, sanitize_string
 from app.domain.enums import ActionRiskLevel, ApprovalOutcome, RunStatus
+from app.domain.errors import ValidationError
 from app.domain.models import ActionApproval, AssistantState, ProposedAction
 from app.infrastructure.db.models import ApprovalRequest, AssistantRun
+from app.infrastructure.db.models.common import _sanitize_approval_arguments
 from app.services.approvals.tokens import (
     APPROVAL_TOKEN_PREFIX,
     STALE_CHECK_ETAG_TOOLS,
     STALE_CHECK_FINGERPRINT_TOOLS,
     STALE_CHECK_VERSION_TOOLS,
     ConsumedTokenStore,
-    _decode_approval_payload,
-    _get_signing_key,
-    _is_relaxed_token_env,
     approval_id_without_token,
     approval_token_bound_tool,
     canonical_proposal_hash,
@@ -34,6 +34,7 @@ from app.services.approvals.tokens import (
     verify_approval_token_sync,
 )
 from app.services.platform.run_persistence import RunPersistenceService
+from app.services.platform.time import as_utc
 
 APPROVAL_STATUSES = {"pending", "approved", "rejected", "expired", "cancelled", "unavailable"}
 APPROVAL_TRANSITIONS = {
@@ -44,15 +45,6 @@ APPROVAL_TRANSITIONS = {
     "cancelled": set(),
     "unavailable": set(),
 }
-
-
-def _utc(value: datetime | None) -> datetime | None:
-    """Normalize database timestamps from backends that drop timezone metadata."""
-    if value is None:
-        return None
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def _validate_approval_transition(current_status: str, next_status: str) -> None:
@@ -86,7 +78,7 @@ def _proposal_fields(action: ProposedAction | ApprovalRequest) -> dict[str, Any]
 
 
 def _persisted_json(value: Any) -> dict[str, Any]:
-    """Match ApprovalRequest ORM sanitization so DB hashes are stable (H2)."""
+    """Match ApprovalRequest ORM sanitization so the hash of a stored request is stable."""
     sanitized = sanitize_payload(
         value if isinstance(value, dict) else {},
         max_string_len=1000,
@@ -95,6 +87,58 @@ def _persisted_json(value: Any) -> dict[str, Any]:
         max_payload_bytes=32_768,
     )
     return sanitized if isinstance(sanitized, dict) else {}
+
+
+PARAMETERS_TOO_LARGE_MESSAGE = (
+    "Nội dung đề xuất quá dài hoặc có quá nhiều mục để lưu nguyên vẹn chờ duyệt. "
+    "Hãy rút gọn hoặc chia thành nhiều lần."
+)
+PARAMETERS_SECRET_MESSAGE = (
+    "Nội dung đề xuất có vẻ chứa mật khẩu, khóa API hoặc mã bí mật nên không thể "
+    "lưu để duyệt. Hãy bỏ phần đó rồi thử lại."
+)
+
+
+def _plain_json(value: Any) -> Any:
+    """Shape ``value`` the way ``sanitize_payload`` emits it, without changing content."""
+    if isinstance(value, dict):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_plain_json(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _executable_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Return the tool parameters to store and later execute, exactly as proposed.
+
+    The parameters still pass through ``sanitize_payload`` for its size, depth and
+    secret limits, and then through the ``ApprovalRequest`` column validator (which
+    applies its own, tighter bounds), but the result must equal what the user was
+    shown: an approved email must never be sent cut off with "... [TRUNCATED]" or with
+    parts replaced by "[REDACTED_SECRET]". Any such change rejects the proposal with
+    a Vietnamese message instead. Secret redaction is therefore enforced as a refusal,
+    never as a silent rewrite, because the approval card shows the unredacted text.
+    """
+    clean = sanitize_payload(
+        parameters,
+        max_string_len=10_000,
+        max_depth=8,
+        max_items=100,
+        max_payload_bytes=65_536,
+        mask_emails=False,
+    )
+    stored = _sanitize_approval_arguments(clean)
+    if isinstance(clean, dict) and clean == stored == _plain_json(parameters):
+        return clean
+    if "[REDACTED_SECRET]" in str(clean):
+        raise ValidationError(PARAMETERS_SECRET_MESSAGE)
+    raise ValidationError(PARAMETERS_TOO_LARGE_MESSAGE)
 
 
 def _proposal_hash(action: ProposedAction | ApprovalRequest) -> str:
@@ -126,6 +170,11 @@ class ApprovalRequestService:
         state: AssistantState | None = None,
         expires_in_seconds: int = 900,
     ) -> ApprovalRequest:
+        """Persist a pending approval for ``action`` and move the run to waiting.
+
+        The same proposal on the same run reuses the pending row (also under a concurrent
+        insert), and the stored parameters are exactly the proposed ones or the call fails.
+        """
         if not action.requires_approval:
             raise ValueError("Approval request is only valid for actions requiring approval.")
         if expires_in_seconds <= 0:
@@ -151,14 +200,7 @@ class ApprovalRequestService:
             )
         )
         if existing is None:
-            clean_parameters = sanitize_payload(
-                action.parameters,
-                max_string_len=10_000,
-                max_depth=8,
-                max_items=100,
-                max_payload_bytes=65_536,
-                mask_emails=False,
-            )
+            clean_parameters = _executable_parameters(action.parameters)
             important_args = dict(action.important_arguments)
             important_args.setdefault("action_id", action.id)
             expires_at = (
@@ -232,7 +274,7 @@ class ApprovalRequestService:
         run_id: str | None = None,
         user_id: str | None = None,
     ) -> list[ApprovalRequest]:
-        """Fetch pending approval requests optionally filtered by run_id and user_id (spec P18-04, M4)."""
+        """Fetch pending approval requests optionally filtered by run_id and user_id."""
         stmt = select(ApprovalRequest).where(ApprovalRequest.status == "pending")
         if run_id:
             stmt = stmt.where(ApprovalRequest.run_id == run_id)
@@ -266,8 +308,8 @@ class ApprovalRequestService:
         """Apply expiry and tamper checks to an already-loaded approval row."""
         if request.status not in APPROVAL_STATUSES:
             raise ValueError(f"Unknown approval status: {request.status}")
-        current_time = _utc(now) or datetime.now(UTC)
-        expires_at = _utc(request.expires_at)
+        current_time = as_utc(now) or datetime.now(UTC)
+        expires_at = as_utc(request.expires_at)
         if request.status == "pending" and expires_at is not None and expires_at <= current_time:
             _validate_approval_transition(request.status, "expired")
             request.status = "expired"
@@ -299,7 +341,7 @@ class ApprovalRequestService:
         )
         if request is None:
             raise ValueError(f"Approval request not found: {approval_id}")
-        current_time = _utc(now) or datetime.now(UTC)
+        current_time = as_utc(now) or datetime.now(UTC)
         await ApprovalRequestService._validate_loaded_request(session, request, now=current_time)
 
         next_status = (
@@ -328,7 +370,7 @@ class ApprovalRequestService:
         reason: str | None = None,
         now: datetime | None = None,
     ) -> ApprovalRequest:
-        """Record a human decision under the closed fail-closed outcome model (spec P18-01)."""
+        """Record a human decision under the closed fail-closed outcome model."""
         normalized_outcome = (
             outcome
             if isinstance(outcome, ApprovalOutcome)
@@ -361,7 +403,7 @@ class ApprovalRequestService:
         """Transition expired pending approvals explicitly through the state machine."""
         if limit <= 0:
             return 0
-        current_time = _utc(now) or datetime.now(UTC)
+        current_time = as_utc(now) or datetime.now(UTC)
         rows = list(
             (
                 await session.execute(
@@ -409,7 +451,7 @@ class ApprovalRequestService:
             approved=True,
             approver_id=request.approver_id or "unknown",
             reason=request.reason,
-            decided_at=_utc(request.decided_at) or datetime.now(UTC),
+            decided_at=as_utc(request.decided_at) or datetime.now(UTC),
         )
         approvals = list(state.approvals)
         if not any(item.action_id == approval.action_id for item in approvals):
@@ -460,6 +502,8 @@ __all__ = [
     "APPROVAL_STATUSES",
     "APPROVAL_TRANSITIONS",
     "APPROVAL_TOKEN_PREFIX",
+    "PARAMETERS_SECRET_MESSAGE",
+    "PARAMETERS_TOO_LARGE_MESSAGE",
     "ApprovalRequestService",
     "ApprovalService",
     "ConsumedTokenStore",
@@ -478,7 +522,4 @@ __all__ = [
     "resolve_approval_token",
     "verify_approval_token",
     "verify_approval_token_sync",
-    "_decode_approval_payload",
-    "_get_signing_key",
-    "_is_relaxed_token_env",
 ]

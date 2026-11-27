@@ -1,4 +1,4 @@
-"""Context packing under an explicit token budget (spec P10-13).
+"""Context packing under an explicit token budget.
 
 Greedy fill in caller-priority order; the hard max is respected exactly —
 overflow whole units are DROPPED with a warning, never truncated mid-chunk

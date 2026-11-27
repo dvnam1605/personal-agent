@@ -1,19 +1,19 @@
-"""Background ingestion jobs: durable store + batch runner (spec P9D-3).
+"""Background ingestion jobs: durable store + batch runner.
 
-The Postgres store follows the P3 audit-outbox claim pattern (claimed_by /
-claimed_at with stale-claim recovery). ``run_batch`` executes sources through
-the orchestrator one at a time — a failed file records FAILED and the batch
-continues.
+The Postgres store records each job's outcome and refreshes ``claimed_at``
+on heartbeats so a long run is never mistaken for a stale claim.
+``run_batch`` executes sources through the orchestrator one at a time — a
+failed file records FAILED and the batch continues.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from app.domain.models.ingestion import IngestionObservability, IngestionStatus
 from app.domain.models.ingestion.documents import SourceDocument
@@ -27,10 +27,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CLAIM_TIMEOUT_SECONDS = 900
-
 
 class IngestionJobStore(Protocol):
+    """Where batch jobs are created, finished and kept alive."""
+
     async def create(self, job_id: str, source_id: str, payload: dict[str, object]) -> None: ...
     async def record(self, observability: IngestionObservability) -> None: ...
     async def heartbeat(self, job_id: str) -> None: ...
@@ -43,6 +43,7 @@ class SqlAlchemyIngestionJobStore:
         self._session_maker = session_maker
 
     async def create(self, job_id: str, source_id: str, payload: dict[str, object]) -> None:
+        """Insert a QUEUED job row."""
         logical = payload.get("logical_document_id")
         async with self._session_maker() as session:
             session.add(
@@ -57,8 +58,9 @@ class SqlAlchemyIngestionJobStore:
             await session.commit()
 
     async def record(self, observability: IngestionObservability) -> None:
+        """Store a finished job's outcome, inserting the row if it never got created."""
         async with self._session_maker() as session:
-            # L5: attempt_count counts EXECUTION attempts, so it only advances
+            # attempt_count counts EXECUTION attempts, so it only advances
             # on FAILED outcomes (successful/skipped runs are not retries).
             increment = observability.status is IngestionStatus.FAILED
             values: dict[str, object] = {
@@ -117,58 +119,6 @@ class SqlAlchemyIngestionJobStore:
                 .values(claimed_at=now)
             )
             await session.commit()
-
-    async def claim_pending(
-        self,
-        worker_id: str,
-        *,
-        limit: int = 8,
-        claim_timeout_seconds: int = DEFAULT_CLAIM_TIMEOUT_SECONDS,
-    ) -> list[IngestionJobRecord]:
-        """Claim QUEUED jobs; recover stale RUNNING claims first.
-
-        Uses ``FOR UPDATE SKIP LOCKED`` on PostgreSQL so concurrent workers
-        never double-claim (review M5); other dialects fall back to the plain
-        select and remain single-worker-only.
-
-        Stale recovery is time-based, mitigated by claim heartbeats: the
-        orchestrator fires ``heartbeat`` on every stage transition and on
-        every embedding batch (wired via ``run_batch``), so only a worker
-        that stops heartbeating for longer than ``claim_timeout_seconds``
-        is re-claimed. V1 still runs a single worker; scale-out must keep
-        the heartbeat interval well below this bound.
-        """
-        now = datetime.now(UTC)
-        stale_before = now - timedelta(seconds=claim_timeout_seconds)
-        claimed: list[IngestionJobRecord] = []
-        async with self._session_maker() as session:
-            await session.execute(
-                update(IngestionJobRecord)
-                .where(
-                    IngestionJobRecord.status == "RUNNING",
-                    IngestionJobRecord.claimed_at.is_not(None),
-                    IngestionJobRecord.claimed_at < stale_before,
-                )
-                .values(status="QUEUED", claimed_by=None, claimed_at=None)
-            )
-            bind = session.get_bind() if hasattr(session, "get_bind") else session.bind
-            is_postgres = bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
-            base_select = (
-                select(IngestionJobRecord)
-                .where(IngestionJobRecord.status == "QUEUED")
-                .order_by(IngestionJobRecord.created_at)
-                .limit(limit)
-            )
-            if is_postgres:
-                base_select = base_select.with_for_update(skip_locked=True)
-            rows = (await session.execute(base_select)).scalars().all()
-            for row in rows:
-                row.status = "RUNNING"
-                row.claimed_by = worker_id
-                row.claimed_at = now
-                claimed.append(row)
-            await session.commit()
-        return claimed
 
 
 class _NullJobStore:
@@ -230,7 +180,3 @@ async def run_batch(
             },
         )
     return results
-
-
-# Backward compatibility alias
-IngestionJobService = SqlAlchemyIngestionJobStore

@@ -1,6 +1,6 @@
 """Deterministic first-pass routing that bypasses the Supervisor LLM.
 
-Single-domain queries must never reach the Supervisor (§6.1). Rules resolve most
+Single-domain queries must never reach the Supervisor. Rules resolve most
 queries within a ~10 ms budget; a heuristic and then an LLM classifier only handle
 what the rules leave ambiguous.
 """
@@ -13,6 +13,11 @@ from collections.abc import Callable
 
 import structlog
 
+from app.agents.declarations import (
+    CALENDAR_AGENT_NAME,
+    COMMUNICATION_AGENT_NAME,
+    KNOWLEDGE_RESEARCH_AGENT_NAME,
+)
 from app.domain.enums import Complexity, Domain, RouteType
 from app.domain.models.routing.route import RouteDecision
 from app.services.routing.llm_classifier import classify_with_llm, needs_llm_fallback
@@ -288,16 +293,20 @@ class FastTriage:
                         )
                     else:
                         target_agent = (
-                            "CommunicationAgent"
+                            COMMUNICATION_AGENT_NAME
                             if has_cap_mail
-                            else ("CalendarAgent" if has_cap_cal else "KnowledgeResearchAgent")
+                            else (
+                                CALENDAR_AGENT_NAME
+                                if has_cap_cal
+                                else KNOWLEDGE_RESEARCH_AGENT_NAME
+                            )
                         )
                         domain = (
                             Domain.COMMUNICATION
-                            if target_agent == "CommunicationAgent"
+                            if target_agent == COMMUNICATION_AGENT_NAME
                             else (
                                 Domain.CALENDAR
-                                if target_agent == "CalendarAgent"
+                                if target_agent == CALENDAR_AGENT_NAME
                                 else Domain.KNOWLEDGE_RESEARCH
                             )
                         )
@@ -316,11 +325,11 @@ class FastTriage:
 
         matched_domains: list[tuple[Domain, str]] = []
         if has_calendar:
-            matched_domains.append((Domain.CALENDAR, "CalendarAgent"))
+            matched_domains.append((Domain.CALENDAR, CALENDAR_AGENT_NAME))
         if has_comm:
-            matched_domains.append((Domain.COMMUNICATION, "CommunicationAgent"))
+            matched_domains.append((Domain.COMMUNICATION, COMMUNICATION_AGENT_NAME))
         if has_research:
-            matched_domains.append((Domain.KNOWLEDGE_RESEARCH, "KnowledgeResearchAgent"))
+            matched_domains.append((Domain.KNOWLEDGE_RESEARCH, KNOWLEDGE_RESEARCH_AGENT_NAME))
 
         if len(matched_domains) == 1:
             domain, agent = matched_domains[0]
@@ -411,7 +420,7 @@ class FastTriage:
         if STAGE2_BOOKING.search(unaccented):
             return RouteDecision(
                 route_type=RouteType.DIRECT_SPECIALIST,
-                target_agent="CalendarAgent",
+                target_agent=CALENDAR_AGENT_NAME,
                 confidence=0.88,
                 parameters={"query": raw_query},
                 reasoning="Stage 2 heuristic matched scheduling/appointment action verb.",
@@ -423,7 +432,7 @@ class FastTriage:
         if STAGE2_MESSAGING.search(unaccented):
             return RouteDecision(
                 route_type=RouteType.DIRECT_SPECIALIST,
-                target_agent="CommunicationAgent",
+                target_agent=COMMUNICATION_AGENT_NAME,
                 confidence=0.88,
                 parameters={"query": raw_query},
                 reasoning="Stage 2 heuristic matched messaging/dispatch action verb.",
@@ -435,7 +444,7 @@ class FastTriage:
         if STAGE2_LOOKUP.search(unaccented):
             return RouteDecision(
                 route_type=RouteType.DIRECT_SPECIALIST,
-                target_agent="KnowledgeResearchAgent",
+                target_agent=KNOWLEDGE_RESEARCH_AGENT_NAME,
                 confidence=0.85,
                 parameters={"query": raw_query},
                 reasoning="Stage 2 heuristic matched reference/lookup action verb.",

@@ -83,6 +83,7 @@ class SqlAlchemyIngestionRepository:
         return session
 
     async def latest_state(self, logical_document_id: str) -> StoredFingerprintState | None:
+        """Fingerprint state of the newest version of a logical document, if any."""
         async with self._session_maker() as session:
             stmt = (
                 select(
@@ -122,9 +123,14 @@ class SqlAlchemyIngestionRepository:
         children: Sequence[tuple[ChildChunkDraft, list[float] | None]],
         force_new_version: bool = False,
     ) -> PersistCandidateResult:
+        """Write a new document version with its chunks, or reuse the active one when unchanged.
+
+        The latest version is re-read under a row lock on PostgreSQL so concurrent
+        ingests of the same document agree on the version number; ``force_new_version``
+        writes a new version even for an unchanged fingerprint.
+        """
         typed = self._session(session)
 
-        # Re-read the latest version under a row lock (PG) to resolve concurrent ingests.
         is_postgres = _is_postgres_session(typed)
         select_latest = (
             select(Document)
@@ -135,7 +141,6 @@ class SqlAlchemyIngestionRepository:
         if is_postgres:
             select_latest = select_latest.with_for_update()
         latest_row = (await typed.execute(select_latest)).scalar_one_or_none()
-        # A forced re-index writes a new version even for an unchanged fingerprint.
         if (
             not force_new_version
             and latest_row is not None
@@ -301,6 +306,7 @@ class SqlAlchemyIngestionRepository:
         )
 
     async def deactivate_logical_document(self, session: object, logical_document_id: str) -> bool:
+        """Archive every version of a logical document; True when any row changed."""
         typed = self._session(session)
         result = await typed.execute(
             update(Document)

@@ -74,6 +74,8 @@ def _import_pymupdf() -> Any:
 
 @dataclass(frozen=True)
 class PdfTextStats:
+    """Text-layer statistics deciding whether a PDF needs OCR."""
+
     page_count: int
     text_pages: int
     glued_ratio: float = 0.0
@@ -193,6 +195,7 @@ class _Builder:
         return f"n{len(self.nodes):04d}"
 
     def heading(self, text: str, level: int, anchor: SourceAnchor) -> None:
+        """Append a heading and make it the current section path at its level."""
         level = min(max(level, 1), 6)
         self.nodes.append(
             HeadingNode(
@@ -220,6 +223,7 @@ class _Builder:
         )
 
     def list_items(self, items: list[str], anchor: SourceAnchor) -> None:
+        """Append list items, merging them into a list directly above in the same section."""
         previous = self.nodes[-1] if self.nodes else None
         if isinstance(previous, ListNode) and previous.heading_path == self.path():
             merged = (*previous.items, *items)
@@ -356,7 +360,7 @@ class PyMuPDFDocumentParser:
         pymupdf = _import_pymupdf()
         try:
             doc = pymupdf.open(stream=content, filetype="pdf")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any PyMuPDF open failure becomes a parse error
             raise DocumentParseError(f"pymupdf failed on {source.filename}: {exc}") from exc
         with doc:
             return self._convert(doc, source)

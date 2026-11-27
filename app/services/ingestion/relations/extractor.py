@@ -17,6 +17,7 @@ _RELATION_CATEGORIES = {"administrative"}
 
 
 def signer_relations(entities: Iterable[Mapping[str, Any]]) -> list[RelationDraft]:
+    """SIGNED_BY relations from the profile's signer entities."""
     out: list[RelationDraft] = []
     for ent in entities or []:
         name = " ".join(str((ent or {}).get("name") or "").split())
@@ -84,6 +85,7 @@ class DocumentRelationExtractor:
         category: str | None,
         entities: Iterable[Mapping[str, Any]] = (),
     ) -> list[RelationDraft]:
+        """Signer, rule-based and (optionally) LLM relations for relation-bearing categories."""
         drafts = signer_relations(entities)
         if category in _RELATION_CATEGORIES and text.strip():
             if not drafts and (signer := signer_from_signature_block(text)):

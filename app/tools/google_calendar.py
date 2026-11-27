@@ -282,7 +282,7 @@ _DEFINITIONS_BY_NAME = {definition.name: definition for definition in CALENDAR_T
 
 
 def calendar_tool_definitions() -> tuple[ToolDefinition, ...]:
-    """Return defensive copies of every P7 Calendar tool declaration."""
+    """Return defensive copies of every Calendar tool declaration."""
     return tuple(definition.model_copy(deep=True) for definition in CALENDAR_TOOL_DEFINITIONS)
 
 
@@ -368,6 +368,7 @@ class GoogleCalendarTools:
         required_scopes: Iterable[str] | None = None,
         **kwargs: Any,
     ) -> GoogleCalendarTools:
+        """Build the tools with a client limited to the scopes ``tool_name`` needs."""
         if required_scopes is None and tool_name is not None:
             definition = _DEFINITIONS_BY_NAME.get(tool_name)
             if definition is None:
@@ -430,7 +431,13 @@ class GoogleCalendarTools:
             self.service.calendar.finish_operation()
 
     async def _live_etag_if_expected(self, tool_input: ToolInput) -> str | None:
-        """Fetch current Calendar ETag for stale-check (M3, H3)."""
+        """Fetch current Calendar ETag for the stale-target check.
+
+        When the lookup fails, ``None`` lets the gate fall back to a caller-supplied
+        ``current_etag``. That is acceptable because the adapter still sends the
+        approved ETag to Google as ``If-Match``, so a write to a changed event is
+        refused by Google itself.
+        """
         if tool_input.tool_name not in STALE_CHECK_ETAG_TOOLS:
             return None
         if expected_target_fingerprint_from_arguments(tool_input.arguments) is None:

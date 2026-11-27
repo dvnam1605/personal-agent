@@ -1,4 +1,4 @@
-"""Idempotency decision logic over stored and current fingerprints (spec P9A-3)."""
+"""Idempotency decision logic over stored and current fingerprints."""
 
 from __future__ import annotations
 

@@ -5,10 +5,14 @@ from __future__ import annotations
 import pytest
 
 from app.domain.models.retrieval import ExpansionPolicy
-from app.services.retrieval.benchmark_types import (
+from tests.fixtures.retrieval_benchmark_dataset import (
+    BENCHMARK_CORPUS,
+    BENCHMARK_QUERIES,
+)
+from tests.fixtures.retrieval_benchmark_types import (
     BenchmarkQueryCategory,
 )
-from app.services.retrieval.evaluation import (
+from tests.fixtures.retrieval_evaluation import (
     AblationReport,
     AblationRunner,
     PipelineTimings,
@@ -16,10 +20,6 @@ from app.services.retrieval.evaluation import (
     calculate_mrr,
     calculate_ndcg_at_k,
     calculate_recall_at_k,
-)
-from tests.fixtures.retrieval_benchmark_dataset import (
-    BENCHMARK_CORPUS,
-    BENCHMARK_QUERIES,
 )
 
 # ===========================================================================

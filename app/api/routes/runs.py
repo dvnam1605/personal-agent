@@ -24,10 +24,16 @@ async def get_run_evidence(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
+    """Return a run's evidence units and which were cited.
+
+    A missing run and another user's run answer the same 404, so run ids
+    cannot be probed for existence.
+    """
     run = await session.get(AssistantRun, run_id)
-    # Same 404 for "missing" and "not yours": run ids must not be probeable.
     if run is None or run.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lượt chạy."
+        )
     rows = await run_evidence(session, run_id)
     return {
         "run_id": run_id,

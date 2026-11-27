@@ -1,4 +1,4 @@
-"""0001_initial_schema
+"""Initial schema: users, conversations, runs, messages, memory, documents, audit and skills.
 
 Revision ID: 0001
 Revises:
@@ -21,12 +21,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # 1. Enable pgvector extension if postgresql
+    """Create the base tables, and the pgvector extension on PostgreSQL."""
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-    # 2. users table
     op.create_table(
         "users",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -40,7 +39,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_users_email", "users", ["email"])
 
-    # 3. conversations table (Created before assistant_runs to allow FK from assistant_runs.session_id)
+    # conversations precedes assistant_runs: assistant_runs.session_id references it.
     op.create_table(
         "conversations",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -53,7 +52,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
-    # 4. assistant_runs table
     op.create_table(
         "assistant_runs",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -102,7 +100,6 @@ def upgrade() -> None:
     op.create_index("ix_runs_session", "assistant_runs", ["session_id"])
     op.create_index("ix_runs_correlation", "assistant_runs", ["correlation_id"])
 
-    # 5. messages table
     op.create_table(
         "messages",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -118,7 +115,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_messages_conv_created", "messages", ["conversation_id", "created_at"])
 
-    # 6. entities table
     op.create_table(
         "entities",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -136,7 +132,6 @@ def upgrade() -> None:
     op.create_index("ix_entities_user_type", "entities", ["user_id", "entity_type"])
     op.create_index("ix_entities_name", "entities", ["canonical_name"])
 
-    # 7. memories table
     op.create_table(
         "memories",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -159,7 +154,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
-    # 8. documents table
     op.create_table(
         "documents",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -176,7 +170,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
-    # 9. document_chunks table (Aligned with P9 contracts)
     op.create_table(
         "document_chunks",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -203,7 +196,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_chunks_doc_idx", "document_chunks", ["document_id", "chunk_index"])
 
-    # 10. tool_executions table
     op.create_table(
         "tool_executions",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -224,7 +216,6 @@ def upgrade() -> None:
     op.create_index("ix_tool_exec_run", "tool_executions", ["run_id"])
     op.create_index("ix_tool_exec_name_time", "tool_executions", ["tool_name", "executed_at"])
 
-    # 11. llm_executions table
     op.create_table(
         "llm_executions",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -252,7 +243,6 @@ def upgrade() -> None:
     op.create_index("ix_llm_exec_run", "llm_executions", ["run_id"])
     op.create_index("ix_llm_exec_model", "llm_executions", ["provider", "model"])
 
-    # 12. approval_requests table
     op.create_table(
         "approval_requests",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -271,7 +261,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
-    # 13. audit_events table
     op.create_table(
         "audit_events",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -289,7 +278,6 @@ def upgrade() -> None:
     op.create_index("ix_audit_events_created", "audit_events", ["created_at"])
     op.create_index("ix_audit_events_type", "audit_events", ["event_type"])
 
-    # 14. skills table (Aligned with P14 contracts)
     op.create_table(
         "skills",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -306,7 +294,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_skills_name", "skills", ["name"])
 
-    # 15. workflow_runs table
     op.create_table(
         "workflow_runs",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -325,6 +312,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop every base table in reverse dependency order."""
     op.drop_table("workflow_runs")
     op.drop_table("skills")
     op.drop_table("audit_events")

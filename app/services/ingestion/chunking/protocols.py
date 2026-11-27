@@ -1,4 +1,4 @@
-"""Strategy Protocols and the chunking context value object (spec P9C-1).
+"""Strategy Protocols and the chunking context value object.
 
 The Protocols match the specification signatures exactly; strategies receive
 identity inputs and budgets through their constructors so the Protocol
@@ -16,10 +16,10 @@ from app.domain.models.ingestion.parsed_document import ParsedDocument
 
 @dataclass(frozen=True)
 class ChunkContext:
-    """Identity inputs for one document version's chunks (spec P9C-2/3/4).
+    """Identity inputs for one document version's chunks.
 
-    ``filename`` is required — it is part of the child metadata minimum
-    (P9C-7) and enforced at draft-construction time (review L4).
+       ``filename`` is required — it is part of the child metadata minimum
+    and enforced at draft-construction time.
     """
 
     document_id: str
@@ -34,6 +34,8 @@ class ChunkContext:
 
 @runtime_checkable
 class ParentChunkingStrategy(Protocol):
+    """Builds parent chunks from a parsed document."""
+
     def build_parents(
         self,
         document: ParsedDocument,
@@ -42,6 +44,8 @@ class ParentChunkingStrategy(Protocol):
 
 @runtime_checkable
 class ChildChunkingStrategy(Protocol):
+    """Builds child chunks from one parent chunk."""
+
     def build_children(
         self,
         parent: ParentChunkDraft,

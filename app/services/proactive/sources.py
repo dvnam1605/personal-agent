@@ -14,17 +14,23 @@ class ProactiveSources(Protocol):
     writes to Google still has to go through an approval request.
     """
 
-    async def calendar(self, session: AsyncSession, user_id: str) -> Any: ...
+    async def calendar(self, session: AsyncSession, user_id: str) -> Any:
+        """The user's Calendar service (read scopes)."""
 
-    async def communication(self, session: AsyncSession, user_id: str) -> Any: ...
+    async def communication(self, session: AsyncSession, user_id: str) -> Any:
+        """The user's Gmail and Contacts service."""
 
-    async def retrieve(self, topic: str, user_id: str) -> Any: ...
+    async def retrieve(self, topic: str, user_id: str) -> Any:
+        """Search the internal documents the user may read for ``topic``."""
 
-    async def tasks(self, session: AsyncSession, user_id: str) -> Any: ...
+    async def tasks(self, session: AsyncSession, user_id: str) -> Any:
+        """The user's Google Tasks tools."""
 
-    async def drive(self, session: AsyncSession, user_id: str) -> Any: ...
+    async def drive(self, session: AsyncSession, user_id: str) -> Any:
+        """The user's Drive service."""
 
-    async def ask(self, session: AsyncSession, user_id: str, query: str) -> Any: ...
+    async def ask(self, session: AsyncSession, user_id: str, query: str) -> Any:
+        """Answer ``query`` as the assistant would in chat (used by routines)."""
 
 
 class OrchestratorSources:
@@ -47,7 +53,7 @@ class OrchestratorSources:
         return await self._orchestrator._run_retrieval(topic, user_id)
 
     async def tasks(self, session: AsyncSession, user_id: str) -> Any:
-        return await self._orchestrator._tasks(session, user_id)
+        return await self._orchestrator.tasks_adapter(session, user_id)
 
     async def drive(self, session: AsyncSession, user_id: str) -> Any:
         return await self._orchestrator._drive(session, user_id)

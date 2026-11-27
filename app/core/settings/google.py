@@ -8,6 +8,8 @@ from app.core.settings.paths import resolve_project_path
 
 
 class GoogleOAuthSettings(BaseModel):
+    """Google OAuth client, scopes, token storage and where the browser lands after connecting."""
+
     model_config = ConfigDict(extra="ignore")
 
     client_id: str | None = Field(default=None, repr=False, description="Google OAuth Client ID")
@@ -21,6 +23,10 @@ class GoogleOAuthSettings(BaseModel):
     redirect_uri: str = Field(
         default="http://localhost:8000/auth/google/callback",
         description="OAuth redirect URI",
+    )
+    post_connect_url: str = Field(
+        default="http://localhost:5173/",
+        description="Web app URL the browser returns to after the OAuth callback",
     )
     scopes: list[str] = Field(
         default_factory=lambda: [

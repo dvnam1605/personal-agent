@@ -163,6 +163,7 @@ class CalendarService:
         retry_policy=None,
         sleep=None,
     ) -> CalendarService:
+        """Build the service around one already-authorized client."""
         adapter_kwargs = {}
         if retry_policy is not None:
             adapter_kwargs["retry_policy"] = retry_policy

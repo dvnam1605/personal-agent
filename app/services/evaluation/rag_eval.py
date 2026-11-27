@@ -41,6 +41,8 @@ def load_gold(path: Path, split: str | None = None) -> list[dict[str, Any]]:
 
 @dataclass
 class ItemResult:
+    """Scores and diagnostics for one evaluation item."""
+
     id: str
     type: str
     metrics: dict[str, float | None] = field(default_factory=dict)
@@ -78,6 +80,7 @@ def _matches_expected(row: dict[str, Any], item: dict[str, Any]) -> bool:
 
 
 def score_metadata(item: dict[str, Any], body: dict[str, Any]) -> dict[str, float | None]:
+    """Score a metadata question: exact counts, latest document, document citations."""
     message = body.get("message") or ""
     metrics: dict[str, float | None] = {}
     if "expected_count" in item:
@@ -98,6 +101,11 @@ def score_metadata(item: dict[str, Any], body: dict[str, Any]) -> dict[str, floa
 def score_content(
     item: dict[str, Any], body: dict[str, Any], evidence: list[dict[str, Any]]
 ) -> dict[str, float | None]:
+    """Score a content question on retrieval hits, citation precision and must-include text.
+
+    Answer metrics are ``None`` when the LLM was down, so outages are not scored as
+    wrong answers.
+    """
     message = body.get("message") or ""
     llm_down = LLM_DOWN_MARKER in message
     metrics: dict[str, float | None] = {}
@@ -126,6 +134,7 @@ def score_content(
 
 
 def score_negative(item: dict[str, Any], body: dict[str, Any]) -> dict[str, float | None]:
+    """Score an unanswerable question: the pipeline should abstain."""
     sufficiency = ((body.get("data") or {}).get("sufficiency") or "").upper()
     if sufficiency == "INSUFFICIENT":
         return {"abstain_correct": 1.0}
@@ -137,6 +146,8 @@ def score_negative(item: dict[str, Any], body: dict[str, Any]) -> dict[str, floa
 
 
 class RagEvaluator:
+    """Run evaluation items against a running assistant over HTTP."""
+
     def __init__(self, base_url: str, *, timeout: float = 300.0, headers: dict | None = None):
         self._client = httpx.Client(base_url=base_url, timeout=timeout, headers=headers or {})
 
@@ -144,6 +155,7 @@ class RagEvaluator:
         self._client.close()
 
     def run_item(self, item: dict[str, Any]) -> ItemResult:
+        """Run one item through the matching endpoint and score the response."""
         result = ItemResult(id=item["id"], type=item["type"])
         started = time.perf_counter()
         try:

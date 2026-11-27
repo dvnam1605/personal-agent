@@ -344,7 +344,7 @@ _DEFINITIONS_BY_NAME = {
 
 
 def communication_tool_definitions() -> tuple[ToolDefinition, ...]:
-    """Return defensive copies of every P6 communication tool declaration."""
+    """Return defensive copies of every communication tool declaration."""
     return tuple(definition.model_copy(deep=True) for definition in COMMUNICATION_TOOL_DEFINITIONS)
 
 

@@ -143,8 +143,10 @@ async def test_answer_question_api_invalid_option_fails(
 
 
 @pytest.mark.asyncio
-async def test_cross_user_answer_question_forbidden(app: FastAPI, db_session: AsyncSession) -> None:
-    """Submitting answers to a question belonging to another user raises 403 Forbidden (M4)."""
+async def test_cross_user_answer_question_is_not_found(
+    app: FastAPI, db_session: AsyncSession
+) -> None:
+    """Another user's question answers 404, like a missing one, so ids cannot be probed."""
     from app.infrastructure.db.models import User
     from app.services.platform.run_persistence import RunPersistenceService
 
@@ -187,11 +189,11 @@ async def test_cross_user_answer_question_forbidden(app: FastAPI, db_session: As
                 "expected_version": 1,
             },
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_orphan_question_without_run_forbidden(
+async def test_orphan_question_without_run_is_not_found(
     app: FastAPI, db_session: AsyncSession
 ) -> None:
     questions = [
@@ -217,7 +219,7 @@ async def test_orphan_question_without_run_forbidden(
                 "expected_version": 1,
             },
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio

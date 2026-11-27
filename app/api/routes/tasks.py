@@ -68,7 +68,7 @@ async def list_tasks(
     orchestrator: QueryOrchestrator = Depends(get_query_orchestrator),  # noqa: B008
 ) -> list[TaskItem]:
     """The caller's open tasks in their default Google Tasks list."""
-    adapter = await orchestrator._tasks(session, user_id)
+    adapter = await orchestrator.tasks_adapter(session, user_id)
     return [item for item in await adapter.list_tasks() if not item.is_done]
 
 
@@ -87,7 +87,7 @@ async def propose_task_change(
         tool, action_type = TASKS_CREATE, "create_task"
         parameters = {"title": body.title, "due": body.due.isoformat() if body.due else None}
     else:
-        adapter = await orchestrator._tasks(session, user_id)
+        adapter = await orchestrator.tasks_adapter(session, user_id)
         task = next((t for t in await adapter.list_tasks() if t.id == body.task_id), None)
         if task is None or task.is_done:
             raise NotFoundError("Task not found.")
@@ -96,7 +96,7 @@ async def propose_task_change(
         parameters = {"task_id": task.id, "title": task.title}
 
     run_id = str(uuid.uuid4())
-    await orchestrator._ensure_user(session, user_id)
+    await orchestrator.ensure_user(session, user_id)
     await RunPersistenceService.create_run(
         session,
         run_id=run_id,

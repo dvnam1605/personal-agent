@@ -16,12 +16,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.declarations import (
-    CALENDAR_AGENT_NAME,
-    COMMUNICATION_AGENT_NAME,
-    KNOWLEDGE_RESEARCH_AGENT_NAME,
-)
-from app.domain.enums import RouteType, RunStatus, is_supervisor_route, is_workflow_route
+from app.agents.declarations import COMMUNICATION_AGENT_NAME, KNOWLEDGE_RESEARCH_AGENT_NAME
+from app.domain.enums import RouteType, RunStatus
 from app.domain.errors import (
     AuthenticationError,
     ExternalServiceError,
@@ -31,16 +27,16 @@ from app.domain.errors import (
 from app.services.platform.run_persistence import RunPersistenceService
 from app.services.retrieval.answer.numbering import renumber
 
-from .email_synthesis import summarize_emails_stream
+from .mail.email_synthesis import summarize_emails_stream
 from .models import QueryResult, route_info
 from .parsing import (
-    _blocked_message,
-    _load_gmail_details,
+    blocked_message,
     build_gmail_search_query,
     is_communication_draft,
     is_communication_mutation,
+    load_gmail_details,
 )
-from .specialists import SpecialistMixin
+from .specialists import SpecialistMixin, fixed_reply
 
 # Records keep the orchestrator's logger name.
 logger = logging.getLogger("app.services.routing.query.orchestrator")
@@ -81,7 +77,7 @@ class StreamMixin(SpecialistMixin):
         )
         await self._set_followup_scope(session, conversation_id, user_id, anchor)
         route = route_info(decision)
-        await self._ensure_user(session, user_id)
+        await self.ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(
             session,
@@ -187,125 +183,49 @@ class StreamMixin(SpecialistMixin):
                 done_payload.update(extra)
             return _sse("done", done_payload)
 
-        yield _sse(
-            "metadata",
-            {
-                "run_id": run_id,
-                "status": "processing",
-                "route": route.model_dump(mode="json"),
-            },
-        )
+        async def _stream_result(result: QueryResult) -> AsyncGenerator[str, None]:
+            """Stream a finished result like the JSON path returns it: text, then its data."""
+            async for item in _stream_text(result.message):
+                yield item
+            document = (result.data or {}).get("generated_document")
+            if document is not None:
+                yield _sse("document", document)
+            elif result.data or result.approval_id:
+                yield _sse("citations", {"data": result.data, "approval_id": result.approval_id})
 
-        final_status = RunStatus.COMPLETED
+        # Anything that ends the stream before an explicit outcome (the client went away,
+        # the task was cancelled) leaves the run CANCELLED, never COMPLETED.
+        final_status = RunStatus.CANCELLED
         final_error: str | None = None
 
         try:
+            yield _sse(
+                "metadata",
+                {"run_id": run_id, "status": "processing", "route": route.model_dump(mode="json")},
+            )
             if resume.message is not None:
                 async for item in _stream_text(resume.message):
                     yield item
+                final_status = RunStatus.COMPLETED
                 yield _emit_done("completed")
                 return
 
-            memory_result = await self._maybe_handle_memory(
-                session, user_id, query, run_id, decision
+            result: QueryResult | None = await self._handle_command(
+                session, user_id, query, effective_query, run_id, decision, conversation_id
             )
-            if memory_result is not None:
-                async for item in _stream_text(memory_result.message):
-                    yield item
-                yield _emit_done("completed")
-                return
-
-            web_result = await self._maybe_handle_web(query, run_id, decision)
-            if web_result is not None:
-                async for item in _stream_text(web_result.message):
-                    yield item
-                yield _emit_done(web_result.status)
-                return
-
-            routine_result = await self._maybe_handle_routines(
-                session, user_id, query, run_id, decision
-            )
-            if routine_result is not None:
-                async for item in _stream_text(routine_result.message):
-                    yield item
-                yield _emit_done("completed")
-                return
-
-            analysis_result = await self._maybe_handle_analysis(
-                session, user_id, query, run_id, decision
-            )
-            if analysis_result is not None:
-                async for item in _stream_text(analysis_result.message):
-                    yield item
-                yield _emit_done("completed")
-                return
-
-            minutes_result = await self._maybe_handle_minutes(
-                session, user_id, query, run_id, decision
-            )
-            if minutes_result is not None:
-                async for item in _stream_text(minutes_result.message):
-                    yield item
-                yield _emit_done("completed")
-                return
-
-            goal_result = await self._maybe_handle_goals(session, user_id, query, run_id, decision)
-            if goal_result is not None:
-                async for item in _stream_text(goal_result.message):
-                    yield item
-                yield _emit_done("completed")
-                return
-
-            task_result = await self._maybe_handle_tasks(session, user_id, query, run_id, decision)
-            if task_result is not None:
-                async for item in _stream_text(task_result.message):
-                    yield item
-                yield _sse(
-                    "citations",
-                    {"data": task_result.data, "approval_id": task_result.approval_id},
-                )
-                if task_result.status == "needs_approval":
-                    final_status = RunStatus.WAITING_APPROVAL
-                yield _emit_done(task_result.status)
-                return
-
-            if decision.route_type is not RouteType.REJECT:
-                document_result = await self._maybe_handle_document(
-                    session, user_id, query, effective_query, run_id, decision, conversation_id
-                )
-                if document_result is not None:
-                    async for item in _stream_text(document_result.message):
+            if result is None:
+                fixed = fixed_reply(decision.route_type)
+                if fixed is not None:
+                    status, msg = fixed
+                    async for item in _stream_text(msg):
                         yield item
-                    yield _sse("document", document_result.data.get("generated_document", {}))
-                    yield _emit_done("completed")
+                    final_status = RunStatus.COMPLETED
+                    yield _emit_done(status)
                     return
 
-            if decision.route_type is RouteType.REJECT:
-                msg = "Yêu cầu bị từ chối vì vi phạm ranh giới an toàn."
-                async for item in _stream_text(msg):
-                    yield item
-                yield _emit_done("rejected")
-                return
-
-            if decision.route_type is RouteType.CLARIFICATION:
-                msg = (
-                    "Bạn có thể nói rõ hơn được không? Ví dụ: xem lịch ngày mai, "
-                    "hỏi tài liệu nội bộ, hoặc tạo một cuộc họp."
-                )
-                async for item in _stream_text(msg):
-                    yield item
-                yield _emit_done("clarification_needed")
-                return
-
-            if decision.route_type is RouteType.CASUAL_RESPONSE:
-                msg = "Xin chào. Bạn cần tôi giúp gì?"
-                async for item in _stream_text(msg):
-                    yield item
-                yield _emit_done("casual_response")
-                return
-
+            direct = result is None and decision.route_type is RouteType.DIRECT_SPECIALIST
             agent = decision.target_agent
-            if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
+            if direct and agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
                 streamed: list[str] = []
                 async for event in self._run_retrieval_stream(
                     effective_query, user_id, conversation_history=history
@@ -335,84 +255,46 @@ class StreamMixin(SpecialistMixin):
                                 **_final_answer("".join(streamed), event.get("answer")),
                             },
                         )
+                final_status = RunStatus.COMPLETED
                 yield _emit_done("completed")
                 return
 
-            result: QueryResult
-            if is_workflow_route(decision.route_type) or is_supervisor_route(decision.route_type):
-                handled = await self._handle_workflow(
-                    session, user_id, query, run_id, decision, route
-                )
-                result = handled or self._fallback_workflow_result(run_id, decision, route)
-            elif agent == CALENDAR_AGENT_NAME:
-                result = await self._handle_calendar(session, user_id, query, run_id, route)
-            elif agent == COMMUNICATION_AGENT_NAME:
-                if is_communication_draft(query):
-                    result = await self._handle_communication_draft(
-                        session, user_id, query, run_id, route
-                    )
-                elif is_communication_mutation(query):
-                    result = QueryResult(
-                        run_id=run_id,
-                        status="routed",
-                        message=(
-                            "Gửi hoặc xóa email trực tiếp không được thực hiện trên POST /query vì lý do an toàn. "
-                            "Bạn có thể yêu cầu: 'Soạn email gửi [người nhận] về [nội dung]' để tôi soạn thảo trước và tạo thẻ duyệt cho bạn."
-                        ),
-                        route=route,
-                    )
+            if (
+                direct
+                and agent == COMMUNICATION_AGENT_NAME
+                and not is_communication_draft(effective_query)
+                and not is_communication_mutation(effective_query)
+            ):
+                gmail_query, page_size = build_gmail_search_query(effective_query)
+                service = await self._communication(session, user_id)
+                page = await service.search_messages(gmail_query, page_size=page_size)
+                messages = await load_gmail_details(service, list(getattr(page, "items", []) or []))
+                if not messages:
+                    async for item in _stream_text("Không có email nào khớp trong hộp thư đến."):
+                        yield item
                 else:
-                    gmail_query, page_size = build_gmail_search_query(query)
-                    service = await self._communication(session, user_id)
-                    page = await service.search_messages(gmail_query, page_size=page_size)
-                    summaries = list(getattr(page, "items", []) or [])
-                    messages = await _load_gmail_details(service, summaries)
-                    if not messages:
-                        async for item in _stream_text(
-                            "Không có email nào khớp trong hộp thư đến."
-                        ):
+                    async for delta in summarize_emails_stream(
+                        effective_query, messages, timeout_seconds=45.0
+                    ):
+                        async for item in _yield_token(delta):
                             yield item
-                    else:
-                        async for delta in summarize_emails_stream(
-                            query, messages, timeout_seconds=45.0
-                        ):
-                            async for item in _yield_token(delta):
-                                yield item
-                    yield _sse(
-                        "citations",
-                        {
-                            "data": {"query": gmail_query, "count": len(messages)},
-                        },
-                    )
-                    yield _emit_done("completed")
-                    return
-            else:
-                result = QueryResult(
-                    run_id=run_id,
-                    status="routed",
-                    message="Yêu cầu đã được định tuyến nhưng chưa thực thi.",
-                    route=route,
-                )
-
-            await self._remember_pending(session, conversation_id, user_id, result)
-            if result.message:
-                async for item in _stream_text(result.message):
-                    yield item
-
-            if result.data or result.approval_id:
-                yield _sse(
-                    "citations",
-                    {
-                        "data": result.data,
-                        "approval_id": result.approval_id,
-                    },
-                )
-
-            if result.status == "needs_approval":
-                final_status = RunStatus.WAITING_APPROVAL
-            else:
+                yield _sse("citations", {"data": {"query": gmail_query, "count": len(messages)}})
                 final_status = RunStatus.COMPLETED
+                yield _emit_done("completed")
+                return
 
+            if result is None:
+                result = await self._dispatch_routed(
+                    session, user_id, effective_query, run_id, decision, route
+                )
+            await self._remember_pending(session, conversation_id, user_id, result)
+            async for item in _stream_result(result):
+                yield item
+            final_status = (
+                RunStatus.WAITING_APPROVAL
+                if result.status == "needs_approval"
+                else RunStatus.COMPLETED
+            )
             yield _emit_done(result.status)
 
         except (
@@ -422,13 +304,13 @@ class StreamMixin(SpecialistMixin):
             ValidationError,
         ) as exc:
             final_status = RunStatus.COMPLETED
-            blocked_msg = _blocked_message(exc)
-            async for item in _stream_text(blocked_msg):
+            async for item in _stream_text(blocked_message(exc)):
                 yield item
             yield _emit_done("blocked", {"error_code": exc.code})
-        except Exception as exc:
+        except Exception:
             final_status = RunStatus.FAILED
-            final_error = str(exc)
+            final_error = "Query execution failed."
+            logger.exception("stream_query_failed", extra={"run_id": run_id})
             yield _sse("error", {"message": "Đã xảy ra lỗi khi xử lý yêu cầu."})
             raise
         finally:
@@ -437,5 +319,5 @@ class StreamMixin(SpecialistMixin):
                     await self._complete(
                         session, run_id, started, status=final_status, error_summary=final_error
                     )
-            except Exception:
+            except Exception:  # noqa: BLE001 - finalising telemetry must not mask the stream outcome
                 logger.warning("stream_complete_run_failed", exc_info=True)

@@ -1,7 +1,7 @@
-"""Provider-neutral document ingestion domain contracts (P9A).
+"""Provider-neutral document ingestion domain contracts.
 
 These models define the stable boundary between source discovery, parsing
-(P9B), chunking (P9C), and orchestration (P9D). Nothing here knows about
+, chunking, and orchestration. Nothing here knows about
 Docling, OCR engines, or storage providers.
 """
 
@@ -33,7 +33,7 @@ class DetectionStatus(StrEnum):
 
 
 class IngestDecision(StrEnum):
-    """Idempotency state machine outcomes (spec P9A-3).
+    """Idempotency state machine outcomes.
 
     RETRY_AFTER_FAILURE implements the FAILED transition: a previously failed
     candidate is re-ingested while the previous valid ACTIVE version is kept

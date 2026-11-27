@@ -23,6 +23,7 @@ interface MeetingDossierCardProps {
   onSelectCitation?: (citation: RAGCitation) => void
 }
 
+/** Meeting preparation dossier: the meeting, its attendees and the documents to read beforehand. */
 export const MeetingDossierCard: React.FC<MeetingDossierCardProps> = ({
   meeting,
   discussions = [],

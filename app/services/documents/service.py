@@ -43,10 +43,18 @@ def generated_docs_dir() -> Path:
 
 
 class DocumentNotFoundError(LookupError):
+    """The generated document does not exist or belongs to another user."""
+
     pass
 
 
 class DocumentGenerationService:
+    """Plans, writes and renders generated documents: outline first, then approval.
+
+    The outline is stored for the user to edit; writing runs only after
+    approval and renders a .docx (prose) or .xlsx (table).
+    """
+
     def __init__(
         self,
         *,
@@ -62,6 +70,7 @@ class DocumentGenerationService:
 
     @staticmethod
     async def source_titles(session: AsyncSession, ids: list[str]) -> list[str]:
+        """Display titles (profile title, else document title) of the given documents."""
         if not ids:
             return []
         rows = (
@@ -228,6 +237,7 @@ class DocumentGenerationService:
 
     @staticmethod
     async def get_owned(session: AsyncSession, user_id: str, doc_id: str) -> GeneratedDocument:
+        """The user's generated document, else ``DocumentNotFoundError``."""
         row = await session.get(GeneratedDocument, doc_id)
         if row is None or row.user_id != user_id:
             raise DocumentNotFoundError(doc_id)
@@ -237,6 +247,7 @@ class DocumentGenerationService:
     async def pending_outline(
         session: AsyncSession, user_id: str, conversation_id: str | None
     ) -> GeneratedDocument | None:
+        """The latest outline awaiting approval in this conversation, if any."""
         if not conversation_id:
             return None
         stmt = (
@@ -260,6 +271,7 @@ class DocumentGenerationService:
         request: str,
         conversation_id: str | None = None,
     ) -> GeneratedDocument:
+        """Plan an outline for ``request`` and store it awaiting approval."""
         outline = await self._planner.plan(
             request,
             requester_id,
@@ -294,6 +306,11 @@ class DocumentGenerationService:
         row_unit: str | None = None,
         multi_rows: bool | None = None,
     ) -> GeneratedDocument:
+        """Apply the user's edits to the outline, then write and render the document.
+
+        Only an outline (or a failed run) can be written; edited sections keep
+        the source headings the planner mapped to them.
+        """
         row = await self.get_owned(session, user_id, doc_id)
         if row.status not in {"outline", "failed"}:
             return row
@@ -440,6 +457,7 @@ class DocumentGenerationService:
 
 
 def outline_message(row: GeneratedDocument) -> str:
+    """Chat message presenting the outline (sections or columns) for approval."""
     outline = DocumentOutline.model_validate(row.outline)
     template = TEMPLATE_BY_KEY.get(outline.template_key)
     lines = [
@@ -476,6 +494,7 @@ def outline_message(row: GeneratedDocument) -> str:
 
 
 def result_message(row: GeneratedDocument) -> str:
+    """Chat message with the written document, noting omitted sections or table issues."""
     if row.status != "done":
         return f"Không tạo được tài liệu ({row.error or row.status}). Bạn có thể thử duyệt lại."
     if (row.outline or {}).get("kind") == "table":

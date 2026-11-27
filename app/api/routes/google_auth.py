@@ -37,7 +37,7 @@ def build_default_google_oauth_service() -> GoogleOAuthService:
 
     TESTING keeps the process-local store. Development, staging, and production
     share single-use state through Redis so multi-worker deploys cannot drop
-    the authorization-code callback (L2).
+    the authorization-code callback.
     """
     state_store: OAuthStateStore
     if settings.environment is Environment.TESTING:
@@ -133,14 +133,12 @@ async def google_auth_callback(
     )
     cookie_path = _binding_cookie_path(service)
 
-    # If invoked by a browser navigating directly to the callback, redirect back to the web application
     accept = request.headers.get("accept", "")
     sec_fetch_dest = request.headers.get("sec-fetch-dest", "")
     if "text/html" in accept or sec_fetch_dest == "document":
-        redirect_target = "http://localhost:5173/"
-        if request.url.port == 5173:
-            redirect_target = "/"
-        redirect = RedirectResponse(url=redirect_target, status_code=status.HTTP_302_FOUND)
+        redirect = RedirectResponse(
+            url=service.settings.post_connect_url, status_code=status.HTTP_302_FOUND
+        )
         redirect.delete_cookie(OAUTH_BINDING_COOKIE, path=cookie_path)
         return redirect
 

@@ -76,7 +76,7 @@ async def test_auth_service_register_and_login():
             )
 
         # 3. Short password fails
-        with pytest.raises(ValueError, match="ít nhất 6 ký tự"):
+        with pytest.raises(ValueError, match="ít nhất 8 ký tự"):
             await AuthService.register(
                 session=session,
                 email="user2@example.com",

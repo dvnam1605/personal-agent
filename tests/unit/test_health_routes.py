@@ -17,11 +17,10 @@ async def test_health_check_endpoint(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_api_prefix_health_endpoint(async_client: AsyncClient):
+async def test_routes_are_mounted_only_at_the_root(async_client: AsyncClient):
+    """Routers are not duplicated under the API prefix; only the docs live there."""
     response = await async_client.get("/api/v1/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

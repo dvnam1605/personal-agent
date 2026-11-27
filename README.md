@@ -109,19 +109,28 @@ The **Noat** web app (React) — ask in plain sentences, view the calendar and G
 
 ```
 app/
-  api/routes/         HTTP: query (+SSE), conversations, documents, approvals, auth, health
-  core/               configuration (settings/), logging, LLM calls, images, text utilities
-  domain/models/      plain data models (Pydantic)
-  infrastructure/db/  SQLAlchemy models/, DB sessions, repositories
+  main.py             FastAPI factory: middleware, error handlers, routers (all mounted at the root path)
+  api/
+    routes/           one router per area: query (+SSE), conversations, runs (evidence), documents,
+                      approvals, questions, notifications (+SSE), memories, tasks, telegram,
+                      auth, google_auth (OAuth), health
+    dependencies/     request identity: session token, or API key + X-User-ID
+  core/               configuration (settings/), logging, security, LLM calls, images, text/JSON utilities
+  domain/
+    models/           plain data models (Pydantic), grouped by area
+    enums/, errors/   shared enums and the AppError hierarchy
+  infrastructure/
+    db/               SQLAlchemy models/, sessions, repositories
+    redis/            shared Redis client (health probe, run-budget reservations)
   services/
-    routing/          triage and QueryOrchestrator (followup, knowledge, specialists, streaming)
+    routing/          triage and the QueryOrchestrator (query/ and its sub-packages)
     retrieval/        search/ → evidence/ → answer/, plus metadata/ and relations/
     ingestion/        parsing/, profiling/, relations/, chunking/, enrichment/, maintenance/
-    documents/        templates, writing/ (planner, writer, review, formulas, figures),
-                      tables/, rendering/ (docx, xlsx, markdown)
-    google/, workflows/, approvals/, context/ …   calendar, mail, Drive, workflows, approvals, memory
-    proactive/        background workers: morning briefing, automatic meeting prep, notifications
-  agents/, harness/, tools/, integrations/        specialist agents, supervisor, Google tools
+    documents/        templates, writing/, tables/, rendering/ (docx, xlsx, markdown)
+    proactive/        background workers and their jobs: briefing, meeting prep, notifications
+    google/, workflows/, approvals/, context/, telegram/, …   integrations, workflows, approvals, memory
+  agents/, harness/, tools/, integrations/        specialist agents, supervisor graph, tools, API clients
+  mcp/                MCP server exposing the assistant to other agents
 frontend/src/
   components/workspaces/   assistant, calendar, email, meetings, settings,
                            documents/ (document generation), knowledge/ (knowledge base)
@@ -132,12 +141,12 @@ scripts/
   benchmarks/  eval_rag, eval_agent, hardening_report, benchmark_*
   create_admin.py, mcp_server.py
 alembic/       database migrations
-tests/         unit/ (mirrors app/), integration/, evaluation/
+tests/         unit/ (mirrors app/), integration/ (skip without Postgres), e2e/, evaluation/, fixtures/
 ```
 
 ## Running locally
 
-You need **Python 3.11–3.14** with [uv](https://docs.astral.sh/uv/), **Docker** (Postgres + Redis + backend + frontend; on Windows inside WSL), **Node 20+** if you change the frontend, and an **OpenAI-compatible LLM gateway** (the project uses 9router). A Google OAuth client is only needed for real calendar/mail/Drive access.
+You need **Python 3.11–3.14** with [uv](https://docs.astral.sh/uv/), **Docker** (Postgres + Redis + backend + frontend; on Windows inside WSL), **Node 22** if you change the frontend, and an **OpenAI-compatible LLM gateway** (the project uses 9router). A Google OAuth client is only needed for real calendar/mail/Drive access.
 
 ```bash
 uv sync --extra dev
@@ -149,7 +158,8 @@ Fill in `.env`:
 - `SECURITY__API_KEY`, `SECURITY__APPROVAL_SIGNING_KEY` (at least 32 characters)
 - passwords for `POSTGRES_*` and `REDIS_PASSWORD`
 - the LLM gateway: `ROUTER_BASE_URL`, `ROUTER_API_KEY`, `ROUTER_MODEL` (the model must accept images so it can describe figures during ingestion)
-- for Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- for Google: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE__POST_CONNECT_URL` (where the browser lands after connecting; defaults to the local frontend)
+- `SECURITY__ALLOW_REGISTRATION`: whether `POST /auth/register` is open. Unset, it is open only in development/testing; staging and production create accounts with `scripts/create_admin.py`
 
 Optional settings for the proactive features (all have defaults): `PROACTIVE__ENABLED`, `PROACTIVE__BRIEFING_TIME` (for example `07:30`), `PROACTIVE__MEETING_PREP_LEAD_MINUTES`, `PROACTIVE__TIMEZONE`.
 
@@ -268,8 +278,9 @@ Document generation: `POST /documents/outline` (outline) → `POST /documents/{i
 
 ```bash
 uv run pytest                 # unit + integration (integration tests skip themselves without Postgres)
-uv run ruff check .
-uv run ruff format --check .
+uv run ruff check app tests scripts
+uv run ruff format --check app tests scripts
+uv run pyright
 cd frontend && npx tsc -p tsconfig.app.json --noEmit && npx oxlint src && npm run build
 ```
 

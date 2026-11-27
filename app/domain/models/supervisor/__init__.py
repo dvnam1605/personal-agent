@@ -1,4 +1,4 @@
-"""Supervisor domain models and capability contracts (spec P16 / ADR 0011).
+"""Supervisor domain models and capability contracts.
 
 Pure Pydantic models for Supervisor planning, capability discovery, and
 subagent session continuation. Zero framework imports.
@@ -115,7 +115,7 @@ class CapabilityCatalog(BaseModel):
 
 
 class SubagentSessionState(BaseModel):
-    """Conversation and context state for a continuable subagent session (P16-05C)."""
+    """Conversation and context state for a continuable subagent session."""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -164,7 +164,7 @@ class SubagentSessionState(BaseModel):
 
 
 class SupervisorResult(BaseModel):
-    """Grounded outcome of a Supervisor DAG execution plan (P16-08)."""
+    """Grounded outcome of a Supervisor DAG execution plan."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

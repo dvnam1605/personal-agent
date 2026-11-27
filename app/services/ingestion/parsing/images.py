@@ -36,6 +36,8 @@ def _as_web_image(data: bytes, ext: str) -> tuple[bytes, str] | None:
 
 
 class ImageCollector:
+    """Collects a document's images under content keys, dropping tiny ones and numbering figures."""
+
     def __init__(self) -> None:
         self._images: dict[str, ParsedImage] = {}
         self._count = 0

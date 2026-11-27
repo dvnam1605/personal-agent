@@ -10,6 +10,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   rightIcon?: React.ReactNode
 }
 
+/** The app button: variants, sizes, optional icons and a loading spinner that also disables it. */
 export const Button: React.FC<ButtonProps> = ({
   children,
   className,

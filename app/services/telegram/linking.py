@@ -9,15 +9,23 @@ from hashlib import sha256
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.errors import AppError
 from app.infrastructure.db.models import Conversation, TelegramLink
+from app.services.platform.time import as_utc
+
+# 32 symbols without look-alikes (no 0/O, 1/I): 8 of them give 40 bits, so a code
+# cannot be guessed within its lifetime under the bot's attempt limits.
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+CODE_LENGTH = 8
+_MAX_CODE_DRAWS = 5
 
 
 def _hash(code: str) -> str:
-    return sha256(code.strip().encode("utf-8")).hexdigest()
+    return sha256(code.strip().upper().encode("utf-8")).hexdigest()
 
 
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+def _new_code() -> str:
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
 
 
 class TelegramLinkService:
@@ -31,7 +39,24 @@ class TelegramLinkService:
     async def issue_code(
         session: AsyncSession, user_id: str, *, ttl: timedelta, now: datetime | None = None
     ) -> tuple[str, datetime]:
-        code = f"{secrets.randbelow(1_000_000):06d}"
+        """Give the account a fresh code (replacing any earlier one) that no other link holds.
+
+        Raises a retryable :class:`AppError` (503) in the practically impossible case
+        that every drawn code is already held by another link.
+        """
+        for _ in range(_MAX_CODE_DRAWS):
+            code = _new_code()
+            taken = await session.scalar(
+                select(TelegramLink.id).where(TelegramLink.code_hash == _hash(code))
+            )
+            if taken is None:
+                break
+        else:
+            raise AppError(
+                "Chưa tạo được mã liên kết Telegram, vui lòng thử lại.",
+                code="LINK_CODE_UNAVAILABLE",
+                status_code=503,
+            )
         expires = (now or datetime.now(UTC)) + ttl
         link = await session.scalar(select(TelegramLink).where(TelegramLink.user_id == user_id))
         if link is None:
@@ -46,11 +71,16 @@ class TelegramLinkService:
     async def redeem(
         session: AsyncSession, code: str, chat_id: int, *, now: datetime | None = None
     ) -> TelegramLink | None:
+        """Link ``chat_id`` to the account holding the unexpired ``code``.
+
+        The chat leaves any account it was linked to before; ``None`` if the code is
+        unknown or expired.
+        """
         current = now or datetime.now(UTC)
         link = await session.scalar(
             select(TelegramLink).where(TelegramLink.code_hash == _hash(code))
         )
-        if link is None or link.code_expires_at is None or _aware(link.code_expires_at) < current:
+        if link is None or link.code_expires_at is None or as_utc(link.code_expires_at) < current:
             return None
         previous = await session.scalar(select(TelegramLink).where(TelegramLink.chat_id == chat_id))
         if previous is not None and previous.id != link.id:
@@ -84,6 +114,7 @@ class TelegramLinkService:
 
     @staticmethod
     async def unlink(session: AsyncSession, user_id: str) -> bool:
+        """Detach the user's chat; False when nothing was linked."""
         link = await TelegramLinkService.by_user(session, user_id)
         if link is None or link.chat_id is None:
             return False

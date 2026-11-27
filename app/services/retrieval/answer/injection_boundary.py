@@ -1,4 +1,4 @@
-"""Prompt-injection structural boundary (spec P10-20).
+"""Prompt-injection structural boundary.
 
 Retrieved document content, tool results and memory are untrusted. This module
 wraps them in XML-style boundary markers and supplies system instructions saying
@@ -42,6 +42,11 @@ def _neutralize_tag(body: str, tag: str) -> str:
     return opening.sub(lambda _m: "<\\", body)
 
 
+def neutralize_tag(body: str, tag: str) -> str:
+    """Public form of the tag defanging, for callers that wrap untrusted text in their own tag."""
+    return _neutralize_tag(body, tag)
+
+
 def sanitize_evidence_for_prompt(
     evidence: Evidence, *, index: int = 0, label: str | None = None
 ) -> str:
@@ -81,6 +86,30 @@ def sanitize_evidence_for_prompt(
     sanitized_content = _neutralize_tag(for_prompt(evidence.content_raw), "retrieved_document")
 
     return f"<retrieved_document {attrs}>\n{sanitized_content}\n</retrieved_document>"
+
+
+_CLOSING_MARKER = "</retrieved_document>"
+
+
+def wrap_retrieved_text(text: str, *, label: str) -> str:
+    """Wrap a bare retrieved snippet (no full ``Evidence`` at hand) in the same boundary."""
+    body = _neutralize_tag(for_prompt(text), "retrieved_document")
+    return f'<retrieved_document id="{html.escape(label, quote=True)}">\n{body}\n{_CLOSING_MARKER}'
+
+
+def clip_retrieved_block(block: str, max_chars: int, *, label: str) -> str:
+    """Shorten a block to about ``max_chars`` without losing its closing marker.
+
+    Cutting a wrapped block by plain slicing drops ``</retrieved_document>`` and leaves the
+    boundary open; text that was never wrapped is wrapped here instead.
+    """
+    text = block.strip()
+    if not text.startswith("<retrieved_document"):
+        return wrap_retrieved_text(text[:max_chars], label=label)
+    if len(text) <= max_chars:
+        return text
+    body = text.removesuffix(_CLOSING_MARKER).rstrip()
+    return body[: max(0, max_chars - len(_CLOSING_MARKER) - 1)].rstrip() + "\n" + _CLOSING_MARKER
 
 
 def wrap_untrusted_tool_result(tool_name: str, body: str) -> str:

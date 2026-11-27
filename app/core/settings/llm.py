@@ -6,12 +6,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class LLMMode(StrEnum):
+    """Which OpenAI-compatible backend serves LLM calls."""
+
     OPENAI = "openai"
     KIRA = "kira"
     ROUTER = "router"
 
 
 class LLMProviderSettings(BaseModel):
+    """Active LLM backend, its credentials and base URL, and the models used per role."""
+
     mode: LLMMode = Field(default=LLMMode.OPENAI, description="Active OpenAI-compatible backend")
     openai_api_key: str | None = Field(default=None, description="OpenAI API Key")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API Key")

@@ -1,4 +1,4 @@
-"""Specialist runtime contracts (spec P11).
+"""Specialist runtime contracts.
 
 Pure Pydantic models shared by the ReAct runner, delegation service, and the
 LangGraph harness boundary. No framework imports: the harness converts these
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.enums import ExecutionMode, SpecialistStatus, StopReason
 from app.domain.models.platform.agent import DelegationContext
@@ -17,15 +17,6 @@ from app.domain.models.platform.budget import BudgetUsage, ExecutionBudget
 from app.domain.models.platform.tool import ToolRestriction
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
-
-
-class ChatMessage(BaseModel):
-    """One message in the specialist conversation sent to the LLM backend."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    role: MessageRole
-    content: str = Field(min_length=1)
 
 
 class ToolCallRequest(BaseModel):
@@ -36,6 +27,30 @@ class ToolCallRequest(BaseModel):
     tool_name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
     call_id: str | None = Field(default=None)
+
+
+class ChatMessage(BaseModel):
+    """One message in the specialist conversation sent to the LLM backend.
+
+    Native tool calling needs the transcript paired: an assistant turn carries the
+    ``tool_calls`` it made (its text may then be empty) and each ``tool`` message names
+    the ``tool_call_id`` it answers. Other messages must have content.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: MessageRole
+    content: str = Field(default="")
+    tool_calls: list[ToolCallRequest] = Field(default_factory=list)
+    tool_call_id: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _require_content(self) -> ChatMessage:
+        if not self.content and not (self.role == "assistant" and self.tool_calls):
+            raise ValueError("A chat message needs content unless it is an assistant tool call.")
+        if self.tool_calls and self.role != "assistant":
+            raise ValueError("Only assistant messages carry tool calls.")
+        return self
 
 
 class AssistantTurn(BaseModel):
@@ -58,7 +73,7 @@ class AssistantTurn(BaseModel):
 
 
 class SpecialistReport(BaseModel):
-    """Structured conclusion every specialist must return (spec P11-10)."""
+    """Structured conclusion every specialist must return."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -70,7 +85,7 @@ class SpecialistReport(BaseModel):
 
 
 class ReActTraceStep(BaseModel):
-    """One recorded ReAct iteration (spec P11-05). Never stores chain-of-thought."""
+    """One recorded ReAct iteration. Never stores chain-of-thought."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -83,7 +98,7 @@ class ReActTraceStep(BaseModel):
 
 
 class SpecialistTrace(BaseModel):
-    """Ordered trace steps plus the terminal stop reason (spec P11-05)."""
+    """Ordered trace steps plus the terminal stop reason."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -94,7 +109,7 @@ class SpecialistTrace(BaseModel):
 
 
 class SpecialistTask(BaseModel):
-    """Everything one specialist activation needs (spec P11-01/02/06/07)."""
+    """Everything one specialist activation needs."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -141,7 +156,7 @@ class SpecialistOutcome(BaseModel):
 
 
 class DelegationRequest(BaseModel):
-    """Input to the single delegation entry point (spec P11-07)."""
+    """Input to the single delegation entry point."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

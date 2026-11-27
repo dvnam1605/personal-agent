@@ -89,6 +89,7 @@ class MetadataLookupService:
         return self._planner.plan(question, today=today, known_people=people, known_issuers=issuers)
 
     async def run(self, spec: MetadataFilterSpec, requester_id: str | None) -> StructuredResult:
+        """Count and fetch the rows for ``spec`` under a statement timeout, with timing."""
         rows_stmt = compile_rows(spec, requester_id)
         count_stmt = compile_count(spec, requester_id)
         started = time.perf_counter()

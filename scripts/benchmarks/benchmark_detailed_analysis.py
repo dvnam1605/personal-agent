@@ -159,9 +159,9 @@ BENCHMARK_CASES = [
 
 
 async def main() -> None:
+    """Run the benchmark queries and print the top-5 chunks of each with their document metadata."""
     session_factory = get_session_factory()
 
-    # Load mapping of document_id -> (title, administrative_metadata)
     doc_meta_map: dict[str, dict] = {}
     async with session_factory() as session:
         rows = (
@@ -236,7 +236,6 @@ async def main() -> None:
             signer = dinfo.get("signer_name") or ""
             title = dinfo.get("title") or ""
 
-            # Check match
             match = False
             if expected_doc and expected_doc.lower() in doc_num.lower():
                 match = True

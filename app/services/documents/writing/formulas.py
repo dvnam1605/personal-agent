@@ -43,6 +43,8 @@ _STOP = frozenset(
 
 @dataclass(frozen=True)
 class Formula:
+    """A numbered source formula with its section, preceding text and LaTeX."""
+
     number: str
     body: str
     section: str = ""  # source heading the formula sits under

@@ -1,4 +1,4 @@
-"""Bounded retrieval retry (spec P10-17).
+"""Bounded retrieval retry.
 
 Hard cap: ``max_retrieval_attempts = 2`` (spec default).  When the sufficiency
 checker yields INSUFFICIENT or PARTIAL, this module produces a modified query

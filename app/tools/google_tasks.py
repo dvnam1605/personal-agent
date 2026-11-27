@@ -40,6 +40,7 @@ class GoogleTasksTools:
         return cls(TasksAdapter(client))
 
     async def execute(self, tool_input: ToolInput, context: ToolContext) -> ToolResult:
+        """Run one Tasks tool; writes need a valid approval token for that exact call."""
         started = time.perf_counter()
         name = tool_input.tool_name
         args = tool_input.arguments

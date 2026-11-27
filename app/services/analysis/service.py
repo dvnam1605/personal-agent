@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from app.core.llm import llm_json
 from app.services.analysis.loader import load_table, spreadsheet_query
 from app.services.analysis.plan import PlanError, QueryPlan, run_plan
-from app.services.retrieval.answer.injection_boundary import _neutralize_tag
+from app.services.retrieval.answer.injection_boundary import neutralize_tag
 
 SAMPLE_TAG = "table_sample"
 PLANNER_SYSTEM = (
@@ -38,6 +38,7 @@ class AnalysisResult:
 
 
 async def find_spreadsheet(drive: Any, name_hint: str) -> Any | None:
+    """Return the best Drive spreadsheet whose name matches ``name_hint``, or ``None``."""
     page = await drive.search_files(spreadsheet_query(name_hint), page_size=5)
     files = list(getattr(page, "items", None) or [])
     return files[0] if files else None
@@ -54,7 +55,7 @@ async def analyze(drive: Any, name_hint: str, question: str) -> AnalysisResult:
     sample = json.dumps(rows[:5], ensure_ascii=False, default=str)
     prompt = (
         f"Câu hỏi: {question}\nCác cột: {json.dumps(columns, ensure_ascii=False)}\n"
-        f"Số dòng: {len(rows)}\n<{SAMPLE_TAG}>\n{_neutralize_tag(sample, SAMPLE_TAG)}\n</{SAMPLE_TAG}>"
+        f"Số dòng: {len(rows)}\n<{SAMPLE_TAG}>\n{neutralize_tag(sample, SAMPLE_TAG)}\n</{SAMPLE_TAG}>"
     )
     reply = await llm_json(PLANNER_SYSTEM, prompt, timeout=40.0)
     if not isinstance(reply, dict):

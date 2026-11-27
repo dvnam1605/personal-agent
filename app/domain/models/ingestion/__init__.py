@@ -1,4 +1,4 @@
-"""Ingestion orchestration contracts (P9D).
+"""Ingestion orchestration contracts.
 
 Typed statuses, the observability record every job exposes, and the stored
 fingerprint state that makes idempotency queryable end-to-end.
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class IngestionStatus(StrEnum):
-    """Lifecycle of one ingestion job (spec P9D-3)."""
+    """Lifecycle of one ingestion job."""
 
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
@@ -28,7 +28,7 @@ class IngestionStatus(StrEnum):
 
 
 class IngestionObservability(BaseModel):
-    """Every field a completed/failed job must expose (spec P9D-5)."""
+    """Every field a completed/failed job must expose."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -64,7 +64,7 @@ class StoredFingerprintState(BaseModel):
 
     ``fingerprint`` is None for legacy rows predating migration 0006; the
     orchestrator treats those as MODIFIED so they reingest as a new version
-    instead of colliding at version 1 (review L1).
+    instead of colliding at version 1.
     """
 
     model_config = ConfigDict(frozen=True)

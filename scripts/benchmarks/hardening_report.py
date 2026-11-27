@@ -25,6 +25,7 @@ from app.services.skills.hardening import MIN_RUNS, STABILITY, find_candidates  
 
 
 async def main(min_runs: int, stability: float, days: int | None) -> int:
+    """Print the routes whose loops are stable enough to compile into a static graph."""
     since = datetime.now(UTC) - timedelta(days=days) if days else None
     async with get_session_factory()() as session:
         candidates = await find_candidates(

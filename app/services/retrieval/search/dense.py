@@ -1,7 +1,7 @@
-"""Child-level dense retrieval over pgvector (spec P10-03).
+"""Child-level dense retrieval over pgvector.
 
 Searches CHILD/TABLE_CHILD embeddings only (``hierarchy_level = 1``), scoped
-by the P9D-M3 ownership rule and restricted to ACTIVE document versions.
+by the ownership rule and restricted to ACTIVE document versions.
 Scores are pgvector cosine distances (embeddings are L2-normalized, so the
 distance ordering equals the similarity ordering); rank 1 = nearest.
 """
@@ -58,8 +58,10 @@ class DenseRetrievalService:
         self._provider: RowProvider = provider or SqlAlchemyRowProvider()
 
     async def retrieve(self, query: RetrievalQuery) -> list[RetrievedChunk]:
-        await get_entity_catalog().ensure_loaded()
-        cleaned_query, _ = await areformulate_query(query.search_query)
+        """Nearest CHILD chunks to the reformulated query, ranked by cosine distance."""
+        catalog = get_entity_catalog(query.requester_id)
+        await catalog.ensure_loaded()
+        cleaned_query, _ = await areformulate_query(query.search_query, catalog=catalog)
         vector = await self._embedding.embed_query(cleaned_query)
         filters = CANDIDATE_FILTERS_TEMPLATE.format(
             level=SEARCHABLE_LEVEL,

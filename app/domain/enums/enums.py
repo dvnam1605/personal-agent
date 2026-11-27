@@ -103,7 +103,7 @@ class ExecutionMode(StrEnum):
 
 
 class StopReason(StrEnum):
-    """Why a bounded specialist execution halted (spec P11-03)."""
+    """Why a bounded specialist execution halted."""
 
     SUCCESS = "success"
     NO_PROGRESS = "no_progress"
@@ -115,7 +115,7 @@ class StopReason(StrEnum):
 
 
 class SpecialistStatus(StrEnum):
-    """Outcome status reported through the structured report channel (P11-10)."""
+    """Outcome status reported through the structured report channel."""
 
     SUCCESS = "success"
     BLOCKED = "blocked"
@@ -136,7 +136,7 @@ class EvidenceType(StrEnum):
 
 
 class MemoryType(StrEnum):
-    """Classification of memory items (spec P17)."""
+    """Classification of memory items."""
 
     CONVERSATION = "conversation"
     WORKING = "working"
@@ -147,7 +147,7 @@ class MemoryType(StrEnum):
 
 
 class EntityType(StrEnum):
-    """Classification of recognized and resolved entities (spec P17-01)."""
+    """Classification of recognized and resolved entities."""
 
     PERSON = "PERSON"
     DOCUMENT = "DOCUMENT"
@@ -160,7 +160,7 @@ class EntityType(StrEnum):
 
 
 class CompactionStage(StrEnum):
-    """Stages of token-pressure context compaction (spec P17-08)."""
+    """Stages of token-pressure context compaction."""
 
     NONE = "none"
     STAGE_1_TOOL_PRUNING = "stage_1_tool_pruning"
@@ -168,7 +168,7 @@ class CompactionStage(StrEnum):
 
 
 class ApprovalOutcome(StrEnum):
-    """Closed and fail-closed approval decision outcomes (spec P18-01)."""
+    """Closed and fail-closed approval decision outcomes."""
 
     ALLOWED_ONCE = "allowed-once"
     REJECTED = "rejected"
@@ -177,7 +177,7 @@ class ApprovalOutcome(StrEnum):
 
 
 class ApprovalPolicy(StrEnum):
-    """Per-session approval policy governing interactive vs unattended execution (spec P18-01)."""
+    """Per-session approval policy governing interactive vs unattended execution."""
 
     ASK = "ask"
     NEVER = "never"

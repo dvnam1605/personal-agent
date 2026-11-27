@@ -42,6 +42,7 @@ def _json_type(is_pg: bool) -> sa.types.TypeEngine:
 
 
 def upgrade() -> None:
+    """Create document_profiles with its lookup indexes."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = _json_type(is_pg)
     categories = ", ".join(f"'{c}'" for c in DOC_CATEGORIES)
@@ -121,6 +122,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop document_profiles."""
     if op.get_bind().dialect.name == "postgresql":
         op.execute(
             "ALTER TABLE document_chunks ALTER COLUMN metadata TYPE json USING metadata::json"

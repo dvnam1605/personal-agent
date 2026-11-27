@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { apiClient } from '../api/client'
 import type { ChatTurn } from '../components/conversation/MessageItem'
 import type { ToastType } from '../components/ui/toastContext'
@@ -67,25 +67,38 @@ function dbMessagesToTurns(messages: DBMessageItem[]): ChatTurn[] {
   return turns
 }
 
-/** Owns the database-backed conversation list, the active conversation and its turns. */
+/**
+ * Owns the database-backed conversation list, the active conversation and its turns.
+ *
+ * Each `loadConversation` call takes a fresh request id; a reply that arrives after a newer load
+ * started is dropped, so quickly clicking A then B can never show B as active with A's turns.
+ */
 export function useConversations(showToast: (message: string, type?: ToastType) => void) {
   const [conversations, setConversations] = useState<DBConversationSummary[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [turns, setTurns] = useState<ChatTurn[]>([])
+  const loadRequestRef = useRef(0)
 
   const loadConversation = useCallback(
     async (conversationId: string) => {
+      const requestId = ++loadRequestRef.current
       try {
         const detail = await apiClient.getConversation(conversationId)
-        const loadedTurns = dbMessagesToTurns(detail.messages)
-        setTurns(loadedTurns)
+        if (requestId !== loadRequestRef.current) return
+        setTurns(dbMessagesToTurns(detail.messages))
       } catch (err) {
+        if (requestId !== loadRequestRef.current) return
         console.error('Failed to load conversation:', err)
         showToast('Không thể tải lịch sử cuộc trò chuyện này.', 'error')
       }
     },
     [showToast],
   )
+
+  /** Invalidate any in-flight load, e.g. before replacing the turns with a new or empty conversation. */
+  const cancelPendingLoad = useCallback(() => {
+    loadRequestRef.current += 1
+  }, [])
 
   return {
     conversations,
@@ -95,5 +108,6 @@ export function useConversations(showToast: (message: string, type?: ToastType) 
     turns,
     setTurns,
     loadConversation,
+    cancelPendingLoad,
   }
 }

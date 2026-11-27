@@ -139,6 +139,10 @@ class SectionWriter:
         formulas: dict[str, Formula] | None = None,
         figures: list[Figure] | None = None,
     ) -> WrittenDocument:
+        """Write every outline section from its own evidence, numbering citations globally.
+
+        Each section sees a summary of the earlier ones so it does not repeat them.
+        """
         template = TEMPLATE_BY_KEY.get(outline.template_key) or select_template(request)
         global_citations: list[dict[str, Any]] = []
         number_by_key: dict[tuple[str, str], int] = {}

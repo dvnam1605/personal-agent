@@ -26,6 +26,7 @@ class MemoryView(BaseModel):
 
     @classmethod
     def of(cls, item: MemoryItem) -> MemoryView:
+        """View of a stored item; internal note categories are hidden."""
         category = item.metadata.get("category")
         return cls(
             id=item.id,
@@ -45,6 +46,7 @@ class MemoryWrite(BaseModel):
     @field_validator("content")
     @classmethod
     def strip_content(cls, value: str) -> str:
+        """Trim the text and reject one that is only whitespace."""
         stripped = value.strip()
         if not stripped:
             raise ValueError("content must not be blank")
@@ -56,9 +58,10 @@ def _service(session: AsyncSession) -> PersonalMemoryService:
 
 
 async def _owned(session: AsyncSession, user_id: str, memory_id: str) -> MemoryItem:
+    """Load the caller's active memory item, else raise not found."""
     item = await SqlMemoryStore(session).get_memory(memory_id)
     if item is None or item.user_id != user_id or item.is_stale:
-        raise NotFoundError("Memory not found.")
+        raise NotFoundError("Không tìm thấy ghi nhớ.")
     return item
 
 

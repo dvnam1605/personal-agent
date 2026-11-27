@@ -16,9 +16,11 @@ from app.services.auth.service import AuthService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MIN_PASSWORD_LENGTH = 8
 
 
 def _is_trusted_proxy(address: str) -> bool:
+    """Whether an address falls inside one of the configured trusted proxy networks."""
     try:
         ip = ipaddress.ip_address(address)
     except ValueError:
@@ -46,16 +48,29 @@ def get_client_ip(request: Request) -> str:
     return peer
 
 
+def registration_open() -> bool:
+    """Self-registration follows the explicit setting, else is open only outside staging/production.
+
+    Every account can read the shared corpus and spend the LLM budget, so a reachable
+    server must not hand out accounts to anyone who asks.
+    """
+    configured = settings.security.allow_registration
+    return (not settings.auth_enforced) if configured is None else configured
+
+
 class RegisterRequest(BaseModel):
+    """Self-registration payload; the email is normalised to lower case."""
+
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(..., min_length=3, max_length=255)
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
 
     @field_validator("email")
     @classmethod
     def validate_email(cls, v: str) -> str:
+        """Lower-case the address and reject one that is not shaped like an email."""
         clean = v.strip().lower()
         if not EMAIL_REGEX.match(clean):
             raise ValueError("Email không đúng định dạng.")
@@ -63,6 +78,8 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    """Email and password sign-in payload."""
+
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(..., min_length=1, max_length=255)
@@ -71,6 +88,7 @@ class LoginRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def validate_email(cls, v: str) -> str:
+        """Lower-case the address and reject one that is not shaped like an email."""
         clean = v.strip().lower()
         if not EMAIL_REGEX.match(clean):
             raise ValueError("Email không đúng định dạng.")
@@ -78,6 +96,8 @@ class LoginRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    """Public view of an account."""
+
     id: str
     email: str
     full_name: str | None = None
@@ -85,6 +105,8 @@ class UserResponse(BaseModel):
 
 
 class AuthResponse(BaseModel):
+    """A session token with the account it signs in."""
+
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
@@ -101,6 +123,12 @@ async def register(
     body: RegisterRequest,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> AuthResponse:
+    """Create an account and sign it in, only where self-registration is open."""
+    if not registration_open():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Máy chủ không cho phép tự đăng ký. Hãy liên hệ quản trị viên để được cấp tài khoản.",
+        )
     client_ip = get_client_ip(request)
     allowed, error_msg, retry_after = await auth_rate_limiter.check_register_allowed(client_ip)
     if not allowed:
@@ -144,6 +172,7 @@ async def login(
     body: LoginRequest,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> AuthResponse:
+    """Sign in with email and password, rate-limited per IP and locked after repeated failures."""
     client_ip = get_client_ip(request)
     allowed, error_msg, retry_after = await auth_rate_limiter.check_login_allowed(
         body.email, client_ip
@@ -196,9 +225,13 @@ async def get_me(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> UserResponse:
+    """Return the signed-in account, or a placeholder for the API-key identity.
+
+    Session tokens are already checked against an active account by the dependency, so
+    a missing row here means the API-key / development identity, which has no account.
+    """
     user = await AuthService.get_user_by_id(session, user_id)
     if user is None:
-        # Fallback for default-user
         return UserResponse(
             id=user_id,
             email="default-user@local.invalid",

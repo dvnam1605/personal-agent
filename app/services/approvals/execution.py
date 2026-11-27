@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,11 @@ from app.domain.models import AssistantState, ToolContext, ToolInput, ToolResult
 from app.infrastructure.db.models import ApprovalRequest
 from app.services.platform.run_persistence import RunPersistenceService
 
+logger = structlog.get_logger(__name__)
+
 ToolExecuteFn = Callable[[ToolInput, ToolContext], Awaitable[ToolResult]]
+
+EXECUTION_FAILED_MESSAGE = "Không thực thi được hành động đã duyệt."
 
 
 class ApprovalExecutionResult(BaseModel):
@@ -29,7 +34,13 @@ class ApprovalExecutionResult(BaseModel):
 
 
 class ApprovalExecutionService:
-    """Resume a waiting run and invoke the bound Calendar/Gmail tool."""
+    """Resume a waiting run and invoke the bound Calendar, Gmail, Tasks or Drive tool.
+
+    The tool is routed by its name prefix and still checks the one-shot approval token
+    itself, so this service never turns an unapproved request into a Google write.
+    Tool errors are internal English text: they are logged and stored on the run,
+    while the user sees a fixed Vietnamese message.
+    """
 
     def __init__(
         self,
@@ -38,11 +49,13 @@ class ApprovalExecutionService:
         calendar_execute: ToolExecuteFn | None = None,
         communication_execute: ToolExecuteFn | None = None,
         tasks_execute: ToolExecuteFn | None = None,
+        drive_execute: ToolExecuteFn | None = None,
     ) -> None:
         self._oauth_service = oauth_service
         self._calendar_execute = calendar_execute
         self._communication_execute = communication_execute
         self._tasks_execute = tasks_execute
+        self._drive_execute = drive_execute
 
     async def execute(
         self,
@@ -79,11 +92,17 @@ class ApprovalExecutionService:
                 0.0,
                 error_summary="Approved tool execution failed.",
             )
+            logger.warning(
+                "approved_tool_execution_raised",
+                tool_name=tool_name,
+                run_id=request.run_id,
+                error=type(exc).__name__,
+            )
             return ApprovalExecutionResult(
                 success=False,
                 tool_name=tool_name,
                 error=type(exc).__name__,
-                message="Không thực thi được hành động đã duyệt.",
+                message=EXECUTION_FAILED_MESSAGE,
             )
 
         output = _jsonable(result.output)
@@ -104,11 +123,17 @@ class ApprovalExecutionService:
             0.0,
             error_summary=result.error or "Approved tool execution failed.",
         )
+        logger.warning(
+            "approved_tool_execution_failed",
+            tool_name=tool_name,
+            run_id=request.run_id,
+            error=result.error,
+        )
         return ApprovalExecutionResult(
             success=False,
             tool_name=tool_name,
             error=result.error,
-            message=result.error or "Không thực thi được hành động đã duyệt.",
+            message=EXECUTION_FAILED_MESSAGE,
         )
 
     async def _dispatch(
@@ -131,12 +156,17 @@ class ApprovalExecutionService:
         if tool_input.tool_name.startswith("tasks."):
             execute = self._tasks_execute or await self._default_tasks_execute(session, user_id)
             return await execute(tool_input, context)
+        if tool_input.tool_name.startswith("drive."):
+            execute = self._drive_execute or await self._default_drive_execute(
+                session, user_id, tool_input.tool_name
+            )
+            return await execute(tool_input, context)
         from app.domain.models import ToolExecutionMetadata
 
         return ToolResult(
             tool_name=tool_input.tool_name,
             success=False,
-            error=f"POST /approvals execute chưa hỗ trợ tool '{tool_input.tool_name}'.",
+            error=f"Approval execution does not support tool '{tool_input.tool_name}'.",
             metadata=ToolExecutionMetadata(tool_name=tool_input.tool_name, latency_ms=0.0),
         )
 
@@ -167,6 +197,16 @@ class ApprovalExecutionService:
 
         oauth = self._oauth_service or google_oauth_service
         tools = await GoogleTasksTools.for_user(oauth, session, user_id)
+        return tools.execute
+
+    async def _default_drive_execute(
+        self, session: AsyncSession, user_id: str, tool_name: str
+    ) -> ToolExecuteFn:
+        from app.api.routes.google_auth import google_oauth_service
+        from app.tools.google_drive import GoogleDriveTools
+
+        oauth = self._oauth_service or google_oauth_service
+        tools = await GoogleDriveTools.for_user(oauth, session, user_id, tool_name=tool_name)
         return tools.execute
 
     @staticmethod

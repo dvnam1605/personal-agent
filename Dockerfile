@@ -1,39 +1,34 @@
 # syntax=docker/dockerfile:1
-# Multi-stage production build for FastAPI Backend using Astral uv
+# Multi-stage backend image: the builder resolves the locked environment with uv,
+# the runner gets only the virtualenv and sources and runs as a non-root user.
+# Python matches the version CI tests (3.14); uv is pinned to the version that
+# writes uv.lock, so `--frozen` installs exactly what CI installs.
 
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
-# Install uv from official Astral image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /bin/uv
 
 WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
-# Copy dependency specifications
 COPY pyproject.toml uv.lock ./
-
-# Install dependencies into virtual environment without the root project
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy application source code and migrations
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY scripts/ ./scripts/
-COPY data/ ./data/
 COPY skills/ ./skills/
 COPY docker-entrypoint.sh ./
 # hatchling reads [project].readme during install
 COPY README.md ./
 
-# Final sync including the project (non-editable: no bind-mount of sources)
 RUN uv sync --frozen --no-dev --no-editable
 RUN chmod +x docker-entrypoint.sh
 
-# --- Production Runner Stage ---
-FROM python:3.12-slim-bookworm AS runner
+FROM python:3.14-slim-bookworm AS runner
 
 WORKDIR /app
 
@@ -47,7 +42,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtualenv and application artifacts from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app /app
 

@@ -1,4 +1,4 @@
-"""Capability and trigger matching helpers for dynamic skills and workflows (M3 / M9)."""
+"""Capability and trigger matching helpers for dynamic skills and workflows."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def match_trigger(
     unaccented_query: str | None = None,
     allow_token_subset: bool = False,
 ) -> bool:
-    """Unified trigger matching across skills and static workflows (M3 / N1).
+    """Unified trigger matching across skills and static workflows.
 
     Supports:
     1. Literal ``/regex/`` syntax with case-insensitivity.

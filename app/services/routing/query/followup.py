@@ -222,10 +222,12 @@ class FollowupMixin(OrchestratorBase):
                 .order_by(Message.created_at.desc())
                 .limit(limit)
             )
-            res = await session.execute(stmt)
-            msgs = list(reversed(res.scalars().all()))
+            # A savepoint, so a failed read leaves the request's transaction usable.
+            async with session.begin_nested():
+                res = await session.execute(stmt)
+                msgs = list(reversed(res.scalars().all()))
             return [{"role": m.role, "content": m.content[:_HISTORY_CHARS]} for m in msgs]
-        except Exception:
+        except Exception:  # noqa: BLE001 - a turn without history is still answerable
             logger.warning("load_conversation_history_failed", exc_info=True)
             return []
 
@@ -238,53 +240,62 @@ class FollowupMixin(OrchestratorBase):
         if not anchor or not conversation_id:
             return
         try:
-            from app.infrastructure.db.models import (
-                AssistantRun,
-                Conversation,
-                Message,
-                RunEvidence,
-            )
-
-            message = (
-                await session.execute(
-                    select(Message)
-                    .join(Conversation, Conversation.id == Message.conversation_id)
-                    .where(
-                        Message.conversation_id == conversation_id,
-                        Message.role == "assistant",
-                        Conversation.user_id == user_id,
-                    )
-                    .order_by(Message.created_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if message is None:
-                return
-            data = (message.metadata_ or {}).get("data") or {}
-            ids = [
-                str(c.get("document_id"))
-                for c in data.get("citations") or []
-                if isinstance(c, dict) and c.get("document_id")
-            ]
-            if not ids and message.run_id:
-                ids = list(
-                    (
-                        await session.execute(
-                            select(RunEvidence.document_id)
-                            .join(AssistantRun, AssistantRun.id == RunEvidence.run_id)
-                            .where(
-                                RunEvidence.run_id == message.run_id,
-                                RunEvidence.cited,
-                                AssistantRun.user_id == user_id,
-                            )
-                        )
-                    ).scalars()
-                )
-            ids = list(dict.fromkeys(i for i in ids if i))[:_RAG_MAX_SCOPED_DOCUMENTS]
+            # A savepoint, so a failed read leaves the request's transaction usable.
+            async with session.begin_nested():
+                ids = await FollowupMixin._cited_document_ids(session, conversation_id, user_id)
             if ids:
                 _FOLLOWUP_SCOPE.set((ids, anchor))
         except Exception:  # noqa: BLE001 - an unscoped follow-up still works
             logger.warning("followup_scope_failed", exc_info=True)
+
+    @staticmethod
+    async def _cited_document_ids(
+        session: AsyncSession, conversation_id: str, user_id: str
+    ) -> list[str]:
+        """Documents the caller's last answer in this conversation cited, most relevant first."""
+        from app.infrastructure.db.models import (
+            AssistantRun,
+            Conversation,
+            Message,
+            RunEvidence,
+        )
+
+        message = (
+            await session.execute(
+                select(Message)
+                .join(Conversation, Conversation.id == Message.conversation_id)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.role == "assistant",
+                    Conversation.user_id == user_id,
+                )
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if message is None:
+            return []
+        data = (message.metadata_ or {}).get("data") or {}
+        ids = [
+            str(c.get("document_id"))
+            for c in data.get("citations") or []
+            if isinstance(c, dict) and c.get("document_id")
+        ]
+        if not ids and message.run_id:
+            ids = list(
+                (
+                    await session.execute(
+                        select(RunEvidence.document_id)
+                        .join(AssistantRun, AssistantRun.id == RunEvidence.run_id)
+                        .where(
+                            RunEvidence.run_id == message.run_id,
+                            RunEvidence.cited,
+                            AssistantRun.user_id == user_id,
+                        )
+                    )
+                ).scalars()
+            )
+        return list(dict.fromkeys(i for i in ids if i))[:_RAG_MAX_SCOPED_DOCUMENTS]
 
     async def _triage_in_context(
         self, query: str, history: list[dict[str, str]] | None

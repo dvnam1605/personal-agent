@@ -28,6 +28,7 @@ class TavilyWebSearchProvider:
         self._client = client
 
     async def search(self, query: str, *, max_results: int = 5) -> WebSearchPage:
+        """Search the web and keep only results with an http(s) URL."""
         normalized = " ".join(query.split())[:MAX_QUERY_LEN]
         payload = {
             "query": normalized,

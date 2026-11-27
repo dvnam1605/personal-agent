@@ -252,6 +252,22 @@ def test_spill_inspection_requires_session_and_uri_locator() -> None:
         tools.slice_spill("C:/elsewhere/file.txt", session_id="s1")
 
 
+def test_spill_inspection_rejects_traversal_into_another_session(tmp_path: Path) -> None:
+    store = LocalFileSpillStore(base_dir=tmp_path)
+    victim = store.save_text(session_id="victim", content="secret", tool_name="t")
+    victim_artifact = victim.locator.split("/")[-1]
+    session_folder = next(p for p in tmp_path.iterdir() if p.is_dir()).name
+    tools = SpillInspectionTools(store)
+
+    sneaky = f"spill://attacker/../{session_folder}/{victim_artifact}"
+    with pytest.raises(ValidationError):
+        tools.slice_spill(sneaky, session_id="attacker")
+    with pytest.raises(ValidationError):
+        tools.get_info(sneaky, session_id="attacker")
+    with pytest.raises(ValidationError):
+        store.read_text(sneaky)
+
+
 def test_spill_tool_definitions_and_registry() -> None:
     registry = build_spill_tool_registry()
 

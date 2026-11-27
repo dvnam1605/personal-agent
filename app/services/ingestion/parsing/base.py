@@ -41,7 +41,7 @@ class DocumentParseError(RuntimeError):
 
 @runtime_checkable
 class DocumentParser(Protocol):
-    """Provider-neutral parsing boundary (spec P9B-1)."""
+    """Provider-neutral parsing boundary."""
 
     async def parse(
         self,
@@ -168,10 +168,10 @@ async def parse_source(
             warnings = (
                 *report.parse_warnings,
                 "ocr_fallback_enabled=true has no effect yet: no inline OCR adapter "
-                "exists in the runtime; the engine ships with the offline path (P9E)",
+                "exists in the runtime; the engine ships with the offline path",
             )
         else:
-            warnings = (*report.parse_warnings, "queued for offline OCR path (P9E)")
+            warnings = (*report.parse_warnings, "queued for offline OCR path")
         report = report.model_copy(update={"parse_warnings": warnings})
 
     return ParseResult(

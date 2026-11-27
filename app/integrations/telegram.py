@@ -26,6 +26,7 @@ class TelegramClient:
         self._client = client
 
     async def get_updates(self, offset: int | None) -> list[dict[str, Any]]:
+        """Long-poll for new messages and button presses after ``offset``."""
         payload: dict[str, Any] = {
             "timeout": self._settings.poll_timeout_seconds,
             "allowed_updates": ["message", "callback_query"],
@@ -42,6 +43,7 @@ class TelegramClient:
     async def send_message(
         self, chat_id: int, text: str, buttons: list[list[dict[str, str]]] | None = None
     ) -> None:
+        """Send a plain-text message, optionally with inline buttons."""
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text[:MAX_MESSAGE_LEN],
