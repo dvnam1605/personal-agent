@@ -1,4 +1,4 @@
-"""Deterministic chunk identities (spec P9C-3/P9C-4).
+"""Deterministic chunk identities.
 
 IDs are content-derived so re-chunking an unchanged document version yields
 identical IDs (reproducible diffs); changing any ingredient changes the ID.
@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-# 1.1.0: token estimator recalibrated with structural pricing (P9C review M1).
+# 1.1.0: token estimator recalibrated with structural pricing.
 # Version bumps deliberately force reindexing of anything chunked before.
 PARENT_CHUNKER_VERSION = "p9c-parent-1.1.0"
 CHILD_CHUNKER_VERSION = "p9c-child-1.1.0"

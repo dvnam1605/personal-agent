@@ -1,7 +1,7 @@
 """Chunk draft contracts for the P9C chunking engine.
 
 Drafts are pure in-memory values produced from a ParsedDocument; they carry
-every field persistence (P9D) will need so parent/child relations stay
+every field persistence will need so parent/child relations stay
 queryable without reparsing the source. No embedding vectors here.
 """
 
@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ChunkLevel(StrEnum):
-    """Hierarchy level of a chunk draft (spec P9C-2)."""
+    """Hierarchy level of a chunk draft."""
 
     PARENT = "PARENT"
     CHILD = "CHILD"
@@ -57,7 +57,7 @@ class ParentChunkDraft(_ChunkDraftBase):
 
     ``segment_anchors`` mirrors the ``\\n\\n``-separated raw segments by index
     with ``(block_id, page_start, page_end)`` per segment; the synthetic
-    heading-context segment (review L5) carries a ``None`` block id. This is
+    heading-context segment carries a ``None`` block id. This is
     in-memory provenance for the child strategy — persistence maps the
     contract fields only.
     """
@@ -76,7 +76,7 @@ class ChildChunkDraft(_ChunkDraftBase):
     chunk_index: int = Field(ge=0)
     embedding_text: str = Field(min_length=1)
     child_chunker_version: str = Field(min_length=1)
-    filename: str = Field(min_length=1)  # P9C-7 minimum, enforced (review L4)
+    filename: str = Field(min_length=1)
     mime_type: str | None = None
     source_type: str | None = None
     embedding_model: str | None = None

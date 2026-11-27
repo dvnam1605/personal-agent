@@ -28,6 +28,7 @@ from app.services.ingestion.relations import DocumentRelationExtractor  # noqa: 
 
 
 async def main() -> None:
+    """Re-extract relations of stale (or, with --all, every) active document and print the report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="re-extract every active document")
     parser.add_argument("--dry-run", action="store_true", help="print, do not write")

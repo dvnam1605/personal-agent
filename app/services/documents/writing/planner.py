@@ -32,6 +32,10 @@ from app.services.documents.writing.models import (
     _subject,
     _topic,
 )
+from app.services.retrieval.answer.injection_boundary import (
+    BOUNDARY_INSTRUCTIONS,
+    wrap_retrieved_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,11 @@ class DocumentPlanner:
         source_titles_for: Any = None,
         source_outline_for: Any = None,
     ) -> DocumentOutline:
+        """Outline for ``request``: template sections, or columns for a table request.
+
+        With the LLM, sections are proposed from the selected sources' snippets
+        and headings (their whole tables of contents when there are few).
+        """
         template = select_template(request)
         is_table = template.key == TABLE_TEMPLATE_KEY
         sources = await self.select_sources(
@@ -230,9 +239,19 @@ class DocumentPlanner:
             for s in template.sections
         )
         sources = "\n".join(f"- {t}" for t in titles[:MAX_SOURCES]) or "(chưa xác định)"
-        excerpts = "\n".join(f"- {t}" for t in (snippets or [])) or "(không có)"
-        structure = "\n".join(f"- {h}" for h in (headings or [])) or "(không có)"
+        excerpts = (
+            "\n".join(
+                wrap_retrieved_text(t, label=f"S{i}") for i, t in enumerate(snippets or [], 1)
+            )
+            or "(không có)"
+        )
+        structure = (
+            wrap_retrieved_text("\n".join(f"- {h}" for h in headings), label="headings")
+            if headings
+            else "(không có)"
+        )
         system = (
+            f"{BOUNDARY_INSTRUCTIONS}\n\n"
             "Bạn là chuyên viên lập dàn ý văn bản hành chính, báo cáo tiếng Việt.\n"
             "1. Giữ bố cục thông thường của loại văn bản theo cấu trúc mẫu (các phần mở đầu, "
             "đánh giá, kiến nghị… giữ tên quen thuộc của thể loại).\n"

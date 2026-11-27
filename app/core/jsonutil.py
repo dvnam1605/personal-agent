@@ -1,4 +1,4 @@
-"""Canonical JSON helpers backed by orjson (L1)."""
+"""Canonical JSON helpers backed by orjson."""
 
 from __future__ import annotations
 

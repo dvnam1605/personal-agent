@@ -1,7 +1,7 @@
-"""Question Plane service for interactive user clarifications (spec P18-02A).
+"""Question Plane service for interactive user clarifications.
 
 Handles question creation, options validation, multi-select constraints,
-atomic answer recording, and cancellation without framework dependencies (spec §18A.5).
+atomic answer recording, and cancellation without framework dependencies.
 """
 
 from __future__ import annotations
@@ -18,14 +18,7 @@ from app.domain.models import (
     UserQuestionItem,
 )
 from app.infrastructure.db.models import AssistantRun, UserQuestion
-
-
-def _utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+from app.services.platform.time import as_utc
 
 
 class QuestionPlaneService:
@@ -78,7 +71,7 @@ class QuestionPlaneService:
         run_id: str | None = None,
         user_id: str | None = None,
     ) -> list[UserQuestion]:
-        """List pending user questions, optionally filtered by run_id and user_id (spec P18-04, M4)."""
+        """List pending user questions, optionally filtered by run_id and user_id."""
         stmt = select(UserQuestion).where(UserQuestion.status == "pending")
         if run_id:
             stmt = stmt.where(UserQuestion.run_id == run_id)
@@ -119,8 +112,8 @@ class QuestionPlaneService:
                 f"{question.version}, expected {expected_version}."
             )
 
-        current_time = _utc(now) or datetime.now(UTC)
-        expires_at = _utc(question.expires_at)
+        current_time = as_utc(now) or datetime.now(UTC)
+        expires_at = as_utc(question.expires_at)
         if question.status == "pending" and expires_at is not None and expires_at <= current_time:
             question.status = "expired"
             await session.flush()
@@ -138,7 +131,6 @@ class QuestionPlaneService:
                 return question
             raise ValueError(f"UserQuestion is already {question.status}")
 
-        # Validate answers against declared question options
         question_items_by_id: dict[str, dict[str, Any]] = {
             item["id"]: item for item in question.questions if isinstance(item, dict)
         }

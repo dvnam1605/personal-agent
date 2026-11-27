@@ -74,6 +74,7 @@ class _FormulaTextReader:
     """Equation text and picture images read from the PDF itself (PyMuPDF), lazily opened.
 
     Empty for non-PDF sources, scanned pages, or when PyMuPDF is unavailable.
+    A context manager: leaving it closes the PyMuPDF document it opened.
     """
 
     def __init__(self, content: bytes, filename: str) -> None:
@@ -81,6 +82,19 @@ class _FormulaTextReader:
         self._is_pdf = filename.lower().endswith(".pdf") or content[:5] == b"%PDF-"
         self._doc: Any = None
         self._failed = False
+
+    def __enter__(self) -> _FormulaTextReader:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Release the PyMuPDF document, if one was opened."""
+        if self._doc is not None:
+            self._doc.close()
+            self._doc = None
+        self._failed = True
 
     def _open(self) -> Any:
         if self._doc is None and not self._failed and self._is_pdf:
@@ -93,6 +107,7 @@ class _FormulaTextReader:
         return self._doc
 
     def text(self, item: object, document: object) -> str:
+        """Text the PDF prints in the item's box, widened to the page width."""
         doc = self._open()
         prov = (getattr(item, "prov", None) or [None])[0]
         if doc is None or prov is None or not getattr(prov, "page_no", None):
@@ -105,7 +120,7 @@ class _FormulaTextReader:
             # Widen to full page width so the equation number on the right is kept.
             clip = (page.rect.x0, box.t - 2, page.rect.x1, box.b + 2)
             raw = page.get_text("text", clip=clip)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - a malformed box or page skips one formula only
             return ""
         return re.sub(r"\s+", " ", raw).strip()
 
@@ -122,7 +137,7 @@ class _FormulaTextReader:
             size = getattr(getattr(document, "pages", {}).get(prov.page_no), "size", None)
             height = float(getattr(size, "height", 0) or page.rect.height)
             box = prov.bbox.to_top_left_origin(page_height=height)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - a malformed box or page skips one picture only
             return None
         return collector.add_region(doc, prov.page_no, (box.l, box.t, box.r, box.b), caption)
 
@@ -142,14 +157,6 @@ class DoclingDocumentParser:
         return await asyncio.to_thread(self._parse_sync, source, content)
 
     def _parse_sync(self, source: SourceDocument, content: bytes) -> ParsedDocument:
-        from docling_core.types.doc.items.picture.picture import PictureItem
-        from docling_core.types.doc.items.table.table import TableItem
-        from docling_core.types.doc.items.text import (
-            ListItem,
-            SectionHeaderItem,
-            TextItem,
-            TitleItem,
-        )
         from docling_core.types.io import DocumentStream
 
         converter = _load_converter()
@@ -161,8 +168,27 @@ class DoclingDocumentParser:
         except Exception as exc:  # noqa: BLE001 - wrap any Docling failure as DocumentParseError
             raise DocumentParseError(f"docling failed on {source.filename}: {exc}") from exc
 
+        with _FormulaTextReader(content, source.filename) as formula_reader:
+            return self._build_document(source, result, formula_reader)
+
+    def _build_document(
+        self, source: SourceDocument, result: Any, formula_reader: _FormulaTextReader
+    ) -> ParsedDocument:
+        """Walk Docling's items in reading order into headings, lists, paragraphs and tables.
+
+        Equations and pictures Docling leaves empty are filled from the PDF
+        itself through ``formula_reader``, which the caller closes afterwards.
+        """
+        from docling_core.types.doc.items.picture.picture import PictureItem
+        from docling_core.types.doc.items.table.table import TableItem
+        from docling_core.types.doc.items.text import (
+            ListItem,
+            SectionHeaderItem,
+            TextItem,
+            TitleItem,
+        )
+
         document = result.document
-        formula_reader = _FormulaTextReader(content, source.filename)
         images = ImageCollector()
         nodes: list[HeadingNode | ListNode | ParagraphNode | TableNode] = []
         heading_stack: list[tuple[int, str]] = []

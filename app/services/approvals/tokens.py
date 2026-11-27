@@ -1,7 +1,7 @@
 """HMAC approval tokens, stale-target fingerprints, and the mutation gate.
 
-Split out of ``approvals.py`` so request lifecycle and crypto do not share one
-god-file (L3). Callers may keep importing from ``app.services.approvals``.
+Kept apart from the request lifecycle in ``approvals/__init__.py`` so the crypto
+stays small and reviewable. Callers may keep importing from ``app.services.approvals``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ _SYNC_VERIFY_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="approv
 atexit.register(_SYNC_VERIFY_POOL.shutdown, wait=False)
 _SYNC_VERIFY_TIMEOUT_SECONDS = 10.0
 APPROVAL_TOKEN_PREFIX = "appr_"
-# Hash the raw canonical payload. Truncating before sha256 collides distinct bodies (H2).
+# Hash the whole canonical payload: truncating before sha256 would let distinct bodies collide.
 MAX_PROPOSAL_HASH_BYTES = 65_536
 
 _TOKEN_HASH_EXCLUDED = frozenset(
@@ -328,8 +328,8 @@ def _token_policy_allows(
     bound_user = payload.get("user_id")
     bound_hash = payload.get("proposal_hash")
     strict = not _is_relaxed_token_env()
-    # Peek in production must prove run, user, and that the token names a tool.
-    # Omitting tool_name previously let a calendar.create token advertise gmail.send (M4).
+    # Outside tests even a peek must prove run, user and tool; without the tool name a
+    # calendar.create_event token could pass a check meant for gmail.send.
     bind_run = consume or strict
     bind_user = consume or strict
     if tool_name is None and strict:
@@ -358,7 +358,7 @@ def _token_policy_allows(
             return False
     elif bound_hash is not None:
         if not consume:
-            # Peek used to pass in pytest when the caller omitted the hash (N3).
+            # A hash-bound token never verifies without the hash, not even as a peek.
             return False
         if strict:
             return False
@@ -502,7 +502,7 @@ async def require_mutation_approval(
 ) -> None:
     """Fail-closed mutation gate shared by Calendar / Gmail / Drive tools.
 
-    Stale-target check (H3): tools in ``STALE_CHECK_FINGERPRINT_TOOLS`` always
+    Stale-target check: tools in ``STALE_CHECK_FINGERPRINT_TOOLS`` always
     require expected and current fingerprints, including in development/testing.
     Create-style tools without an existing target may omit fingerprints.
     """

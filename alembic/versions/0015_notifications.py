@@ -22,6 +22,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create notifications, unique per user and dedup key."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = postgresql.JSONB() if is_pg else sa.JSON()
     op.create_table(
@@ -53,9 +54,7 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("user_id", "dedup_key", name="uq_notifications_user_dedup"),
     )
-    op.create_index(
-        "ix_notifications_user_created", "notifications", ["user_id", "created_at"]
-    )
+    op.create_index("ix_notifications_user_created", "notifications", ["user_id", "created_at"])
 
 
 def downgrade() -> None:

@@ -15,6 +15,8 @@ import os
 import re
 from pathlib import Path
 
+from app.core.settings.paths import resolve_project_path
+
 IMAGE_REF = re.compile(r"!\[(?P<alt>[^\]\n]*)\]\(image:(?P<key>[0-9a-f]{24})\)")
 IMAGE_LINE = re.compile(r"^\s*!\[[^\]\n]*\]\(image:[0-9a-f]{24}\)\s*$")
 KEY_PATTERN = re.compile(r"^[0-9a-f]{24}$")
@@ -28,19 +30,23 @@ MEDIA_TYPES = {
 
 
 def images_dir() -> Path:
-    return Path(os.getenv("DOC_IMAGES_DIR", "storage/doc_images"))
+    """Image store: ``DOC_IMAGES_DIR``, relative paths anchored at the project root."""
+    return resolve_project_path(os.getenv("DOC_IMAGES_DIR", "storage/doc_images"))
 
 
 def image_key(data: bytes) -> str:
+    """Content address of an image: the first 24 hex digits of its SHA-256."""
     return hashlib.sha256(data).hexdigest()[:24]
 
 
 def image_ref(alt: str, key: str) -> str:
+    """Markdown reference to a stored image, with brackets in the alt text neutralised."""
     clean = re.sub(r"\s+", " ", alt.replace("[", "(").replace("]", ")")).strip()
     return f"![{clean}](image:{key})"
 
 
 def image_file(key: str) -> Path | None:
+    """The stored file for a well-formed key, whatever its extension, else None."""
     if not KEY_PATTERN.match(key):
         return None
     for ext in MEDIA_TYPES:
@@ -51,6 +57,7 @@ def image_file(key: str) -> Path | None:
 
 
 def save_image(key: str, data: bytes, ext: str) -> Path:
+    """Store an image once under its key; an existing file is left untouched."""
     path = images_dir() / f"{key}.{ext}"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +66,7 @@ def save_image(key: str, data: bytes, ext: str) -> Path:
 
 
 def cached_description(key: str) -> str | None:
+    """The cached automatic description of an image, if one was saved."""
     try:
         return json.loads((images_dir() / f"{key}.json").read_text(encoding="utf-8"))["text"]
     except (OSError, ValueError, KeyError):
@@ -66,6 +74,7 @@ def cached_description(key: str) -> str | None:
 
 
 def cache_description(key: str, text: str) -> None:
+    """Save an image's automatic description next to the image."""
     path = images_dir() / f"{key}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
@@ -77,4 +86,5 @@ def for_prompt(text: str) -> str:
 
 
 def strip_images(text: str) -> str:
+    """Text with every image reference removed and blank runs collapsed."""
     return re.sub(r"\n{3,}", "\n\n", IMAGE_REF.sub("", text)).strip()

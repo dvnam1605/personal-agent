@@ -17,7 +17,8 @@ depends_on = None
 
 def upgrade() -> None:
     # token_hash stores SHA-256 of the minted execution token; plaintext tokens
-    # are returned once over HTTP and never persisted (M8).
+    # are returned once over HTTP and never persisted.
+    """Allow the unavailable approval status, store token hashes, and add user_questions."""
     with op.batch_alter_table("approval_requests") as batch_op:
         batch_op.add_column(sa.Column("token_hash", sa.String(length=64), nullable=True))
         batch_op.drop_constraint("ck_approval_requests_status", type_="check")

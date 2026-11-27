@@ -26,12 +26,16 @@ class KnowledgeIntent(StrEnum):
 
 
 class MetadataOperation(StrEnum):
+    """What a metadata question asks for: a count, a list, or the latest match."""
+
     COUNT = "count"
     LIST = "list"
     LATEST = "latest"
 
 
 class MetadataFilterSpec(BaseModel):
+    """Structured filter extracted from a metadata question: category, dates, issuer and similar."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation: MetadataOperation = MetadataOperation.LIST

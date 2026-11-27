@@ -14,6 +14,7 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.core.config import Environment, settings
+from app.harness.dsn import derive_checkpointer_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,7 @@ def get_checkpointer_dsn(url: str | None = None) -> str:
     Strips the `+asyncpg` dialect modifier so psycopg[binary] can establish direct
     checkpointer connections without affecting SQLAlchemy asyncpg sessions.
     """
-    raw_url = url or settings.database.url
-    return raw_url.replace("postgresql+asyncpg://", "postgresql://")
+    return derive_checkpointer_dsn(url or settings.database.url)
 
 
 def get_memory_checkpointer() -> MemorySaver:
@@ -137,9 +137,10 @@ async def configure_checkpointer_lifespan(logger: Any) -> Any:
     except Exception as exc:  # noqa: BLE001 - postgres saver setup can raise driver errors
         if settings.environment not in (Environment.DEVELOPMENT, Environment.TESTING):
             raise RuntimeError(
-                f"Failed to connect to PostgreSQL for checkpointer in {settings.environment.value}: {exc}"
+                f"Failed to connect to PostgreSQL for checkpointer in {settings.environment.value} "
+                f"({type(exc).__name__})."
             ) from exc
-        logger.warning("checkpointer.postgres_fallback_to_memory", error=str(exc))
+        logger.warning("checkpointer.postgres_fallback_to_memory", error=type(exc).__name__)
         return None
 
 

@@ -10,6 +10,7 @@ export interface BadgeProps {
   className?: string
 }
 
+/** Small coloured status label. */
 export const Badge: React.FC<BadgeProps> = ({
   children,
   variant = 'default',

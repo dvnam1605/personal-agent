@@ -47,6 +47,8 @@ Rules:
    - "description": what the specialist must do and find
    - "dependencies": array of task IDs that MUST complete before this task can start.
      - If tasks can run concurrently (e.g. searching calendar and searching documents independently), DO NOT make them depend on each other.
+     - A task that uses what other tasks find (e.g. drafting an email that reports research or calendar results) MUST depend on those tasks; it receives their outputs.
+     - Write each "description" in the user's language and include every detail the specialist needs (recipients, dates, topics), because it sees only its own task.
    - "input_data": dict of input parameters (e.g. query, attendee emails, keywords)
 3. Return ONLY a valid JSON object with the following schema:
 {{

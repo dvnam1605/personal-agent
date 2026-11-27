@@ -1,4 +1,4 @@
-"""Manual inspection helper for P9D (spec P9D-6).
+"""Manual inspection helper for P9D.
 
 Runs >=3 documents through parse -> chunk and prints the hierarchy evidence
 required by the manual checklist: parent/child counts, heading paths,
@@ -46,6 +46,7 @@ The committee ranks vendors by weighted cost and support score.
 
 
 async def inspect(name: str, source_type: str, filename: str, content: bytes) -> tuple[int, int]:
+    """Parse and chunk one fixture, print its hierarchy, and return parent and child counts."""
     source = SourceDocument(source_id=f"inspect-{name}", source_type=source_type, filename=filename)
     if source_type == "preparsed_markdown":
         parsed = await MarkdownDocumentParser().parse(source, content)
@@ -89,6 +90,7 @@ async def inspect(name: str, source_type: str, filename: str, content: bytes) ->
 
 
 async def main() -> None:
+    """Inspect the fixture documents and print the total parent and child counts."""
     total_parents = 0
     total_children = 0
 

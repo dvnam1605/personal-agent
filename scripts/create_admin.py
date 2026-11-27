@@ -17,7 +17,7 @@ from app.services.auth.rate_limiter import auth_rate_limiter  # noqa: E402
 from app.services.auth.service import hash_password  # noqa: E402
 
 # Credentials come from the environment (or a prompt), never from the source.
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@naot.vn")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 ADMIN_NAME = os.environ.get("ADMIN_NAME", "Quản trị viên Hệ thống")
 MIN_PASSWORD_LENGTH = 8
 
@@ -30,6 +30,7 @@ def _admin_password() -> str:
 
 
 async def main() -> None:
+    """Create the administrator account, or reset its password and reactivate it."""
     admin_password = _admin_password()
     session_factory = get_session_factory()
     async with session_factory() as session:

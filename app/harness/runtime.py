@@ -1,8 +1,12 @@
-"""Production composition root for harness dispatch (P16 H4).
+"""Composition root for the LangGraph harness.
 
-Wires first-party agent/tool registries, a fail-closed chat backend (blocked
-report when no LLM is configured), and a DelegationService-backed supervisor
-executor. Live Google/retrieval providers remain P18.
+Builds the agent and tool registries and the graph builders. Two families exist:
+
+* ``build_default_*``: fail-closed builders with no LLM or live tools wired, used by
+  tests and by paths that must never reach a provider;
+* ``build_live_supervisor_graph_builder``: the supervisor graph that serves real
+  multi-domain requests, over the gateway chat backend and the read-only
+  ``LiveToolExecutor``. Writes leave it only as proposals for approval.
 """
 
 from __future__ import annotations
@@ -252,4 +256,73 @@ def build_default_meeting_prep_graph_builder(
             "retrieval.retrieve",
             "drive.search_files",
         ],
+    )
+
+
+PROPOSAL_RULES: tuple[str, ...] = (
+    "Answer in Vietnamese. The user's timezone is Asia/Ho_Chi_Minh (UTC+07:00); "
+    "give tool time ranges with that offset.",
+    "You can only read. To send, draft, create or change anything, never call a write tool: "
+    "call specialist.propose_action with the tool (e.g. gmail.create_draft) and exactly the "
+    "arguments to write, using what earlier tasks found (in your context). A person approves "
+    "it before it runs.",
+)
+
+
+def live_agent_preambles() -> dict[str, tuple[str, ...]]:
+    """Role instructions plus the proposal rules for every delegated specialist."""
+    from app.agents.declarations import CALENDAR_AGENT_NAME, COMMUNICATION_AGENT_NAME
+    from app.agents.specialist.calendar import CALENDAR_SYSTEM_PREAMBLE
+    from app.agents.specialist.communication import COMMUNICATION_SYSTEM_PREAMBLE
+    from app.agents.specialist.knowledge_research import KNOWLEDGE_SYSTEM_PREAMBLE
+
+    return {
+        KNOWLEDGE_RESEARCH_AGENT_NAME: (*KNOWLEDGE_SYSTEM_PREAMBLE, *PROPOSAL_RULES),
+        CALENDAR_AGENT_NAME: (*CALENDAR_SYSTEM_PREAMBLE, *PROPOSAL_RULES),
+        COMMUNICATION_AGENT_NAME: (*COMMUNICATION_SYSTEM_PREAMBLE, *PROPOSAL_RULES),
+    }
+
+
+def build_live_supervisor_graph_builder(chat: Any, executor: Any) -> SupervisorGraphBuilder:
+    """Supervisor graph over a real LLM backend and live read-only tools.
+
+    The planner and every specialist share ``chat``; tools run through ``executor``
+    (see ``app.harness.tool_executor.LiveToolExecutor``), which refuses writes.
+    """
+    agents = build_first_party_registry()
+    tools = build_first_party_tool_registry()
+    gate = CapabilityGate(tools, agents)
+    runner = SpecialistRunner(
+        chat,
+        executor,
+        observation_truncate=settings.agentic.observation_chars,
+        compactor=get_default_context_runtime().compactor,
+        offer_proposals=True,
+    )
+    delegation = DelegationService(agents, tools, gate, SpecialistChildRunner(runner))
+    budget = ExecutionBudget(
+        timeout_seconds=settings.agentic.dag_timeout_seconds,
+        max_supervisor_iterations=settings.supervisor_budget.max_iterations,
+    )
+    return SupervisorGraphBuilder(
+        planner=SupervisorPlanner(chat),
+        catalog=build_capability_catalog(agents),
+        budget=budget,
+        task_executor=build_delegation_task_executor(
+            delegation,
+            parent_agent=KNOWLEDGE_RESEARCH_AGENT_NAME,
+            preambles=live_agent_preambles(),
+            task_budget=ExecutionBudget(
+                max_llm_calls=8,
+                max_tool_calls=10,
+                max_react_steps=8,
+                timeout_seconds=settings.agentic.dag_timeout_seconds,
+                max_prompt_tokens=settings.agentic.specialist_max_total_tokens,
+                max_completion_tokens=8_000,
+                max_total_tokens=settings.agentic.specialist_max_total_tokens,
+            ),
+        ),
+        budget_manager=BudgetManager(budget=budget),
+        max_replans=settings.supervisor_budget.max_replans,
+        timeout_seconds=settings.agentic.dag_timeout_seconds,
     )

@@ -7,7 +7,7 @@ Every dynamic value is strictly validated before interpolation:
 - the FTS query text is bound as a single quoted literal consumed by
   ``websearch_to_tsquery`` (never concatenated into tsquery syntax).
 
-The candidate WHERE clause is the single source of truth for the P9D-M3
+The candidate WHERE clause is the single source of truth for the
 ownership rule (``user_id = requester OR user_id IS NULL``) and the
 active-version guard.
 """
@@ -19,7 +19,7 @@ import re
 import uuid
 from typing import Any
 
-SEARCHABLE_LEVEL = 1  # CHILD and TABLE_CHILD rows (spec P10-03/04)
+SEARCHABLE_LEVEL = 1  # CHILD and TABLE_CHILD rows
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
@@ -48,7 +48,7 @@ def fts_query_expression(search_query: str, dictionary: str = "public.vietnamese
 
 
 def owner_scope_sql(requester_id: str | None) -> str:
-    """P9D-M3 ownership rule; NULL requester sees only shared documents."""
+    """Ownership rule: NULL requester sees only shared documents."""
     if requester_id is None:
         return "d.user_id IS NULL"
     return f"(d.user_id = {uuid_literal(requester_id)} OR d.user_id IS NULL)"
@@ -110,7 +110,7 @@ def preferred_filename(*sources: dict[str, Any]) -> str | None:
 
 
 def chunk_anchor_metadata(row: dict[str, Any]) -> dict[str, Any]:
-    """Citation-ready source anchors carried on every candidate (spec P10-03).
+    """Citation-ready source anchors carried on every candidate.
 
     Rows come from the retriever SQL which selects ``ANCHOR_SELECT_COLUMNS``;
     missing/NULL keys are tolerated (older fixtures, partial columns) and

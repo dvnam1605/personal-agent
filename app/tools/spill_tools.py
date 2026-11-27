@@ -1,5 +1,6 @@
 """Tool definitions and invocation handler for inspecting session spill artifacts."""
 
+import re
 from typing import Any
 
 from app.domain.enums import ActionClass, ActionRiskLevel
@@ -91,11 +92,16 @@ SPILL_TOOL_DEFINITIONS: list[ToolDefinition] = [
 ]
 
 
+_ARTIFACT_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
+
 def _require_locator_session(locator: str, session_id: str) -> None:
     """Enforce per-session spill isolation at the tool boundary.
 
     Only ``spill://<session>/<artifact>`` locators owned by ``session_id`` may be
-    inspected, so one execution can never read another session's spilled output.
+    inspected, so one execution can never read another session's spilled output. The
+    artifact part must be one plain file name: ``spill://mine/../session-x/y`` would
+    otherwise pass the owner check and resolve into another session's directory.
     """
     if not session_id or not session_id.strip():
         raise ValidationError("session_id must be provided to inspect spill artifacts.")
@@ -105,11 +111,16 @@ def _require_locator_session(locator: str, session_id: str) -> None:
             "Spill tools accept 'spill://session/artifact' locators only.",
             details={"locator": locator},
         )
-    owner_session = normalized[len("spill://") :].split("/", 1)[0]
+    owner_session, _, artifact_id = normalized[len("spill://") :].partition("/")
     if owner_session != session_id.strip():
         raise PermissionDeniedError(
             "Spill artifacts are isolated per session.",
             details={"locator": locator, "requested_session": owner_session},
+        )
+    if not _ARTIFACT_ID.fullmatch(artifact_id) or ".." in artifact_id:
+        raise ValidationError(
+            "Spill artifact id must be a single file name inside the session.",
+            details={"locator": locator},
         )
 
 

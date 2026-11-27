@@ -17,7 +17,7 @@ from app.integrations.google_common import (
 CONTACTS_READONLY_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
 CONTACTS_READ_MASK = "names,emailAddresses,phoneNumbers,organizations,metadata"
 CONTACTS_MAX_PAGE_SIZE = 30
-# Live-verified (P12): the People API is not served from the universal
+# Verified against the live API: the People API is not served from the universal
 # ``https://www.googleapis.com`` host (those paths 404). All calls below use
 # absolute People API URLs; ``GoogleResourceAdapter._url`` passes them through.
 PEOPLE_API_BASE_URL = "https://people.googleapis.com"

@@ -1,4 +1,4 @@
-"""Embedding service for the ingestion pipeline (spec P9D-1).
+"""Embedding service for the ingestion pipeline.
 
 The service wraps a synchronous backend (local transformers model or a test
 double), runs it off the event loop, batches inputs, retries transient engine
@@ -42,6 +42,8 @@ class EmbeddingBackend(Protocol):
 
 @dataclass(frozen=True)
 class EmbeddingContract:
+    """The embedding model name and vector size stored chunks must match."""
+
     model_name: str
     dimensions: int
 
@@ -76,6 +78,11 @@ class LocalEmbeddingService:
         *,
         batch_callback: Callable[[], Awaitable[None]] | None = None,
     ) -> list[list[float]]:
+        """Embed ``texts`` batch by batch, calling ``batch_callback`` after each one.
+
+        The callback (a job heartbeat) is isolated: its failure never stops
+        embedding.
+        """
         if not texts:
             return []
         vectors: list[list[float]] = []
@@ -146,7 +153,7 @@ class TransformersPoolingBackend:
     Pooling follows the snapshot's ``1_Pooling/config.json``, which sets
     ``pooling_mode_cls_token=true`` (mean pooling FALSE): the sentence
     embedding is the first [CLS] token's hidden state, L2-normalized.
-    Verified against the shipped artifact 2026-08-24 (review H1). If the
+    Verified against the shipped artifact 2026-08-24. If the
     snapshot is ever replaced, re-read its pooling config before ingesting.
     """
 
@@ -193,6 +200,7 @@ class TransformersPoolingBackend:
         return self._tokenizer, self._model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        """CLS-token, L2-normalised vectors for ``texts`` from the transformers model."""
         import torch
 
         tokenizer, model = self._ensure_loaded()
@@ -207,7 +215,7 @@ class TransformersPoolingBackend:
             encoded = {k: v.to(self._device) for k, v in encoded.items()}
         with torch.no_grad():
             output = model(**encoded)
-        # CLS-token pooling per the snapshot's 1_Pooling config (review H1).
+        # CLS-token pooling per the snapshot's 1_Pooling config.
         cls_embeddings = output.last_hidden_state[:, 0, :]
         normalized = torch.nn.functional.normalize(cls_embeddings, p=2, dim=1)
         return normalized.cpu().tolist()

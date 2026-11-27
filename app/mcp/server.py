@@ -62,6 +62,14 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+class UnknownToolError(LookupError):
+    """The client called a tool this server does not declare."""
+
+
+class MalformedResponseError(ValueError):
+    """The assistant API answered with something other than the expected JSON shape."""
+
+
 class AssistantApi:
     """HTTP calls to the assistant with the user's credentials from the environment."""
 
@@ -72,6 +80,7 @@ class AssistantApi:
 
     @classmethod
     def from_env(cls) -> AssistantApi:
+        """Build a client from ``NOAT_BASE_URL`` and a token or API key in the environment."""
         headers: dict[str, str] = {}
         if token := os.environ.get("NOAT_TOKEN"):
             headers["Authorization"] = f"Bearer {token}"
@@ -82,17 +91,40 @@ class AssistantApi:
         return cls(os.environ.get("NOAT_BASE_URL", "http://127.0.0.1:8000"), headers)
 
     def request(self, method: str, path: str, body: Any = None) -> Any:
+        """Send one request and return the decoded JSON body; non-JSON is malformed."""
         response = self._client.request(
             method, f"{self._base}{path}", json=body, headers=self._headers
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise MalformedResponseError("response is not JSON") from exc
+
+    def request_object(self, method: str, path: str, body: Any = None) -> dict[str, Any]:
+        """Like :meth:`request`, but the body must be a JSON object."""
+        data = self.request(method, path, body)
+        if not isinstance(data, dict):
+            raise MalformedResponseError("expected a JSON object")
+        return data
+
+    def request_list(self, method: str, path: str, body: Any = None) -> list[Any]:
+        """Like :meth:`request`, but the body must be a JSON list."""
+        data = self.request(method, path, body)
+        if not isinstance(data, list):
+            raise MalformedResponseError("expected a JSON list")
+        return data
 
 
 def call_tool(api: AssistantApi, name: str, arguments: dict[str, Any]) -> str:
-    """Run one tool and return its text result."""
+    """Run one tool and return its text result.
+
+    Raises :class:`UnknownToolError` for an undeclared tool and
+    :class:`MalformedResponseError` when the API answers in an unexpected shape, so
+    the caller can turn each into the right JSON-RPC reply.
+    """
     if name == "ask_assistant":
-        result = api.request(
+        result = api.request_object(
             "POST", "/query", {"query": str(arguments.get("question") or "")[:4000]}
         )
         text = str(result.get("message") or "")
@@ -104,18 +136,29 @@ def call_tool(api: AssistantApi, name: str, arguments: dict[str, Any]) -> str:
         return text
     if name == "list_notifications":
         unread = "true" if arguments.get("unread_only", True) else "false"
-        data = api.request("GET", f"/notifications?unread_only={unread}&limit=20")
+        data = api.request_object("GET", f"/notifications?unread_only={unread}&limit=20")
         items = data.get("items") or []
+        if not isinstance(items, list):
+            raise MalformedResponseError("notification items are not a list")
         if not items:
             return "Không có thông báo."
-        return "\n\n".join(f"## {item['title']}\n{item['body']}" for item in items)
+        return "\n\n".join(f"## {_field(item, 'title')}\n{_field(item, 'body')}" for item in items)
     if name == "list_memories":
-        items = api.request("GET", "/memories")
-        return "\n".join(f"- {item['content']}" for item in items) or "Chưa ghi nhớ gì."
+        memories = api.request_list("GET", "/memories")
+        lines = [f"- {_field(item, 'content')}" for item in memories]
+        return "\n".join(lines) or "Chưa ghi nhớ gì."
     if name == "remember":
-        item = api.request("POST", "/memories", {"content": str(arguments.get("content") or "")})
-        return f"Đã ghi nhớ: {item['content']}"
-    raise KeyError(name)
+        content = str(arguments.get("content") or "")
+        item = api.request_object("POST", "/memories", {"content": content})
+        return f"Đã ghi nhớ: {_field(item, 'content')}"
+    raise UnknownToolError(name)
+
+
+def _field(item: Any, key: str) -> str:
+    """Read a required text field of one API item, or report the response as malformed."""
+    if not isinstance(item, dict) or key not in item:
+        raise MalformedResponseError(f"missing field {key!r}")
+    return str(item[key])
 
 
 def handle(api: AssistantApi, message: dict[str, Any]) -> dict[str, Any] | None:
@@ -136,20 +179,26 @@ def handle(api: AssistantApi, message: dict[str, Any]) -> dict[str, Any] | None:
         result = {"tools": TOOLS}
     elif method == "tools/call":
         params = message.get("params") or {}
+        arguments = (params.get("arguments") or {}) if isinstance(params, dict) else None
+        if not isinstance(params, dict) or not isinstance(arguments, dict):
+            return _error(msg_id, -32602, "Invalid params")
         name = str(params.get("name") or "")
         try:
-            text = call_tool(api, name, params.get("arguments") or {})
+            text = call_tool(api, name, arguments)
             result = {"content": [{"type": "text", "text": text}], "isError": False}
-        except KeyError:
+        except UnknownToolError:
             return _error(msg_id, -32602, f"Unknown tool: {name}")
         except httpx.HTTPError as exc:
-            result = {
-                "content": [{"type": "text", "text": f"Assistant API error: {type(exc).__name__}"}],
-                "isError": True,
-            }
+            result = _tool_error(f"Assistant API error: {type(exc).__name__}")
+        except MalformedResponseError as exc:
+            result = _tool_error(f"Assistant API returned an unexpected response: {exc}")
     else:
         return _error(msg_id, -32601, f"Method not found: {method}")
     return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+def _tool_error(text: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
 def _error(msg_id: Any, code: int, message: str) -> dict[str, Any]:
@@ -162,7 +211,11 @@ def serve(
     stdout: TextIO = sys.stdout,
     log: Callable[[str], None] | None = None,
 ) -> None:
-    """Read newline-delimited JSON-RPC from ``stdin`` and answer on ``stdout``."""
+    """Read newline-delimited JSON-RPC from ``stdin`` and answer on ``stdout``.
+
+    One bad message never ends the loop: parse errors, invalid requests and any
+    unexpected failure while handling a call are answered with a JSON-RPC error.
+    """
     for line in stdin:
         if not line.strip():
             continue
@@ -171,11 +224,15 @@ def serve(
         except json.JSONDecodeError:
             reply: dict[str, Any] | None = _error(None, -32700, "Parse error")
         else:
-            reply = (
-                handle(api, message)
-                if isinstance(message, dict)
-                else _error(None, -32600, "Invalid request")
-            )
+            if not isinstance(message, dict):
+                reply = _error(None, -32600, "Invalid request")
+            else:
+                try:
+                    reply = handle(api, message)
+                except Exception as exc:  # noqa: BLE001 - keep the stdio server alive
+                    if log is not None:
+                        log(f"internal error: {type(exc).__name__}")
+                    reply = _error(message.get("id"), -32603, "Internal error")
         if reply is not None:
             stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
             stdout.flush()

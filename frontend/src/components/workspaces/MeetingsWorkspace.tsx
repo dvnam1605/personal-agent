@@ -21,6 +21,7 @@ interface MeetingsWorkspaceProps {
   onAskPrepQuestion: (prompt: string) => void
 }
 
+/** Meetings workspace: lists upcoming meetings with their preparation dossiers and lets the user ask follow-up preparation questions. */
 export const MeetingsWorkspace: React.FC<MeetingsWorkspaceProps> = ({
   onSelectCitation,
   onAskPrepQuestion,

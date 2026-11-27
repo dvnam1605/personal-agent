@@ -24,6 +24,8 @@ class ProfileTarget:
 
 
 class SqlAlchemyProfileRepository:
+    """Stores and loads per-version document profiles, keeping manual overrides across versions."""
+
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker
 

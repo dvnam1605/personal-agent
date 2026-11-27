@@ -29,11 +29,12 @@ from unittest.mock import MagicMock
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from typing_extensions import TypedDict
 
 from app.domain.enums import ActionClass, ActionRiskLevel, ApprovalOutcome, ApprovalPolicy
-from app.domain.errors import PermissionDeniedError
+from app.domain.errors import PermissionDeniedError, ValidationError
 from app.domain.models import (
     DelegationContext,
     ProposedAction,
@@ -47,7 +48,7 @@ from app.domain.models import (
 )
 from app.harness.interrupts import interrupt_for_approval, resume_graph
 from app.infrastructure.db.base import Base
-from app.infrastructure.db.models import User
+from app.infrastructure.db.models import ApprovalRequest, User
 from app.services.approvals import (
     ApprovalRequestService,
     canonical_proposal_hash,
@@ -304,9 +305,9 @@ async def test_checkpointed_state_contains_no_unredacted_secrets(db_session: Asy
         parameters={"api_key": "sk-super-secret-password-12345", "token": "bearer-secret"},
         requires_approval=True,
     )
-    req = await ApprovalRequestService.create_request(db_session, run.id, action)
-    assert req.parameters["api_key"] == "[REDACTED_SECRET]"
-    assert req.parameters["token"] == "[REDACTED_SECRET]"
+    with pytest.raises(ValidationError):
+        await ApprovalRequestService.create_request(db_session, run.id, action)
+    assert await db_session.scalar(select(ApprovalRequest)) is None
 
 
 # 10. Delegated specialist cannot self-approve

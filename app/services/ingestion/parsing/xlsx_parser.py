@@ -30,6 +30,7 @@ MAX_ROWS_PER_SHEET = 5000
 
 
 def openpyxl_version() -> str:
+    """Installed openpyxl version (part of the parser identity)."""
     try:
         import openpyxl
 
@@ -77,6 +78,8 @@ def _filled(row: list[str]) -> int:
 
 
 class XlsxDocumentParser:
+    """Converts XLSX workbooks into one table node per sheet."""
+
     async def parse(self, source: SourceDocument, content: bytes) -> ParsedDocument:
         return await asyncio.to_thread(self._parse_sync, source, content)
 
@@ -87,7 +90,7 @@ class XlsxDocumentParser:
             raise ParserUnavailableError("openpyxl is not installed") from exc
         try:
             wb = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any openpyxl load failure becomes a parse error
             raise DocumentParseError(f"openpyxl failed on {source.filename}: {exc}") from exc
 
         nodes: list[HeadingNode | ParagraphNode | TableNode] = []

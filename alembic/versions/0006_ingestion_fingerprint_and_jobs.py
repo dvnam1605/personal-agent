@@ -32,6 +32,7 @@ def _is_postgres() -> bool:
 
 
 def upgrade() -> None:
+    """Add the documents fingerprint column and the ingestion_jobs table."""
     op.add_column("documents", sa.Column("fingerprint", sa.String(64), nullable=True))
     op.create_index(
         "ix_documents_logical_fingerprint",
@@ -75,6 +76,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop ingestion_jobs and the fingerprint column."""
     op.drop_index("ix_ingestion_jobs_status_created", table_name="ingestion_jobs")
     op.drop_table("ingestion_jobs")
     op.drop_index("ix_documents_logical_fingerprint", table_name="documents")

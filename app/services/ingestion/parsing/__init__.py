@@ -1,4 +1,4 @@
-"""P9B parsing layer: provider-neutral parsing behind a DocumentParser Protocol.
+"""Parsing layer: provider-neutral parsing behind a DocumentParser Protocol.
 
 Docling-specific objects never leave this package; callers only ever see
 ParsedDocument / ParseResult domain models.

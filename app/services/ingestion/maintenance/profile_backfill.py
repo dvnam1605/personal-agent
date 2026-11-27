@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BackfillReport:
+    """Counts and drafts produced by one profile backfill run."""
+
     profiled: int = 0
     skipped_empty: int = 0
     needs_review: int = 0
@@ -27,11 +29,14 @@ class BackfillReport:
 
 
 class ProfileBackfillJob:
+    """Re-profiles stored documents from their chunks, without re-parsing."""
+
     def __init__(self, store: SqlAlchemyProfileRepository, profiler: DocumentProfiler) -> None:
         self._store = store
         self._profiler = profiler
 
     async def run(self, *, stale_only: bool = True, dry_run: bool = False) -> BackfillReport:
+        """Profile every (stale) target; ``dry_run`` reports drafts without saving them."""
         report = BackfillReport()
         targets = await self._store.targets(
             stale_only=stale_only, extractor_version=EXTRACTOR_VERSION

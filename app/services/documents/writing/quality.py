@@ -90,6 +90,8 @@ def _significant(values: set[int]) -> set[int]:
 
 @dataclass
 class GateReport:
+    """Sentences the quality gates removed: meta talk and unverified figures."""
+
     removed_meta: list[str] = field(default_factory=list)
     removed_unverified: list[str] = field(default_factory=list)
 

@@ -22,6 +22,8 @@ HINT_DESCRIPTION_CHARS = 160
 
 @dataclass(frozen=True)
 class Figure:
+    """A source figure the writer may show: caption, image key and source section."""
+
     alt: str  # "Hình 4.3: Sơ đồ kiến trúc — mô tả tự động: …"
     key: str
     section: str  # source heading the figure sits under

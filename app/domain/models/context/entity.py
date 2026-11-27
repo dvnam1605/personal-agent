@@ -1,4 +1,4 @@
-"""Domain models for entities and entity resolution (spec P17-01, P17-02)."""
+"""Domain models for entities and entity resolution."""
 
 from __future__ import annotations
 

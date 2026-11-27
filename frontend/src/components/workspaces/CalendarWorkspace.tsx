@@ -26,6 +26,7 @@ interface CalendarWorkspaceProps {
 
 type CalendarOmnibarMode = 'schedule' | 'search' | 'summarize'
 
+/** Calendar workspace: loads upcoming Google Calendar events through the assistant, with today / tomorrow / week filters, and offers prompts to schedule new meetings. */
 export const CalendarWorkspace: React.FC<CalendarWorkspaceProps> = ({ onScheduleMeeting }) => {
   const [filter, setFilter] = useState<'today' | 'tomorrow' | 'week'>('today')
   const [events, setEvents] = useState<CalendarEvent[]>([])

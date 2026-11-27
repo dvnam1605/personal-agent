@@ -11,9 +11,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import api_router
-from app.api.routes.google_auth import router as google_auth_router
-from app.api.routes.health import router as health_router
+from app.api.routes import ROUTERS
 from app.core.config import Environment, settings
 from app.core.logging import get_logger, setup_logging
 from app.domain.errors import AppError
@@ -27,7 +25,7 @@ from app.services.platform.retention import RetentionWorker
 
 
 async def _configure_consumed_token_store(logger: structlog.stdlib.BoundLogger) -> None:
-    """Wire Redis SET NX for single-use approval tokens (H6). TESTING stays in-memory."""
+    """Wire Redis SET NX for single-use approval tokens; TESTING stays in-memory."""
     from app.infrastructure.redis.client import redis_manager
     from app.services.approvals.consumed_store import (
         RedisConsumedTokenStore,
@@ -99,7 +97,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _configure_consumed_token_store(logger)
     checkpointer_cm = await configure_checkpointer_lifespan(logger)
 
-    # Warmup LocalEmbeddingService in background (pre-loads weights into RAM without blocking startup)
     if settings.environment is not Environment.TESTING:
 
         async def _warmup_embedding() -> None:
@@ -131,7 +128,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
-    """FastAPI application factory."""
+    """Build the FastAPI app: CORS, request-context logging, error handlers and routers.
+
+    Each router is mounted once at the root path; only the OpenAPI docs use
+    `settings.api_prefix`.
+    """
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -142,8 +143,7 @@ def create_app() -> FastAPI:
         openapi_url=f"{settings.api_prefix}/openapi.json" if settings.docs_enabled else None,
     )
 
-    # CORS configuration — explicit origin allowlist; credentials stay disabled
-    # because authentication is header-based, never cookie-based (M10).
+    # Credentials stay disabled: authentication is header-based, never cookie-based.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.security.cors_allowed_origins,
@@ -158,9 +158,9 @@ def create_app() -> FastAPI:
         ],
     )
 
-    # Contextual Request ID and Latency Middleware
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next) -> Response:
+        """Bind a request id to the log context and report latency on the response."""
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
@@ -194,9 +194,9 @@ def create_app() -> FastAPI:
             )
             raise
 
-    # Global Domain Error Exception Handler
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+        """Turn a domain error into its JSON envelope and status code."""
         logger = get_logger("app.error")
         logger.warning(
             "domain.error",
@@ -210,9 +210,9 @@ def create_app() -> FastAPI:
             content=exc.to_dict(),
         )
 
-    # Generic Unhandled Exception Handler
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Log an unhandled error and answer a generic 500 without internals."""
         logger = get_logger("app.error")
         logger.error("unhandled.error", error=str(exc), exc_info=True)
         return JSONResponse(
@@ -220,41 +220,14 @@ def create_app() -> FastAPI:
             content={
                 "error": {
                     "code": "INTERNAL_SERVER_ERROR",
-                    "message": "An unexpected internal server error occurred.",
+                    "message": "Đã xảy ra lỗi máy chủ không mong muốn.",
                     "details": {},
                 }
             },
         )
 
-    # Route mounting
-    app.include_router(health_router, prefix="")  # Root /health and /ready
-    app.include_router(
-        google_auth_router, prefix=""
-    )  # OAuth callback matches local Google client JSON
-    from app.api.routes.approvals import router as approvals_router
-    from app.api.routes.auth import router as auth_router
-    from app.api.routes.conversations import router as conversations_router
-    from app.api.routes.documents import router as documents_router
-    from app.api.routes.memories import router as memories_router
-    from app.api.routes.notifications import router as notifications_router
-    from app.api.routes.query import router as query_router
-    from app.api.routes.questions import router as questions_router
-    from app.api.routes.runs import router as runs_router
-    from app.api.routes.tasks import router as tasks_router
-    from app.api.routes.telegram import router as telegram_router
-
-    app.include_router(auth_router, prefix="")
-    app.include_router(conversations_router, prefix="")
-    app.include_router(runs_router, prefix="")
-    app.include_router(documents_router, prefix="")
-    app.include_router(approvals_router, prefix="")
-    app.include_router(questions_router, prefix="")
-    app.include_router(notifications_router, prefix="")
-    app.include_router(memories_router, prefix="")
-    app.include_router(telegram_router, prefix="")
-    app.include_router(tasks_router, prefix="")
-    app.include_router(query_router, prefix="")
-    app.include_router(api_router, prefix=settings.api_prefix)
+    for router in ROUTERS:
+        app.include_router(router)
 
     return app
 

@@ -90,6 +90,7 @@ class DocumentProfileDraft(BaseModel):
 
 
 def profile_input_hash(signals: DocumentSignals) -> str:
+    """Hash of what profiling reads, so unchanged inputs can skip re-profiling."""
     digest = hashlib.sha256()
     for part in (EXTRACTOR_VERSION, signals.filename, signals.header_text, signals.tail_text):
         digest.update(part.encode("utf-8"))
@@ -123,6 +124,10 @@ class DocumentProfiler:
     async def aprofile_signals(
         self, signals: DocumentSignals, *, overrides: dict[str, Any] | None = None
     ) -> DocumentProfileDraft:
+        """Classify, apply the category rules, then let the LLM fill missing fields.
+
+        ``overrides`` (manual corrections) win over every extracted value.
+        """
         cls = self._classifier.classify(signals)
         fields = self._apply_rules(signals, cls)
         draft = self._to_draft(signals, cls, fields)
@@ -227,36 +232,34 @@ class DocumentProfiler:
 
     @staticmethod
     def _admin_rules(signals: DocumentSignals, cls: Classification, f: RuleFields) -> None:
-        ext = AdministrativeMetadataExtractor
-        header, tail = signals.header_text, signals.tail_text or signals.header_text
-        f.set(
-            "doc_number", ext._extract_document_number(header, signals.filename, cls.subtype or "")
+        """Administrative fields from the layout rules, with review notes for doubts.
+
+        Without a known type the title is the subject alone ("Về việc …")
+        rather than a guessed "Quyết định …".
+        """
+        header = signals.header_text
+        fields = AdministrativeMetadataExtractor.extract_fields(
+            header, signals.tail_text, signals.filename, cls.subtype or None
         )
-        fn_number = ext._extract_number_from_filename(signals.filename, cls.subtype or "")
+        f.set("doc_number", fields.document_number)
         lead = re.compile(r"^\d+")
         text_digits = lead.search(f.doc_number or "")
-        fn_digits = lead.search(fn_number or "")
+        fn_digits = lead.search(fields.filename_number or "")
         if text_digits and fn_digits and text_digits.group(0) != fn_digits.group(0):
-            f.review_notes.append(f"number_mismatch:text={f.doc_number},filename={fn_number}")
-        raw_date = ext._extract_promulgation_date(header, signals.filename)
-        if raw_date:
-            f.set("doc_date", date.fromisoformat(raw_date))
-        subject = ext._extract_subject(header)
-        source = "rule"
-        if subject:
-            # OCR often merges the next "Căn cứ …; Nghị định …" clause into the line.
-            subject = subject.split(";")[0].strip(" ,.")
-        else:
-            # Title line lost (OCR/layout): name the decision by its Điều 1 action.
-            subject = ext._extract_subject_from_article1(f"{header}\n{signals.tail_text}")
-            if subject:
-                source = "rule_article1"
-                f.review_notes.append("title_from_article1")
+            f.review_notes.append(
+                f"number_mismatch:text={f.doc_number},filename={fields.filename_number}"
+            )
+        if fields.promulgation_date:
+            f.set("doc_date", date.fromisoformat(fields.promulgation_date))
+        subject, source = fields.subject, fields.subject_source or "rule"
+        if source == "rule_article1":
+            f.review_notes.append("title_from_article1")
         f.set("subject", subject, source)
-        doc_type = cls.subtype or ext._extract_document_type(header, signals.filename)
+        doc_type = fields.document_type
         if subject:
-            f.set("title", f"{doc_type} {subject[0].lower()}{subject[1:]}", source)
-        signer, role = ext._extract_signatory(tail)
+            title = f"{doc_type} {subject[0].lower()}{subject[1:]}" if doc_type else subject
+            f.set("title", title, source)
+        signer, role = fields.signer_name, fields.signer_role
         if signer and clean_person(signer)[0] is None:
             # The layout rule grabbed a heading after the signature, not a person.
             signer = None

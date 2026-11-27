@@ -30,6 +30,8 @@ MAX_DOCUMENTS = 30
 
 @dataclass(frozen=True)
 class RelationAnswer:
+    """A relation answer draft with its citations, facts and trace."""
+
     answer: str  # deterministic fact draft (also the fallback answer)
     citations: list[Citation]
     total: int
@@ -62,6 +64,8 @@ def _number_matches(stored: str, raw: str) -> bool:
 
 
 class RelationLookupService:
+    """Answers relation questions from the stored document relations, owner-scoped."""
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
@@ -128,12 +132,18 @@ class RelationLookupService:
     async def answer(
         self, question: str, requester_id: str | None, *, today: date | None = None
     ) -> RelationAnswer | None:
+        """Plan and run ``question``; ``None`` when it is not a relation question."""
         plan = await self.plan(question, requester_id, today=today)
         if plan is None:
             return None
         return await self.run(plan, requester_id)
 
     async def run(self, plan: RelationPlan, requester_id: str | None) -> RelationAnswer | None:
+        """Fetch the documents and relation facts ``plan`` selects among readable documents.
+
+        With "ai ký" combined with another relation, the other one picks the
+        documents and the signer is reported for them.
+        """
         types = [t.value for t in plan.types]
         # For "ai ký" combined with another relation, the other one selects documents.
         topic = [t for t in types if t != RelationType.SIGNED_BY.value] or types

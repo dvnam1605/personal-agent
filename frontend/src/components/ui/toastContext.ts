@@ -1,6 +1,6 @@
+/** Toast context and the `useToast` hook, kept apart from the provider component for fast refresh. */
 import { createContext, useContext } from 'react'
 
-// Kept apart from Toast.tsx so that file only exports components (fast refresh).
 export type ToastType = 'success' | 'error' | 'info' | 'warning'
 
 export interface ToastItem {

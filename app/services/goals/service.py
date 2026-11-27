@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models import Goal, WatchRule
+from app.services.platform.naming import normalized_name
 from app.services.skills.matching import unaccent_vietnamese
 
 MAX_ACTIVE_GOALS = 20
@@ -26,6 +27,7 @@ class GoalService:
         due: date | None,
         steps: list[dict[str, Any]],
     ) -> Goal:
+        """Store a new active goal with its planned steps."""
         goal = Goal(user_id=user_id, title=title[:255], due=due, steps=steps)
         session.add(goal)
         await session.flush()
@@ -74,6 +76,7 @@ class WatchService:
         expires_at: datetime | None = None,
         now: datetime | None = None,
     ) -> WatchRule:
+        """Create a watch rule, or return the identical active one that already exists."""
         existing = await session.scalar(
             select(WatchRule).where(
                 WatchRule.user_id == user_id,
@@ -97,6 +100,7 @@ class WatchService:
 
     @staticmethod
     async def active(session: AsyncSession, user_id: str | None = None) -> list[WatchRule]:
+        """Active watch rules, of one user or (for the worker) of everyone."""
         stmt = select(WatchRule).where(WatchRule.active.is_(True))
         if user_id is not None:
             stmt = stmt.where(WatchRule.user_id == user_id)
@@ -105,13 +109,16 @@ class WatchService:
 
     @staticmethod
     async def stop(session: AsyncSession, user_id: str, target: str) -> list[WatchRule]:
-        """Deactivate the user's rules whose target contains ``target`` (all when empty)."""
-        folded = unaccent_vietnamese(target)
-        stopped = [
-            rule
-            for rule in await WatchService.active(session, user_id)
-            if folded in unaccent_vietnamese(rule.target)
-        ]
+        """Deactivate the user's rules whose target is exactly ``target`` (all when empty).
+
+        Targets are compared with :func:`normalized_name`, never as substrings, so
+        "dừng theo dõi a" cannot stop every rule containing an "a". Rules with the same
+        target but a different kind (mail from vs. document topic) are stopped together,
+        since the user named that target. No match stops nothing.
+        """
+        rules = await WatchService.active(session, user_id)
+        wanted = normalized_name(target)
+        stopped = [rule for rule in rules if not wanted or normalized_name(rule.target) == wanted]
         for rule in stopped:
             rule.active = False
         await session.flush()

@@ -1,4 +1,4 @@
-"""Pluggable child reranking (spec P10-07).
+"""Pluggable child reranking.
 
 The contract mirrors the execution spec: rerankers receive the diversified
 candidates plus a ``top_k`` budget and MUST return descending-relevance items
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class Reranker(Protocol):
-    """Async reranking seam between fusion and expansion (spec P10-07)."""
+    """Async reranking seam between fusion and expansion."""
 
     async def rerank(
         self,
@@ -192,6 +192,7 @@ class ViRankerReranker:
         candidates: list[RetrievedChunk],
         top_k: int,
     ) -> list[RetrievedChunk]:
+        """Cross-encoder scores (sigmoid of the logits) for each candidate; the best ``top_k``."""
         if not candidates or top_k <= 0:
             return []
 
@@ -204,7 +205,6 @@ class ViRankerReranker:
             self._torch = torch_mod
             torch = torch_mod
 
-        # Build pairs: (query, candidate content)
         pairs = [[query, c.content_raw] for c in candidates]
 
         def _compute_scores() -> list[float]:
@@ -222,7 +222,6 @@ class ViRankerReranker:
                     if self._device != "cpu":
                         inputs = {k: v.to(self._device) for k, v in inputs.items()}
                     logits = self._model(**inputs).logits.view(-1).float()
-                    # Apply sigmoid to convert cross-encoder logits into normalized [0, 1] scores
                     batch_scores = torch.sigmoid(logits).cpu().tolist()
                     if isinstance(batch_scores, float):
                         batch_scores = [batch_scores]

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.settings.proactive import ProactiveSettings
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import Routine, User
-from app.services.proactive.routines import RoutineJob
+from app.services.proactive.jobs.routines import RoutineJob
 from app.services.routines.commands import (
     ALL_DAYS,
     WORKDAYS,
@@ -105,9 +105,21 @@ async def test_chat_flow(db_session: AsyncSession) -> None:
     assert "1. tổng hợp email tuần này — thứ 6 lúc 17:00" in listing
     assert "2. việc cần làm? — hằng ngày lúc 08:30" in listing
     assert "Đã tắt: “việc cần làm?”" in await ask("xóa quy trình 2")
-    assert "Đã tắt: “tổng hợp email tuần này”" in await ask("tắt quy trình tổng hợp email")
+    assert "Không có quy trình nào khớp" in await ask("tắt quy trình tổng hợp email")
+    assert "Đã tắt: “tổng hợp email tuần này”" in await ask("tắt quy trình Tổng hợp email tuần này")
     assert "chưa có quy trình" in await ask("các quy trình của tôi")
     assert "không được tự tạo" in await ask("tạo quy trình hằng ngày 8h: nhớ rằng x")
+
+
+async def test_delete_never_matches_by_substring_or_ambiguously(db_session: AsyncSession) -> None:
+    for query in ("tóm tắt a", "báo cáo a", "báo cáo a"):
+        await RoutineService.create(db_session, "user_a", query, ALL_DAYS, time(8))
+
+    assert await RoutineService.delete(db_session, "user_a", "a") == []
+    assert await RoutineService.delete(db_session, "user_a", "báo cáo a") == []
+    assert len(await RoutineService.active(db_session, "user_a")) == 3
+    stopped = await RoutineService.delete(db_session, "user_a", "“Tom tat A”")
+    assert [r.name for r in stopped] == ["tóm tắt a"]
 
 
 async def test_job_runs_due_routines_once_through_the_orchestrator(

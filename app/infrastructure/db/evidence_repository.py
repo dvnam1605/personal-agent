@@ -58,6 +58,7 @@ async def record_run_evidence(
 async def run_evidence(
     session: AsyncSession, run_id: str, *, cited_only: bool = False
 ) -> list[RunEvidence]:
+    """A run's evidence rows: all of them by rank, or only the cited ones by citation number."""
     stmt = select(RunEvidence).where(RunEvidence.run_id == run_id)
     if cited_only:
         stmt = stmt.where(RunEvidence.cited.is_(True)).order_by(RunEvidence.citation_number)

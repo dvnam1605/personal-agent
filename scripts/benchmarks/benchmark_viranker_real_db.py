@@ -39,7 +39,7 @@ from app.services.retrieval.search.sparse import SparseRetrievalService  # noqa:
 
 logging.basicConfig(level=logging.WARNING)
 
-# The standard 18 P10D evaluation queries from plan/reviews/P10D_review_pack.md
+# The 18 standard retrieval evaluation queries.
 OFFICIAL_P10D_QUERIES = [
     {
         "id": "q01_exact_kw",
@@ -162,10 +162,10 @@ def evaluate_query_results(
     doc_meta_map: dict[str, dict],
     k: int = 5,
 ) -> tuple[int, float, float]:
+    """Hit, reciprocal rank and precision at k for one query; a negative query scores when nothing matches."""
     expected_docs = case.get("expected_docs", [])
     expected_signer = case.get("expected_signer")
 
-    # Negative query check
     if not expected_docs and not expected_signer:
         # True negative if empty or low scores
         return 1, 1.0, 1.0
@@ -202,9 +202,9 @@ def evaluate_query_results(
 
 
 async def main() -> None:
+    """Run the gold queries through each retrieval configuration with the real ViRanker and print the scores."""
     session_factory = get_session_factory()
 
-    # Load metadata
     doc_meta_map = {}
     async with session_factory() as session:
         rows = (
@@ -326,7 +326,6 @@ async def main() -> None:
         stats["Hybrid + ViRanker"]["rr_sum"] += rr_vr
         stats["Hybrid + ViRanker"]["ndcg_sum"] += ndcg_vr
 
-        # Print per-query detail for Hybrid + ViRanker
         top1_str = "None"
         if virank_cands:
             c0 = virank_cands[0]

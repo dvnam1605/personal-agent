@@ -76,6 +76,7 @@ def _number_in_head(segment: str) -> str | None:
 
 
 def document_target(segment: str, relation: RelationType, evidence: str) -> RelationDraft | None:
+    """A document target from a cited segment, ``None`` for self references."""
     text = _clean(segment)[:MAX_TARGET_CHARS]
     if not text or _SELF_REFERENCE.match(text):
         return None
@@ -167,6 +168,7 @@ def extract_rule_relations(text: str) -> list[RelationDraft]:
 
 
 def dedupe(drafts: list[RelationDraft]) -> list[RelationDraft]:
+    """Drafts with duplicates (same relation and target key) removed, order kept."""
     seen: set[tuple[str, str]] = set()
     unique: list[RelationDraft] = []
     for d in drafts:

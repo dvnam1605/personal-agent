@@ -1,8 +1,8 @@
-"""Provider-neutral normalized document tree and parse-quality contracts (P9B).
+"""Provider-neutral normalized document tree and parse-quality contracts.
 
 These types are the stable boundary between the parsing layer and everything
 above it (chunking P9C, orchestration P9D). Docling/OCR-specific objects never
-cross this boundary (spec P9B-1/P9B-2).
+cross this boundary.
 """
 
 from __future__ import annotations
@@ -49,26 +49,35 @@ class ParsedNode(BaseModel):
 
 
 class HeadingNode(ParsedNode):
+    """A heading with its outline level (1-6)."""
+
     node_type: Literal[NodeType.HEADING] = NodeType.HEADING
     level: int = Field(ge=1, le=6)
 
 
 class ParagraphNode(ParsedNode):
+    """A plain paragraph of body text."""
+
     node_type: Literal[NodeType.PARAGRAPH] = NodeType.PARAGRAPH
 
 
 class ListNode(ParsedNode):
+    """A bulleted or numbered list; needs items or text."""
+
     node_type: Literal[NodeType.LIST] = NodeType.LIST
     items: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def items_or_text_present(self) -> ListNode:
+        """Reject a list with neither items nor text."""
         if not self.items and not self.text.strip():
             raise ValueError("ListNode requires at least one item or text")
         return self
 
 
 class TableNode(ParsedNode):
+    """A table kept as Markdown with its row and column counts."""
+
     node_type: Literal[NodeType.TABLE] = NodeType.TABLE
     markdown: str = Field(min_length=1)
     row_count: int = Field(ge=0)
@@ -120,7 +129,7 @@ class ParsedDocument(BaseModel):
 
 
 class ParseStatus(StrEnum):
-    """Typed parse outcomes; broken parses never abort a batch (spec P9B-3)."""
+    """Typed parse outcomes; broken parses never abort a batch."""
 
     PARSED = "PARSED"
     NEEDS_OCR = "NEEDS_OCR"
@@ -129,7 +138,7 @@ class ParseStatus(StrEnum):
 
 
 class ParseQualityReport(BaseModel):
-    """Quality metrics captured before chunking (spec P9B-3)."""
+    """Quality metrics captured before chunking."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -155,6 +164,7 @@ class ParseResult(BaseModel):
 
     @model_validator(mode="after")
     def check_status_invariants(self) -> ParseResult:
+        """A parsed result carries a document and quality; an unsupported one says why."""
         if self.status == ParseStatus.PARSED:
             if self.document is None or self.quality is None:
                 raise ValueError("PARSED results require document and quality")

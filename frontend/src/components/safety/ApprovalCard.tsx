@@ -21,6 +21,11 @@ interface ApprovalCardProps {
   onDeny: (id: string, reason?: string) => Promise<void>
 }
 
+/**
+ * Human-in-the-loop card for a pending Google write (calendar event, email, task): shows what will
+ * happen and its risk, counts down to expiry (the timer stops once it expires), and sends the
+ * user's approve / deny decision. Nothing is written unless the user approves here.
+ */
 export const ApprovalCard: React.FC<ApprovalCardProps> = ({
   approval,
   onApprove,
@@ -31,9 +36,9 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
   const [timeLeft, setTimeLeft] = useState<string | null>(null)
   const [isExpired, setIsExpired] = useState(false)
 
-  // Countdown timer
   useEffect(() => {
     if (!approval.expires_at) return
+    let timer: ReturnType<typeof setInterval> | undefined
 
     const updateCountdown = () => {
       const now = new Date().getTime()
@@ -43,16 +48,18 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
       if (diff <= 0) {
         setTimeLeft('Đã hết hạn')
         setIsExpired(true)
-        return
+        if (timer !== undefined) clearInterval(timer)
+        return true
       }
 
       const minutes = Math.floor(diff / 60000)
       const seconds = Math.floor((diff % 60000) / 1000)
       setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`)
+      return false
     }
 
-    updateCountdown()
-    const timer = setInterval(updateCountdown, 1000)
+    if (updateCountdown()) return
+    timer = setInterval(updateCountdown, 1000)
     return () => clearInterval(timer)
   }, [approval.expires_at])
 

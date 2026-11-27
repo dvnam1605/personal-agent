@@ -1,4 +1,4 @@
-"""FastAPI routes for Human-in-the-Loop approval plane (spec P18-04)."""
+"""FastAPI routes for the human-in-the-loop approval plane: list, approve, execute, deny."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
 from app.domain.enums import ApprovalOutcome
+from app.infrastructure.db.models import ApprovalRequest
 from app.infrastructure.db.session import get_db_session
 from app.services.approvals import ApprovalRequestService, execution_token_for_request
 from app.services.approvals.execution import ApprovalExecutionResult, ApprovalExecutionService
@@ -20,6 +21,9 @@ from app.services.platform.run_persistence import RunPersistenceService
 router = APIRouter(tags=["approvals"])
 
 _execution_service: ApprovalExecutionService | None = None
+
+APPROVAL_NOT_FOUND = "Không tìm thấy yêu cầu phê duyệt."
+MAX_REASON_LENGTH = 2000
 
 
 def get_approval_execution_service() -> ApprovalExecutionService:
@@ -58,6 +62,7 @@ class ApproveRequestBody(BaseModel):
 
     reason: str | None = Field(
         default=None,
+        max_length=MAX_REASON_LENGTH,
         description="Optional human approval note or justification.",
     )
     execute: bool = Field(
@@ -110,6 +115,7 @@ class DenyRequestBody(BaseModel):
 
     reason: str | None = Field(
         default=None,
+        max_length=MAX_REASON_LENGTH,
         description="Optional rejection or cancellation reason.",
     )
     outcome: ApprovalOutcome = Field(
@@ -130,7 +136,21 @@ class DenyResponse(BaseModel):
     reason: str | None = None
 
 
+async def _owned_request(session: AsyncSession, approval_id: str, user_id: str) -> ApprovalRequest:
+    """Load an approval request whose run belongs to the caller, else answer 404.
+
+    A request owned by someone else gets the same 404 as a missing one, so ids
+    cannot be probed for existence (the runs routes do the same).
+    """
+    req = await ApprovalRequestService.get_request(session, approval_id)
+    run = await RunPersistenceService.get_run(session, req.run_id) if req is not None else None
+    if req is None or run is None or run.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=APPROVAL_NOT_FOUND)
+    return req
+
+
 def _execution_payload(result: ApprovalExecutionResult) -> dict[str, Any]:
+    """Flatten an execution result into the response's ``execution`` dict."""
     payload = dict(result.output or {})
     payload["message"] = result.message
     return payload
@@ -146,7 +166,7 @@ async def list_pending_approvals(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> list[ApprovalRequestResponse]:
-    """Retrieve all pending approval requests awaiting human confirmation for current user (spec P18-04, M4)."""
+    """Retrieve all pending approval requests awaiting human confirmation for the current user."""
     rows = await ApprovalRequestService.get_pending_requests(
         session, run_id=run_id, user_id=user_id
     )
@@ -195,29 +215,13 @@ async def approve_request(
         get_approval_execution_service
     ),
 ) -> ApproveResponse:
-    """Approve a pending mutation action, returning a signed HMAC execution token (P18-06, H2, M4).
+    """Approve a pending mutation action, returning a signed HMAC execution token.
 
     The plaintext token is issued once. A second approve of the same request
     returns HTTP 409 so clients cannot treat ``token: null`` as a usable retry.
     Pass ``execute: true`` to consume the token immediately against Calendar/Gmail.
     """
-    req = await ApprovalRequestService.get_request(session, id)
-    if req is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Approval request not found: {id}",
-        )
-    run = await RunPersistenceService.get_run(session, req.run_id)
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run associated with approval request not found: {req.run_id}",
-        )
-    if run.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Approval request does not belong to the current user",
-        )
+    await _owned_request(session, id, user_id)
 
     try:
         decided = await ApprovalRequestService.decide_with_outcome(
@@ -237,7 +241,7 @@ async def approve_request(
     if decided.tool_name and decided.token_hash:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Execution token already issued; it is not returned again.",
+            detail="Mã thực thi đã được cấp và không được trả lại lần nữa.",
         )
     if decided.tool_name and not decided.token_hash:
         try:
@@ -247,12 +251,12 @@ async def approve_request(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to mint execution token.",
+                detail="Không tạo được mã thực thi.",
             ) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any signing/storage failure must become a clean 500
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to mint execution token.",
+                detail="Không tạo được mã thực thi.",
             ) from exc
 
     executed = False
@@ -299,27 +303,11 @@ async def execute_approved_request(
     ),
 ) -> ApproveResponse:
     """Consume a previously minted token and run the bound Calendar/Gmail tool."""
-    req = await ApprovalRequestService.get_request(session, id)
-    if req is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Approval request not found: {id}",
-        )
-    run = await RunPersistenceService.get_run(session, req.run_id)
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run associated with approval request not found: {req.run_id}",
-        )
-    if run.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Approval request does not belong to the current user",
-        )
+    req = await _owned_request(session, id, user_id)
     if req.status != "approved":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Approval request is not approved: {id}",
+            detail="Yêu cầu này chưa được phê duyệt.",
         )
     try:
         result = await execution_service.execute(session, req, body.token, user_id)
@@ -351,24 +339,8 @@ async def deny_request(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> DenyResponse:
-    """Explicitly reject, cancel, or mark unavailable a pending approval request (M4)."""
-    req = await ApprovalRequestService.get_request(session, id)
-    if req is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Approval request not found: {id}",
-        )
-    run = await RunPersistenceService.get_run(session, req.run_id)
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run associated with approval request not found: {req.run_id}",
-        )
-    if run.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Approval request does not belong to the current user",
-        )
+    """Explicitly reject, cancel, or mark unavailable a pending approval request."""
+    await _owned_request(session, id, user_id)
 
     outcome = body.outcome if body else ApprovalOutcome.REJECTED
     reason = body.reason if body else None

@@ -90,6 +90,7 @@ class InMemoryOAuthStateStore:
     async def issue(
         self, user_id: str, redirect_uri: str, scopes: Iterable[str], browser_binding: str
     ) -> OAuthStateRecord:
+        """Create a one-time OAuth state with a PKCE verifier, bound to the browser."""
         binding_hash = _require_binding(browser_binding)
         now = _as_utc(self._clock())
         self._purge(now)
@@ -108,6 +109,7 @@ class InMemoryOAuthStateStore:
         return record
 
     async def consume(self, state: str, browser_binding: str | None) -> OAuthStateRecord:
+        """Pop the state once; unknown, expired or wrongly bound states are refused."""
         now = _as_utc(self._clock())
         self._purge(now)
         record = self._states.pop(state, None)
@@ -158,6 +160,7 @@ class RedisOAuthStateStore(OAuthStateStore):
     async def issue(
         self, user_id: str, redirect_uri: str, scopes: Iterable[str], browser_binding: str
     ) -> OAuthStateRecord:
+        """Create a one-time OAuth state stored in Redis with the store's TTL."""
         binding_hash = _require_binding(browser_binding)
         now = _as_utc(self._clock())
         state = secrets.token_urlsafe(32)
@@ -184,6 +187,7 @@ class RedisOAuthStateStore(OAuthStateStore):
         return record
 
     async def consume(self, state: str, browser_binding: str | None) -> OAuthStateRecord:
+        """Atomically take the state from Redis (GETDEL) and validate binding and age."""
         client = await self._client_factory()
         raw = await client.getdel(self._key(state))
         if not raw:

@@ -110,7 +110,7 @@ class TestOcrFallbackPolicy:
         assert result.status is ParseStatus.NEEDS_OCR
         assert result.quality is not None
         warnings = result.quality.parse_warnings
-        assert any("queued for offline OCR path (P9E)" in warning for warning in warnings)
+        assert any("queued for offline OCR path" in warning for warning in warnings)
 
     async def test_no_queue_warning_when_inline_fallback_enabled(
         self, monkeypatch: pytest.MonkeyPatch

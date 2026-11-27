@@ -23,6 +23,10 @@ from app.core.text import unaccent_vietnamese
 from app.domain.models.retrieval import RetrievalMode, RetrievalQuery
 from app.services.documents.writing.quality import _number_values, _significant
 from app.services.documents.writing.review import MAX_REVIEW_ROUNDS
+from app.services.retrieval.answer.injection_boundary import (
+    BOUNDARY_INSTRUCTIONS,
+    wrap_retrieved_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,8 @@ CONTENT = "content"
 
 
 class TableColumn(BaseModel):
+    """One output column: its name, what it holds, and where the value comes from."""
+
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=300)
     source: str = CONTENT  # CONTENT or a META_SOURCES key
@@ -87,6 +93,7 @@ def normalize_columns(raw: Any) -> list[TableColumn]:
 
 
 COLUMNS_SYSTEM_PROMPT = (
+    f"{BOUNDARY_INSTRUCTIONS}\n\n"
     "Bạn thiết kế một bảng tổng hợp (Excel) lập từ các văn bản nội bộ tiếng Việt.\n"
     "1. Đề xuất 4–10 cột sát yêu cầu. Mỗi cột có 'source': một trong "
     + ", ".join(f"{k} ({v})" for k, v in META_SOURCES.items())
@@ -108,16 +115,21 @@ async def propose_table(
     *,
     json_call: Callable[..., Awaitable[dict[str, Any] | None]] = llm_json,
 ) -> dict[str, Any] | None:
+    """Ask the LLM for a table layout; document snippets stay inside the injection boundary."""
     user = (
         f"Yêu cầu: {request}\n\nVăn bản nguồn:\n"
         + ("\n".join(f"- {t}" for t in titles) or "(chưa xác định)")
         + "\n\nTrích đoạn nội dung:\n"
-        + ("\n".join(f"- {s}" for s in snippets) or "(không có)")
+        + (
+            "\n".join(wrap_retrieved_text(s, label=f"S{i}") for i, s in enumerate(snippets, 1))
+            or "(không có)"
+        )
     )
     return await json_call(COLUMNS_SYSTEM_PROMPT, user, timeout=TABLE_LLM_TIMEOUT)
 
 
 EXTRACT_SYSTEM_PROMPT = (
+    f"{BOUNDARY_INSTRUCTIONS}\n\n"
     "Bạn trích dữ liệu từ MỘT văn bản để điền vào bảng tổng hợp.\n"
     "1. Chỉ dùng thông tin trong các bằng chứng [1], [2], … của văn bản này. Số liệu, số tiền, "
     "ngày tháng, số hiệu, tên người, tên đơn vị chép NGUYÊN VĂN; không tự tính, không làm tròn.\n"
@@ -129,6 +141,7 @@ EXTRACT_SYSTEM_PROMPT = (
 )
 
 REVIEW_SYSTEM_PROMPT = (
+    f"{BOUNDARY_INSTRUCTIONS}\n\n"
     "Bạn thẩm định dữ liệu đã điền vào bảng từ MỘT văn bản. Với từng ô (mã r<dòng>c<cột>), "
     "so giá trị với các bằng chứng được dẫn và với ý nghĩa của cột. Lỗi gồm:\n"
     "- contradiction: sai lệch với bằng chứng (số liệu, ngày, số hiệu, tên, đơn vị…);\n"
@@ -143,6 +156,8 @@ REVIEW_SYSTEM_PROMPT = (
 
 
 class CellIssue(BaseModel):
+    """A reviewer's complaint about one table cell."""
+
     cell: str = ""
     problem: str
     explanation: str = ""
@@ -156,6 +171,13 @@ def _clean_value(value: Any) -> str:
 def _check_numbers(value: str, cited_text: str) -> bool:
     """Every significant figure in the value occurs in the cited evidence."""
     return not (_significant(_number_values(value)) - _number_values(cited_text))
+
+
+def _evidence_for_prompt(evidence: dict[int, _Evidence]) -> str:
+    """Numbered evidence, each unit wrapped as untrusted retrieved text."""
+    return "\n\n".join(
+        f"[{n}] {wrap_retrieved_text(e.text, label=str(n))}" for n, e in sorted(evidence.items())
+    )
 
 
 class _Evidence(BaseModel):
@@ -429,7 +451,7 @@ class TableWriter:
         user = (
             f'Bảng: "{outline.title}". {rows_rule}\nCác cột cần điền:\n{cols}\n\n'
             f"Văn bản: {meta.get('title') or ''} {meta.get('doc_number') or ''}\n\n"
-            "BẰNG CHỨNG:\n" + "\n\n".join(f"[{n}] {e.text}" for n, e in sorted(evidence.items()))
+            "BẰNG CHỨNG:\n" + _evidence_for_prompt(evidence)
         )
         if previous is not None and issues:
             user += (
@@ -496,7 +518,7 @@ class TableWriter:
         )
         user = (
             f"Các cột:\n{cols}\n\nBẰNG CHỨNG:\n"
-            + "\n\n".join(f"[{n}] {e.text}" for n, e in sorted(evidence.items()))
+            + _evidence_for_prompt(evidence)
             + "\n\nDỮ LIỆU ĐÃ ĐIỀN (mã ô: giá trị [bằng chứng dẫn]):\n"
             + _rows_for_prompt(rows)
         )

@@ -1,7 +1,7 @@
-"""Compare-document policy enforcement (spec P10-14).
+"""Compare-document policy enforcement.
 
 For ``COMPARE_DOCUMENTS`` mode: validates that the evidence bundle covers every
-requested document and reports any gaps.  Works with the P10B diversity layer
+requested document and reports any gaps.  Works with the diversity layer
 (``apply_diversity`` already enforces per-document caps); this module adds the
 post-packing coverage audit.
 """

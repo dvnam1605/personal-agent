@@ -8,7 +8,7 @@ import { TasksWorkspace } from './components/workspaces/TasksWorkspace'
 import { MeetingsWorkspace } from './components/workspaces/MeetingsWorkspace'
 import { KnowledgeWorkspace } from './components/workspaces/knowledge/KnowledgeWorkspace'
 import { DocumentsWorkspace } from './components/workspaces/documents/DocumentsWorkspace'
-import { SettingsWorkspace } from './components/workspaces/SettingsWorkspace'
+import { SettingsWorkspace } from './components/workspaces/settings/SettingsWorkspace'
 import { CitationDrawer, EmailDrawer } from './components/layout/DetailDrawers'
 import { ToastProvider } from './components/ui/Toast'
 import { useToast } from './components/ui/toastContext'
@@ -19,18 +19,21 @@ import { useQueryStream } from './hooks/useQueryStream'
 import type { GmailMessage, RAGCitation, UserProfile } from './types/api'
 import './App.css'
 
+/**
+ * The application shell: header, sidebar and the active workspace, plus the session-level state
+ * they share — the signed-in user, the conversation list and the streaming assistant turn.
+ * Leaving a conversation (switch, new, delete, logout) aborts the reply still streaming into it.
+ */
 const AppContent: React.FC = () => {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('assistant')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
-  // User authentication
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
 
   const { showToast } = useToast()
 
-  // Database-backed conversations
   const {
     conversations,
     setConversations,
@@ -39,9 +42,14 @@ const AppContent: React.FC = () => {
     turns,
     setTurns,
     loadConversation,
+    cancelPendingLoad,
   } = useConversations(showToast)
 
-  const { isLoading, streamQuery } = useQueryStream({ setTurns, setConversations, showToast })
+  const { isLoading, isStreaming, streamQuery, stop: stopStream } = useQueryStream({
+    setTurns,
+    setConversations,
+    showToast,
+  })
   const [selectedCitation, setSelectedCitation] = useState<RAGCitation | null>(null)
   const [selectedEmail, setSelectedEmail] = useState<GmailMessage | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -59,7 +67,6 @@ const AppContent: React.FC = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
 
-  // Check auth & fetch user conversations on initial load
   useEffect(() => {
     const initAuth = async () => {
       const token = apiClient.getToken()
@@ -90,6 +97,7 @@ const AppContent: React.FC = () => {
 
   const handleSelectSession = (sessionId: string) => {
     if (sessionId === activeConversationId) return
+    stopStream()
     setActiveConversationId(sessionId)
     setActiveWorkspace('assistant')
     loadConversation(sessionId)
@@ -101,7 +109,6 @@ const AppContent: React.FC = () => {
       return
     }
 
-    // If currently on a brand-new empty session, keep it
     if (turns.length === 0 && activeConversationId) {
       setActiveWorkspace('assistant')
       return
@@ -109,6 +116,8 @@ const AppContent: React.FC = () => {
 
     try {
       const newConv = await apiClient.createConversation('Cuộc trò chuyện mới')
+      stopStream()
+      cancelPendingLoad()
       setConversations((prev) => [newConv, ...prev])
       setActiveConversationId(newConv.id)
       setTurns([])
@@ -126,10 +135,12 @@ const AppContent: React.FC = () => {
       const remaining = conversations.filter((c) => c.id !== sessionId)
       setConversations(remaining)
       if (activeConversationId === sessionId) {
+        stopStream()
         if (remaining.length > 0) {
           setActiveConversationId(remaining[0].id)
           loadConversation(remaining[0].id)
         } else {
+          cancelPendingLoad()
           setActiveConversationId(null)
           setTurns([])
         }
@@ -162,6 +173,8 @@ const AppContent: React.FC = () => {
   }
 
   const handleLogout = () => {
+    stopStream()
+    cancelPendingLoad()
     apiClient.logout()
     setCurrentUser(null)
     setConversations([])
@@ -171,7 +184,7 @@ const AppContent: React.FC = () => {
   }
 
   const handleSendMessage = async (queryText: string) => {
-    if (!queryText.trim() || isLoading) return
+    if (!queryText.trim() || isStreaming) return
 
     if (!currentUser) {
       setIsAuthModalOpen(true)
@@ -179,7 +192,6 @@ const AppContent: React.FC = () => {
       return
     }
 
-    // Ensure we are in assistant workspace when sending messages
     setActiveWorkspace('assistant')
 
     let currentConvId = activeConversationId
@@ -299,6 +311,8 @@ const AppContent: React.FC = () => {
             <AssistantWorkspace
               turns={turns}
               isLoading={isLoading}
+              isStreaming={isStreaming}
+              onStopStreaming={stopStream}
               onSendMessage={handleSendMessage}
               onSelectCitation={(cite) => setSelectedCitation(cite)}
               onSelectEmailMessage={(msg) => setSelectedEmail(msg)}
@@ -358,7 +372,6 @@ const AppContent: React.FC = () => {
 
       <EmailDrawer email={selectedEmail} onClose={() => setSelectedEmail(null)} />
 
-      {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

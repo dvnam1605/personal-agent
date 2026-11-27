@@ -24,6 +24,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create run_evidence and add the trace id and answer status to assistant_runs."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = postgresql.JSONB() if is_pg else sa.JSON()
 
@@ -68,6 +69,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop run_evidence and the added run columns."""
     with op.batch_alter_table("assistant_runs") as batch_op:
         batch_op.drop_column("answer_status")
         batch_op.drop_column("retrieval_trace_id")

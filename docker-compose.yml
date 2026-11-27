@@ -77,6 +77,8 @@ services:
       - ./.secrets:/app/.secrets
       - ./models:/app/models
       - ./storage:/app/storage
+      # Corpus for ingest runs (`docker compose run backend …`); never baked into the image.
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

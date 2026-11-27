@@ -1,9 +1,9 @@
-"""Deterministic sufficiency rules (spec P10-16).
+"""Deterministic sufficiency rules.
 
-Cheap rules first, no LLM judge — the verdict drives the bounded retry logic
-in P10-17.  Three-state output: SUFFICIENT / PARTIAL / INSUFFICIENT.
+Cheap rules first, no LLM judge — the verdict drives the bounded retry
+logic.  Three-state output: SUFFICIENT / PARTIAL / INSUFFICIENT.
 
-Default thresholds are documented baselines for P10D ablation tuning.
+Default thresholds are documented baselines for ablation tuning.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from app.domain.models.retrieval.sufficiency import SufficiencyStatus, Sufficien
 logger = logging.getLogger(__name__)
 
 # Baseline threshold: 0.0 for V1 with IdentityReranker/RRF fusion (max RRF ~0.033).
-# Threshold calibration for calibrated cross-encoder scores is ablated in P10D.
+# Threshold calibration for calibrated cross-encoder scores is left to ablation runs.
 DEFAULT_MIN_SCORE_THRESHOLD = 0.0
 DEFAULT_MIN_EVIDENCE_ITEMS = 1
 
@@ -43,8 +43,12 @@ class SufficiencyChecker:
         bundle: EvidenceBundle,
         query: RetrievalQuery,
     ) -> SufficiencyVerdict:
-        """Run rules in priority order; first failure determines the verdict."""
-        # Rule 1: zero candidates → INSUFFICIENT
+        """Run rules in priority order; first failure determines the verdict.
+
+        No items, or fewer than the minimum, is INSUFFICIENT; a requested
+        document missing from compare / document-search evidence is PARTIAL;
+        every score under the threshold is INSUFFICIENT again.
+        """
         if not bundle.items:
             return SufficiencyVerdict(
                 status=SufficiencyStatus.INSUFFICIENT,
@@ -52,7 +56,6 @@ class SufficiencyChecker:
                 retry_hint="broaden search terms or relax filters",
             )
 
-        # Rule 2: below minimum item count → INSUFFICIENT
         if len(bundle.items) < self._min_items:
             return SufficiencyVerdict(
                 status=SufficiencyStatus.INSUFFICIENT,
@@ -60,7 +63,6 @@ class SufficiencyChecker:
                 retry_hint="increase candidate pool size",
             )
 
-        # Rule 3: compare mode — requested doc missing → PARTIAL
         if query.mode is RetrievalMode.COMPARE_DOCUMENTS and query.document_ids:
             covered = set(bundle.documents_used)
             missing = [did for did in query.document_ids if did not in covered]
@@ -72,7 +74,6 @@ class SufficiencyChecker:
                     retry_hint="relax filters or increase per-document budget",
                 )
 
-        # Rule 4: document-search mode — requested doc not in bundle → PARTIAL
         if query.mode is RetrievalMode.DOCUMENT_SEARCH and query.document_ids:
             covered = set(bundle.documents_used)
             missing = [did for did in query.document_ids if did not in covered]
@@ -83,7 +84,6 @@ class SufficiencyChecker:
                     reason="Requested document(s) missing from evidence",
                 )
 
-        # Rule 5: all scores below threshold → INSUFFICIENT
         if self._all_below_threshold(bundle):
             return SufficiencyVerdict(
                 status=SufficiencyStatus.INSUFFICIENT,

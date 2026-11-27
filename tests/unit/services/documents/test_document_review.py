@@ -53,7 +53,7 @@ async def test_clean_section_is_kept() -> None:
     script = Script([{"issues": []}])
     text, review = await _run(script)
     assert text == TEXT and review.verdict == "ok"
-    assert "[2] Quyết định số 1119" in script.review_inputs[0]  # evidence shown by number
+    assert '[2] <retrieved_document id="2">\nQuyết định số 1119' in script.review_inputs[0]
 
 
 async def test_flagged_section_is_rewritten_and_rechecked() -> None:

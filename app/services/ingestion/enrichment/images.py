@@ -83,6 +83,7 @@ class ImageDescriber:
     """Fills each image reference's alt text with a short description."""
 
     async def adescribe(self, document: ParsedDocument) -> ParsedDocument:
+        """Add a model description under each image, at its first use in the document."""
         if not document.images:
             return document
         nodes = list(document.nodes)

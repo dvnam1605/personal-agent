@@ -287,7 +287,7 @@ _DEFINITIONS_BY_NAME = {definition.name: definition for definition in DRIVE_TOOL
 
 
 def drive_tool_definitions() -> tuple[ToolDefinition, ...]:
-    """Return defensive copies of every P8 Drive tool declaration."""
+    """Return defensive copies of every Drive tool declaration."""
     return tuple(definition.model_copy(deep=True) for definition in DRIVE_TOOL_DEFINITIONS)
 
 
@@ -313,6 +313,7 @@ class GoogleDriveTools:
         required_scopes: Iterable[str] | None = None,
         **kwargs: Any,
     ) -> GoogleDriveTools:
+        """Build the tools with a client limited to the scopes ``tool_name`` needs."""
         if required_scopes is None and tool_name is not None:
             definition = _DEFINITIONS_BY_NAME.get(tool_name)
             if definition is None:
@@ -380,7 +381,7 @@ class GoogleDriveTools:
             self.service.drive.finish_operation()
 
     async def _live_precondition(self, tool_input: ToolInput) -> tuple[str | None, str | None]:
-        """Fetch version for stale-check and etag for Google If-Match (M3)."""
+        """Fetch version for stale-check and etag for Google If-Match."""
         if tool_input.tool_name not in STALE_CHECK_VERSION_TOOLS:
             return None, None
         if expected_target_fingerprint_from_arguments(tool_input.arguments) is None:

@@ -1,4 +1,4 @@
-"""Persistence ports for the ingestion pipeline (spec P9D-2).
+"""Persistence ports for the ingestion pipeline.
 
 The orchestrator depends on these narrow protocols; the SQLAlchemy adapter
 lives in ``app.infrastructure.db.ingestion_repository``. Reads manage their
@@ -18,6 +18,8 @@ from app.domain.models.ingestion.documents import SourceDocument
 
 @runtime_checkable
 class IngestionRepository(Protocol):
+    """Storage seam the orchestrator persists and activates document versions through."""
+
     async def latest_state(self, logical_document_id: str) -> StoredFingerprintState | None:
         """Latest known version state for a logical document (own session)."""
         ...

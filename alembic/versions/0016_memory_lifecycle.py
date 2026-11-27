@@ -21,6 +21,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Add memories.is_stale and memories.details, and the per-type listing index."""
     with op.batch_alter_table("memories") as batch:
         batch.add_column(
             sa.Column("is_stale", sa.Boolean(), nullable=False, server_default=sa.false())
@@ -32,6 +33,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the memory lifecycle columns and index."""
     op.drop_index("ix_memories_user_type", table_name="memories")
     with op.batch_alter_table("memories") as batch:
         batch.drop_column("details")

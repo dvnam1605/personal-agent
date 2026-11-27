@@ -68,6 +68,15 @@ def test_alembic_upgrade_head_creates_hardened_schema(
         memory_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(memories)").fetchall()
         }
+        owner_tables = ("assistant_runs", "conversations", "documents")
+        migrated_indexes = {
+            (row[0], row[1])
+            for row in connection.execute(
+                "SELECT tbl_name, name FROM sqlite_master WHERE type = 'index' "
+                "AND name NOT LIKE 'sqlite_autoindex%'"
+            ).fetchall()
+            if row[0] in owner_tables
+        }
 
     assert "audit_outbox" in tables
     assert "google_integrations" in tables
@@ -100,7 +109,18 @@ def test_alembic_upgrade_head_creates_hardened_schema(
     }.issubset(relation_columns)
     assert {"kind", "title", "body", "data", "dedup_key", "read_at"}.issubset(notification_columns)
     assert {"is_stale", "details"}.issubset(memory_columns)
-    assert version == "0019"
+    assert version == "0020"
+    assert {
+        ("conversations", "ix_conversations_user_updated"),
+        ("documents", "ix_documents_user"),
+    }.issubset(migrated_indexes)
+    orm_indexes = {
+        (table.name, str(index.name))
+        for table in Base.metadata.sorted_tables
+        if table.name in owner_tables
+        for index in table.indexes
+    }
+    assert orm_indexes == migrated_indexes, "ORM indexes and migrated indexes must match"
 
 
 @pytest.mark.asyncio

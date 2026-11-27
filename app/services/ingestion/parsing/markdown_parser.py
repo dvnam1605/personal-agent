@@ -1,7 +1,7 @@
-"""MarkdownDocumentParser: preparsed_markdown / .md sources (spec P9B-1).
+"""MarkdownDocumentParser: preparsed_markdown / .md sources.
 
 Pure-Python line-based parsing into the canonical tree. This is the shape the
-offline OCR batch script (P9E) feeds back into the pipeline, so headings and
+offline OCR batch script feeds back into the pipeline, so headings and
 table structure must survive intact.
 """
 
@@ -46,6 +46,7 @@ class MarkdownDocumentParser:
     """Parses Markdown bytes into the normalized document tree."""
 
     async def parse(self, source: SourceDocument, content: bytes) -> ParsedDocument:
+        """Parse UTF-8 markdown into headings, lists, paragraphs and tables."""
         try:
             text = content.decode("utf-8")
         except UnicodeDecodeError as exc:

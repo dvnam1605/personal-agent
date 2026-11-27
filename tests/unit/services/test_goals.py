@@ -10,13 +10,16 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.settings.proactive import ProactiveSettings
+from app.domain.errors import ExternalServiceError
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import Document, Goal, User, WatchRule
 from app.services.goals import planner as planner_module
 from app.services.goals.commands import GoalCommand, parse_goal_command
 from app.services.goals.planner import fallback_plan, plan_steps
-from app.services.proactive.goals import GoalReminderJob
-from app.services.proactive.watcher import WatcherJob
+from app.services.goals.service import WatchService
+from app.services.platform.time import as_utc
+from app.services.proactive.jobs.goals import GoalReminderJob
+from app.services.proactive.jobs.watcher import WatcherJob
 from app.services.routing.query import QueryOrchestrator
 from tests.unit.services.proactive._fakes import FakeMail, FakeSources, make_mail
 
@@ -168,6 +171,35 @@ async def test_watcher_reports_new_mail_and_documents_once(db_session: AsyncSess
     assert mail.queries == ["from:nam@x.vn newer_than:2d"]
     assert (await db_session.get(WatchRule, "w-old")).active is False  # type: ignore[union-attr]
     assert await job.run(db_session, "user_a", NOW + timedelta(minutes=1)) == []
+
+
+async def test_watch_stop_requires_exact_target(db_session: AsyncSession) -> None:
+    await WatchService.create(db_session, "user_a", "mail_from", "nam@atin.vn")
+    await WatchService.create(db_session, "user_a", "mail_keyword", "hợp đồng a")
+
+    assert await WatchService.stop(db_session, "user_a", "a") == []
+    assert len(await WatchService.active(db_session, "user_a")) == 2
+    stopped = await WatchService.stop(db_session, "user_a", "Hop dong A")
+    assert [rule.target for rule in stopped] == ["hợp đồng a"]
+
+
+async def test_watcher_keeps_watermark_when_mail_search_fails(db_session: AsyncSession) -> None:
+    checked = NOW - timedelta(hours=1)
+    db_session.add(
+        WatchRule(id="w-mail", user_id="user_a", kind="mail_from", target="nam@x.vn", last_checked_at=checked)
+    )  # fmt: skip
+    await db_session.flush()
+    failing = FakeMail(error=ExternalServiceError("gmail down"))
+    job = WatcherJob(FakeSources(mail=failing), ProactiveSettings(mail_watch_interval_minutes=5))
+
+    assert await job.run(db_session, "user_a", NOW) == []
+    rule = await db_session.get(WatchRule, "w-mail")
+    assert rule is not None and as_utc(rule.last_checked_at) == checked
+
+    recovered = FakeMail(messages=[make_mail("late", NOW - timedelta(minutes=30))])
+    job = WatcherJob(FakeSources(mail=recovered), ProactiveSettings(mail_watch_interval_minutes=5))
+    created = await job.run(db_session, "user_a", NOW + timedelta(minutes=10))
+    assert [n.dedup_key for n in created] == ["watch:w-mail:late"]
 
 
 async def test_goal_reminder_lists_due_steps_once_a_day(db_session: AsyncSession) -> None:

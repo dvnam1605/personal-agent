@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.WARNING)
 
 # 18 Standardized evaluation queries spanning all categories + multi-document tracking
 BENCHMARK_QUERIES = [
-    # 1. Chi phí / Dự toán
+    # 1. Budget and spending
     (
         "q01_dutoan_chatgpt",
         "Dự toán chi mua bản quyền ChatGPT Teams 2026 là bao nhiêu?",
@@ -51,7 +51,7 @@ BENCHMARK_QUERIES = [
         "Kinh phí thuê tài khoản NotebookLM Audio Overviews năm 2026",
         "427/QĐ-TNVN",
     ),
-    # 2. Nhân sự / Chấm dứt HĐ
+    # 2. Personnel: contract termination
     (
         "q03_nhansu_cham_dut_hd",
         "Chấm dứt hợp đồng làm việc của bà Nguyễn Thị Kim Lan",
@@ -62,7 +62,7 @@ BENCHMARK_QUERIES = [
         "Thời điểm thôi hưởng lương của viên chức Nguyễn Thị Kim Lan",
         "80-QĐ/TNVN",
     ),
-    # 3. Khen thưởng
+    # 3. Awards
     (
         "q05_khenthuong_tapthe",
         "Khen thưởng danh hiệu Tập thể lao động xuất sắc năm 2025 gồm những đơn vị nào?",
@@ -73,7 +73,7 @@ BENCHMARK_QUERIES = [
         "Ban Tổ chức cán bộ và Hợp tác quốc tế được tặng Bằng khen gì năm 2025?",
         "1119/QĐ-TNVN",
     ),
-    # 4. Đào tạo
+    # 4. Training
     (
         "q07_daotao_ai_toasoan",
         "Tập huấn ứng dụng AI trong tòa soạn do chuyên gia nào giảng dạy?",
@@ -84,7 +84,7 @@ BENCHMARK_QUERIES = [
         "Kế hoạch bồi dưỡng ngạch chuyên viên và tương đương năm 2026",
         "50/QĐ-TNVN",
     ),
-    # 5. Kỹ thuật / Phát sóng
+    # 5. Engineering and broadcasting
     (
         "q09_phatsong_quangninh_cot5",
         "Dự án phát sóng FM tại trạm Cột 5 Quảng Ninh nghiệm thu năm nào?",
@@ -95,13 +95,13 @@ BENCHMARK_QUERIES = [
         "Bảo dưỡng máy phát sóng FM trạm Cột 5 Quảng Ninh năm 2026",
         "72/QĐ-TNVN",
     ),
-    # 6. Chỉ thị
+    # 6. Directives
     (
         "q11_chithi_evfta",
         "Chỉ thị về công tác thông tin tuyên truyền Hiệp định EVFTA",
         "1838/CT-TNVN",
     ),
-    # 7. Multi-document & Signer queries (Truy vấn đa văn bản & Người ký)
+    # 7. Multi-document and signer queries
     (
         "q12_multi_doc_signer_vhq",
         "Phó Tổng Giám đốc Vũ Hải Quang ký những văn bản nào?",
@@ -137,9 +137,9 @@ BENCHMARK_QUERIES = [
 
 
 async def main() -> None:
+    """Check the live corpus is loaded, then score dense, sparse and hybrid retrieval on it."""
     session_factory = get_session_factory()
 
-    # Verify DB content
     async with session_factory() as session:
         doc_count = (
             await session.execute(text("SELECT count(*) FROM documents WHERE is_active = true"))
@@ -158,7 +158,6 @@ async def main() -> None:
     )
     print("=" * 95 + "\n")
 
-    # Load embedding model
     model_name = settings.embedding.model
     model_path = snapshot_download(
         model_name, revision=settings.embedding.revision, local_files_only=True
@@ -167,7 +166,6 @@ async def main() -> None:
     contract = EmbeddingContract(model_name=model_name, dimensions=settings.embedding.dimensions)
     embedding_service = LocalEmbeddingService(backend=backend, contract=contract)
 
-    # Initialize retrievers
     dense_service = DenseRetrievalService(embedding_service=embedding_service)
     sparse_service = SparseRetrievalService()
     hybrid_service = HybridRetrievalService(

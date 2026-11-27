@@ -1,12 +1,13 @@
-"""Retrieval processing pipeline (P10B + P10C).
+"""Retrieval processing pipeline.
 
-P10B stages: fusion → diversity → rerank → expansion → budget packing.
-P10C stages: sufficiency check → bounded retry → compare-policy audit →
-             answer synthesis (optional).
+Retrieval stages: fusion → diversity → rerank → expansion → budget packing.
+Policy stages: sufficiency check → bounded retry → compare-policy audit →
+answer synthesis (optional).
 
-Pure orchestration around the P10A/B services; the only LLM call is in
-answer synthesis (``run_with_synthesis``).  The deterministic-only
-``run()`` method is unchanged for callers who only need ``EvidenceBundle``.
+Pure orchestration around the search and evidence services. LLM calls
+happen in answer synthesis and, when the rule-based rewrite finds no exact
+phrase, in the dense/sparse branches' query reformulation. ``run()`` serves
+callers who only need the ``EvidenceBundle``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from app.domain.models.retrieval import (
@@ -40,8 +42,50 @@ from app.services.retrieval.search.rerank import IdentityReranker, Reranker
 
 logger = logging.getLogger(__name__)
 
-# Spec starting range: rerank input ~20-50 children.
+# Rerank input of ~20-50 children balances recall against reranker latency.
 DEFAULT_RERANK_TOP_K_MAX = 48
+
+_NOT_ENOUGH_INTERNAL = "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này."
+_NOT_ENOUGH_EXTERNAL = "Không có tài liệu phù hợp để trả lời câu hỏi này."
+
+
+@dataclass(frozen=True)
+class _Gate:
+    """Outcome of the pre-synthesis checks: a refusal, or the missing documents to warn of."""
+
+    refusal: str | None = None
+    missing_documents: list[str] | None = None
+
+
+def _gate(
+    query: RetrievalQuery,
+    bundle: EvidenceBundle,
+    verdict: SufficiencyVerdict,
+    compare_result: CompareResult | None,
+    *,
+    internal_only: bool,
+) -> _Gate:
+    """Decide whether synthesis may run, shared by the plain and streaming paths.
+
+    No evidence always refuses; for internal-only answers an INSUFFICIENT
+    verdict or an identifier the evidence never mentions refuses too. A
+    coverage warning only makes sense when the user compares specific
+    documents: scoping RAG to a set of candidates (metadata route, document
+    generation) leaves most of them uncited by design.
+    """
+    if not bundle.items:
+        return _Gate(refusal=_NOT_ENOUGH_INTERNAL if internal_only else _NOT_ENOUGH_EXTERNAL)
+    if verdict.status is SufficiencyStatus.INSUFFICIENT and internal_only:
+        return _Gate(refusal=_NOT_ENOUGH_INTERNAL)
+    identifiers = check_identifiers(query.original_query, bundle)
+    if identifiers.abstain and internal_only:
+        return _Gate(refusal=abstain_message(identifiers, bundle))
+    missing: list[str] = (
+        list(verdict.missing_document_ids) if query.mode is RetrievalMode.COMPARE_DOCUMENTS else []
+    )
+    if compare_result and compare_result.missing_documents:
+        missing = sorted(set(missing + compare_result.missing_documents))
+    return _Gate(missing_documents=missing or None)
 
 
 @runtime_checkable
@@ -52,7 +96,7 @@ class HybridRetriever(Protocol):
 
 
 class RetrievalPipeline:
-    """Composes the full retrieval stage chain (P10B deterministic + P10C policies)."""
+    """Composes the full retrieval stage chain: deterministic retrieval, then policies."""
 
     def __init__(
         self,
@@ -71,13 +115,12 @@ class RetrievalPipeline:
         self._expansion = ExpansionService(provider or SqlAlchemyRowProvider())
         self._per_document_cap = per_document_cap
         self._rerank_top_k_max = max(int(rerank_top_k_max), 1)
-        # P10C
         self._sufficiency = sufficiency_checker or SufficiencyChecker()
         self._retry_policy = retry_policy or RetryPolicy()
         self._synthesizer: AnswerSynthesizer = synthesizer or PromptAnswerSynthesizer()
 
     async def run(self, query: RetrievalQuery) -> EvidenceBundle:
-        """Fusion → P10-06 hygiene → P10-07 rerank → expansion → packing."""
+        """Fusion → diversity hygiene → rerank → expansion → packing."""
         trace_id = uuid.uuid4().hex
         bundle = await self._retrieve_and_pack(query, trace_id)
         return bundle
@@ -85,7 +128,7 @@ class RetrievalPipeline:
     async def run_with_sufficiency(
         self, query: RetrievalQuery
     ) -> tuple[EvidenceBundle, SufficiencyVerdict, CompareResult | None]:
-        """Retrieval + sufficiency check + bounded retry (P10-16/17).
+        """Retrieval + sufficiency check + bounded retry.
 
         Returns ``(bundle, verdict, compare_result)`` after up to
         ``max_attempts`` retrieval rounds.
@@ -132,7 +175,7 @@ class RetrievalPipeline:
         system_prompt: str | None = None,
         extra_images: str = "",
     ) -> SynthesisResult:
-        """Full path: retrieval → sufficiency → retry → synthesis (P10-18).
+        """Full path: retrieval → sufficiency → retry → synthesis.
 
         ``extra_images``: image references the answer may show besides those of
         the evidence (a report section's source figures).
@@ -141,49 +184,17 @@ class RetrievalPipeline:
         to synthesis prompt.
         """
         bundle, verdict, compare_result = await self.run_with_sufficiency(query)
-
-        if not bundle.items:
+        gate = _gate(query, bundle, verdict, compare_result, internal_only=internal_only)
+        if gate.refusal is not None:
             return SynthesisResult(
-                answer=(
-                    "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này."
-                    if internal_only
-                    else "Không có tài liệu phù hợp để trả lời câu hỏi này."
-                ),
-                status=SufficiencyStatus.INSUFFICIENT,
-                citations=[],
+                answer=gate.refusal, status=SufficiencyStatus.INSUFFICIENT, citations=[]
             )
-
-        if verdict.status is SufficiencyStatus.INSUFFICIENT and internal_only:
-            return SynthesisResult(
-                answer="Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này.",
-                status=SufficiencyStatus.INSUFFICIENT,
-                citations=[],
-            )
-
-        identifiers = check_identifiers(query.original_query, bundle)
-        if identifiers.abstain and internal_only:
-            return SynthesisResult(
-                answer=abstain_message(identifiers, bundle),
-                status=SufficiencyStatus.INSUFFICIENT,
-                citations=[],
-            )
-
-        # A coverage warning only makes sense when the user compares specific
-        # documents; scoping RAG to a set of candidates (metadata route, document
-        # generation) leaves most of them uncited by design.
-        missing_docs: list[str] = (
-            list(verdict.missing_document_ids)
-            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
-            else []
-        )
-        if compare_result and compare_result.missing_documents:
-            missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 
         return await self._synthesizer.synthesize(
             query.original_query,
             bundle,
             internal_only=internal_only,
-            missing_documents=missing_docs if missing_docs else None,
+            missing_documents=gate.missing_documents,
             verdict_status=verdict.status,
             conversation_history=conversation_history,
             **({"system_prompt": system_prompt} if system_prompt else {}),
@@ -204,67 +215,25 @@ class RetrievalPipeline:
         - `{"type": "citations", "citations": [...], "status": "..."}`
         """
         bundle, verdict, compare_result = await self.run_with_sufficiency(query)
-
-        if not bundle.items:
-            empty_msg = (
-                "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này."
-                if internal_only
-                else "Không có tài liệu phù hợp để trả lời câu hỏi này."
-            )
-            yield {"type": "token", "delta": empty_msg}
+        gate = _gate(query, bundle, verdict, compare_result, internal_only=internal_only)
+        if gate.refusal is not None:
+            yield {"type": "token", "delta": gate.refusal}
             yield {
                 "type": "citations",
                 "citations": [],
                 "status": SufficiencyStatus.INSUFFICIENT.value,
             }
             return
-
-        if verdict.status is SufficiencyStatus.INSUFFICIENT and internal_only:
-            yield {
-                "type": "token",
-                "delta": "Tôi không tìm thấy đủ tài liệu nội bộ để trả lời câu hỏi này.",
-            }
-            yield {
-                "type": "citations",
-                "citations": [],
-                "status": SufficiencyStatus.INSUFFICIENT.value,
-            }
-            return
-
-        identifiers = check_identifiers(query.original_query, bundle)
-        if identifiers.abstain and internal_only:
-            yield {"type": "token", "delta": abstain_message(identifiers, bundle)}
-            yield {
-                "type": "citations",
-                "citations": [],
-                "status": SufficiencyStatus.INSUFFICIENT.value,
-            }
-            return
-
-        # A coverage warning only makes sense when the user compares specific
-        # documents; scoping RAG to a set of candidates (metadata route, document
-        # generation) leaves most of them uncited by design.
-        missing_docs: list[str] = (
-            list(verdict.missing_document_ids)
-            if query.mode is RetrievalMode.COMPARE_DOCUMENTS
-            else []
-        )
-        if compare_result and compare_result.missing_documents:
-            missing_docs = sorted(set(missing_docs + compare_result.missing_documents))
 
         async for item in self._synthesizer.synthesize_stream(
             query.original_query,
             bundle,
             internal_only=internal_only,
-            missing_documents=missing_docs if missing_docs else None,
+            missing_documents=gate.missing_documents,
             verdict_status=verdict.status,
             conversation_history=conversation_history,
         ):
             yield item
-
-    # ------------------------------------------------------------------
-    # Internal: single retrieval round
-    # ------------------------------------------------------------------
 
     async def _retrieve_and_pack(self, query: RetrievalQuery, trace_id: str) -> EvidenceBundle:
         """One retrieval round: fusion → diversity → rerank → expansion → packing."""

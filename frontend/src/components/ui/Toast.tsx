@@ -5,6 +5,7 @@ import './Toast.css'
 
 import { ToastContext, type ToastItem, type ToastType } from './toastContext'
 
+/** Toast provider: keeps the queue of short notices, renders them and removes each after a few seconds. */
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 

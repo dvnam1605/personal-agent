@@ -1,4 +1,4 @@
-"""Sufficiency domain contracts (spec P10-16).
+"""Sufficiency domain contracts.
 
 Three-state verdict derived from retrieval coverage and score distribution;
 deterministic rules only — no LLM judge in V1.
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SufficiencyStatus(StrEnum):
-    """Retrieval evidence sufficiency verdicts (spec P10-16)."""
+    """Retrieval evidence sufficiency verdicts."""
 
     SUFFICIENT = "SUFFICIENT"
     PARTIAL = "PARTIAL"

@@ -95,7 +95,7 @@ class ApprovalRequest(Base):
 
 
 class UserQuestion(Base):
-    """Question Plane model for interactive human clarification (P18-02A)."""
+    """Question Plane model for interactive human clarification."""
 
     __tablename__ = "user_questions"
 

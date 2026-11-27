@@ -88,6 +88,7 @@ def _base(spec: MetadataFilterSpec, requester_id: str | None) -> Select:
 
 
 def compile_rows(spec: MetadataFilterSpec, requester_id: str | None) -> Select:
+    """Rows matching ``spec`` that ``requester_id`` may read, newest first, undated last."""
     stmt = _base(spec, requester_id)
     # Undated documents last; newest first for both "list" and "latest".
     stmt = stmt.order_by(

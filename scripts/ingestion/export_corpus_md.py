@@ -35,6 +35,7 @@ def _yaml(value: object) -> str:
 
 
 async def main() -> None:
+    """Write each active document, with its profile metadata, to one Markdown file."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     args = parser.parse_args()

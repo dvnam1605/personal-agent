@@ -406,23 +406,7 @@ def serialize_event(event: Any) -> dict[str, Any]:
     }
 
 
-# Backwards compatibility aliases
-_apply_period = apply_period
-_as_local = as_local
-_blocked_message = blocked_message
-_iso = iso
-_load_gmail_details = load_gmail_details
-_serialize_event = serialize_event
-_serialize_message = serialize_message
-
 __all__ = [
-    "_apply_period",
-    "_as_local",
-    "_blocked_message",
-    "_iso",
-    "_load_gmail_details",
-    "_serialize_event",
-    "_serialize_message",
     "apply_period",
     "as_local",
     "blocked_message",

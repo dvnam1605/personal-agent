@@ -1,4 +1,4 @@
-"""Citation model for verifiable source references (spec P10-19).
+"""Citation model for verifiable source references.
 
 Each citation maps to an ``Evidence`` item in the bundle and carries
 enough provenance for a UI to render a verifiable reference without
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Citation(BaseModel):
-    """One citation reference attached to a synthesised answer (P10-19)."""
+    """One citation reference attached to a synthesised answer."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

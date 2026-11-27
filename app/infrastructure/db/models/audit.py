@@ -188,7 +188,7 @@ class AuditOutbox(Base):
 
 
 def _forbid_append_only_orm_mutation(_mapper, _connection, target) -> None:
-    """Block ORM UPDATE/DELETE on claimed append-only audit tables (M7)."""
+    """Block ORM UPDATE/DELETE on claimed append-only audit tables."""
     table = getattr(target, "__tablename__", type(target).__name__)
     raise PermissionError(f"{table} is append-only")
 

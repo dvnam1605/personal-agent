@@ -1,4 +1,4 @@
-"""Domain models for memory items and memory gating (spec P17-03..P17-05)."""
+"""Domain models for memory items and memory gating."""
 
 from __future__ import annotations
 

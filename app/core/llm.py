@@ -69,11 +69,12 @@ async def llm_describe_image(
 async def llm_json(
     system: str, user: str, *, timeout: float, temperature: float = 0.2
 ) -> dict[str, Any] | None:
+    """One text call whose answer is parsed as a JSON object; None when the call or parse fails."""
     content = await llm_text(system, user, timeout=timeout, temperature=temperature)
     if content is None:
         return None
     try:
         return extract_json_object(content)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - a malformed model answer falls back like a failed call
         logger.warning("document_llm_json_invalid error=%s", exc)
         return None

@@ -88,6 +88,53 @@ def test_errors() -> None:
     assert unknown is not None and unknown["error"]["code"] == -32601
 
 
+@pytest.mark.parametrize(
+    ("tool", "response"),
+    [
+        ("ask_assistant", httpx.Response(200, text="<html>oops</html>")),
+        ("ask_assistant", httpx.Response(200, json=["not", "an", "object"])),
+        ("list_notifications", httpx.Response(200, json={"items": [{"title": "no body"}]})),
+        ("list_notifications", httpx.Response(200, json={"items": "x"})),
+        ("list_memories", httpx.Response(200, json={"content": "not a list"})),
+        ("remember", httpx.Response(201, json={"id": "m1"})),
+    ],
+)
+def test_malformed_api_responses_become_tool_errors(tool: str, response: httpx.Response) -> None:
+    reply = _call(_api(lambda _r: response), tool, {"question": "x", "content": "x"})
+    assert "error" not in reply
+    assert reply["result"]["isError"] is True
+    assert "unexpected response" in reply["result"]["content"][0]["text"]
+
+
+def test_invalid_params_and_unexpected_failures_keep_the_loop_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api(_backend)
+    bad = handle(api, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": [1]})
+    assert bad is not None and bad["error"]["code"] == -32602
+    bad_args = handle(
+        api,
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "remember", "arguments": [1]}},
+    )  # fmt: skip
+    assert bad_args is not None and bad_args["error"]["code"] == -32602
+
+    def boom(*_args: Any) -> str:
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr("app.mcp.server.call_tool", boom)
+    logged: list[str] = []
+    stdin = io.StringIO(
+        '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"remember"}}\n'
+        '{"jsonrpc":"2.0","id":6,"method":"ping"}\n'
+    )
+    stdout = io.StringIO()
+    serve(api, stdin=stdin, stdout=stdout, log=logged.append)
+    replies = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert replies[0]["id"] == 5 and replies[0]["error"]["code"] == -32603
+    assert replies[1] == {"jsonrpc": "2.0", "id": 6, "result": {}}
+    assert logged == ["internal error: RuntimeError"]
+
+
 def test_serve_reads_lines_and_reports_parse_errors() -> None:
     stdin = io.StringIO('{"jsonrpc":"2.0","id":1,"method":"ping"}\n\nnot json\n[1]\n')
     stdout = io.StringIO()

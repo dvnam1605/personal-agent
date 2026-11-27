@@ -1,30 +1,26 @@
-"""Declarative rules, compiled patterns, and safety filters for FastTriage (H3 / M9).
+"""Compiled patterns and safety filters for FastTriage.
 
-Externalizes pattern matching definitions to maintain readability, isolation,
-and high performance (<= 10ms execution). Includes bilingual English/Vietnamese
-prompt-attack and jailbreak definitions, tightened time signal filters,
-and deterministic domain predicates.
+Every pattern runs on accent-folded, lower-cased text, so one unaccented alternative
+covers both spellings of a Vietnamese word; word boundaries keep short words from
+matching inside longer ones. Sections: safety filters, calendar, communication,
+knowledge, the document-topic guard, chit-chat, and the stage-2 action verbs used when
+the rules above are inconclusive. Keeping them here keeps ``triage.py`` readable and
+the whole rule pass within its ~10 ms budget.
 """
 
 from __future__ import annotations
 
 import re
 
-# ----------------------------------------------------------------------
-# 1. Prompt Attack, Jailbreak & Destructive Filters (Strict Safety Gate)
-# ----------------------------------------------------------------------
-
-# Bilingual Prompt Injection & Jailbreak (English + Vietnamese accented & unaccented)
+# --- 1. Safety filters: prompt attacks, jailbreaks, destructive commands ---
 PROMPT_ATTACK_PATTERN = re.compile(
     r"\b("
-    # English patterns
     r"ignore\s+previous\s+instructions|"
     r"system\s+prompt|"
     r"(dump|show|reveal|print|display|leak|get|tell\s+me|give\s+me|expose)\s+(me\s+)?(the\s+|your\s+)?(system\s+)?prompt|"
     r"jailbreak|"
     r"disregard\s+all\s+rules|"
     r"bypass\s+safety|"
-    # Vietnamese patterns (unaccented + accented covered via unaccented matching)
     r"bo\s+qua\s+(tat\s+ca\s+|moi\s+)?(huong\s+dan|chi\s+thi|quy\s+tac|lenh)(\s+truoc\s+do)?|"
     r"xuat\s+(toan\s+bo\s+)?(system\s+prompt|loi\s+nhac\s+he\s+thong|cau\s+lenh\s+goc)|"
     r"cho\s+toi\s+biet\s+(system\s+prompt|loi\s+nhac\s+he\s+thong)|"
@@ -51,16 +47,14 @@ DESTRUCTIVE_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Strict definitional inquiry context (ONLY educational queries: "là gì", "nghĩa là gì")
+# Only educational questions ("là gì", "nghĩa là gì") count as definitional.
 DEFINITIONAL_INQUIRY_PATTERN = re.compile(
     r"\b(la gi|nghia la gi|giai thich( ro| giup)?|dinh nghia)\b",
     re.IGNORECASE,
 )
 
-# ----------------------------------------------------------------------
-# 2. Calendar Domain Patterns
-# ----------------------------------------------------------------------
 
+# --- 2. Calendar ---
 NON_MEETING_HOP = re.compile(
     r"\b(hop\s+(dong|tac|ly|phap|le|nhat|quy|am|thu|phan)|phu\s+hop|thich\s+hop|tong\s+hop|truong\s+hop|ket\s+hop|tap\s+hop|phoi\s+hop|trung\s+hop)\b",
     re.IGNORECASE,
@@ -102,7 +96,6 @@ CALENDAR_INQUIRY = re.compile(
     re.IGNORECASE,
 )
 
-# Tightened time signals: only matches temporal contexts or time inquiries
 TIME_SIGNAL_TIGHT = re.compile(
     r"\b(sang mai|chieu nay|chieu mai|toi nay|ngay mai|tuan nay|tuan sau|thang sau|"
     r"may gio|luc may gio|khi nao|thoi gian nao)\b|"
@@ -111,10 +104,8 @@ TIME_SIGNAL_TIGHT = re.compile(
     re.IGNORECASE,
 )
 
-# ----------------------------------------------------------------------
-# 3. Communication Domain Patterns
-# ----------------------------------------------------------------------
 
+# --- 3. Communication ---
 COMMUNICATION_PATTERN = re.compile(
     r"\b("
     r"email|mail|e-mail|gmail|"
@@ -165,11 +156,9 @@ INVITATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# ----------------------------------------------------------------------
-# 4. Knowledge / Research Domain Patterns
-# ----------------------------------------------------------------------
 
-
+# --- 4. Knowledge / research ---
+# Covers every document kind the profiler knows, not only decisions.
 RESEARCH_DOC_PATTERN = re.compile(
     r"\b("
     r"tai lieu|quy dinh|quyet dinh|chinh sach|huong dan|nghien cuu|bao cao|van ban|noi bo|quy che|bieu mau|dieu khoan|"
@@ -180,7 +169,6 @@ RESEARCH_DOC_PATTERN = re.compile(
     r"nhan su|tien luong|luong|phu cap|bo nhiem|thoi viec|nghi huu|hop dong lao dong|"
     r"phat song|chuong trinh phat thanh|khung phat song|"
     r"chi thi|cong van|thong bao|ke hoach|chuong trinh|"
-    # Every document kind the profiler knows (generic RAG, not only decisions).
     r"hop dong|phu luc hop dong|thoa thuan|bien ban|to trinh|de xuat|phuong an|"
     r"do an|luan van|luan an|khoa luan|tieu luan|bai bao|giang vien huong dan|"
     r"quy trinh|dac ta|tai lieu ky thuat|sach|bang tinh|file excel|ho so|"
@@ -203,16 +191,11 @@ RESEARCH_LOOKUP_PATTERN = re.compile(
 
 TIM_PREFIX_PATTERN = re.compile(r"\btim\s+", re.IGNORECASE)
 
-# ----------------------------------------------------------------------
-# 7. Document-topic guard (meeting nouns inside document titles)
-# ----------------------------------------------------------------------
 
-# Calendar noise that frequently appears inside a DOCUMENT TITLE or topic
-# ("Quy chế tổ chức cuộc họp...", "Kế hoạch chuyển đổi số...") rather than as
-# a calendar action.
+# --- 5. Document-topic guard: meeting nouns inside document titles ---
+# Meeting words often sit inside a document title ("Quy chế tổ chức cuộc họp…").
 DOC_TITLE_CALENDAR_NOISE_PATTERN = re.compile(r"\b(cuoc hop|hop|meeting|ke hoach)\b", re.IGNORECASE)
 
-# Read/summarize verbs: the request is about document CONTENT.
 DOC_READ_PATTERN = re.compile(
     r"\b("
     r"tim|tra cuu|tra van|tim kiem|tim hieu|"
@@ -228,23 +211,18 @@ DOC_DURATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# ----------------------------------------------------------------------
-# 5. Casual / Chit-chat Patterns
-# ----------------------------------------------------------------------
 
+# --- 6. Chit-chat ---
+# Bare "chuc" would match "viên chức"/"tổ chức" once folded; only greeting phrases count.
 CASUAL_PATTERN = re.compile(
-    # "chuc" alone also matches "viên chức"/"tổ chức" once accents are folded,
-    # which sent real questions to chit-chat; only greeting phrases count.
     r"\b(xin chao|chao ban|chao|hello|hi|hey|ban la ai|can tro giup|tro giup|help|cam on|thanks|thank you|"
     r"chuc mung|chuc ban|chuc anh|chuc chi|chuc em|chuc ngu ngon|chuc mot ngay|tot lanh)\b|"
     r"\b(an gi|uong gi|mon gi|an com|an trua|an toi|an sang|thoi tiet|tam trang|khoe khong|the nao roi|co vui khong)\b",
     re.IGNORECASE,
 )
 
-# ----------------------------------------------------------------------
-# 6. Stage 2 Lightweight Action Verbs (<= 500ms fallback)
-# ----------------------------------------------------------------------
 
+# --- 7. Stage-2 action verbs, consulted when the rules above are inconclusive ---
 STAGE2_BOOKING = re.compile(
     r"\b(dat cho|dat ban|dat phong|hen gio|xep lich|dat hen|nhac nho|nhac toi)\b",
     re.IGNORECASE,

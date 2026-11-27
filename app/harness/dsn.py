@@ -38,6 +38,6 @@ def derive_checkpointer_dsn(database_url: str) -> str:
         raise ConfigurationError(
             "Checkpointer DSN must be PostgreSQL; refusing to derive from a "
             "non-postgres DATABASE__URL.",
-            details={"database_url": url},
+            details={"scheme": scheme},
         )
     return url

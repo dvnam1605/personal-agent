@@ -231,7 +231,8 @@ class GoogleOAuthService:
             except Exception as exc:  # noqa: BLE001 - Google revoke is fail-open by contract
                 logger.warning(
                     "google_refresh_token_revoke_failed_fail_open",
-                    extra={"error": str(exc), "user_id": user_id},
+                    error=str(exc),
+                    user_id=user_id,
                 )
         if integration.access_token_encrypted:
             access_token = self._decrypt(integration.access_token_encrypted)
@@ -240,7 +241,8 @@ class GoogleOAuthService:
             except Exception as exc:  # noqa: BLE001 - Google revoke is fail-open by contract
                 logger.warning(
                     "google_access_token_revoke_failed_fail_open",
-                    extra={"error": str(exc), "user_id": user_id},
+                    error=str(exc),
+                    user_id=user_id,
                 )
         await session.delete(integration)
         await session.flush()

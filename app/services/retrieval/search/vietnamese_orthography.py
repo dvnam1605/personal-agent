@@ -70,7 +70,7 @@ def generate_single_word_variants(word: str) -> list[str]:
     norm = normalize_unicode(word)
     variants = [norm]
 
-    # 1. Check y <-> i interchangeability after consonants
+    # Vietnamese spells y and i interchangeably after a consonant (sỹ / sĩ).
     m = _INTERCHANGEABLE_ONSET_REGEX.match(norm)
     if m:
         onset, vowel = m.groups()

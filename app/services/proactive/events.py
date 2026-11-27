@@ -47,6 +47,7 @@ class InMemoryNotificationBus:
 
     @asynccontextmanager
     async def subscribe(self, user_id: str) -> AsyncIterator[asyncio.Queue[str]]:
+        """Yield a queue receiving the user's notification ids until the context exits."""
         queue: asyncio.Queue[str] = asyncio.Queue()
         self._queues[user_id].add(queue)
         try:
@@ -66,6 +67,7 @@ class RedisNotificationBus:
         self._client_factory = client_factory
 
     async def publish(self, user_id: str, notification_id: str) -> None:
+        """Announce a stored notification; failures are logged, not raised."""
         try:
             client = await self._client_factory()
             await client.publish(channel_name(user_id), json.dumps({"id": notification_id}))
@@ -74,6 +76,7 @@ class RedisNotificationBus:
 
     @asynccontextmanager
     async def subscribe(self, user_id: str) -> AsyncIterator[asyncio.Queue[str]]:
+        """Yield a queue fed from the user's Redis channel by a background reader task."""
         client = await self._client_factory()
         pubsub = client.pubsub()
         await pubsub.subscribe(channel_name(user_id))

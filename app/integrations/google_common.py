@@ -107,79 +107,35 @@ class GoogleResourceAdapter:
         retryable: bool | None = None,
     ) -> Any:
         """Make one bounded request and return only provider JSON data."""
-        url = self._url(path)
-        self.last_retry_count = 0
-        if not self._collect_operation_retries.get():
-            self._operation_retry_count.set(0)
-        can_retry = (
-            retryable
-            if retryable is not None
-            else method.upper() in {"GET", "HEAD", "PUT", "DELETE"}
+        request_kwargs: dict[str, Any] = {
+            "params": dict(params) if params else None,
+            "json": json,
+        }
+        if headers:
+            request_kwargs["headers"] = dict(headers)
+        response = await self._send(
+            method,
+            path,
+            operation=operation,
+            request_kwargs=request_kwargs,
+            can_retry=_default_retryable(method, retryable),
         )
-        for attempt in range(1, self.retry_policy.max_attempts + 1):
-            try:
-                request_kwargs: dict[str, Any] = {
-                    "params": dict(params) if params else None,
-                    "json": json,
-                }
-                if headers:
-                    request_kwargs["headers"] = dict(headers)
-                response = await self.client.request(
-                    method,
-                    url,
-                    **request_kwargs,
-                )
-            except (httpx.HTTPError, OSError) as exc:
-                if can_retry and attempt < self.retry_policy.max_attempts:
-                    self.last_retry_count = attempt
-                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
-                    await self.sleep(self.retry_policy.delay_for_retry(attempt))
-                    continue
-                raise ExternalServiceError(
-                    "Google API request failed.",
-                    service_name="google",
-                    details={"operation": operation, "retry_count": attempt - 1},
-                ) from exc
-
-            if (
-                can_retry
-                and response.status_code in self.retry_policy.retry_statuses
-                and attempt < self.retry_policy.max_attempts
-            ):
-                self.last_retry_count = attempt
-                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
-                await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
-                continue
-
-            if not 200 <= response.status_code < 300:
-                self._raise_provider_error(response, operation, attempt - 1)
-
-            if response.status_code in (204, 205):
-                if allow_empty:
-                    return None
-                raise ExternalServiceError(
-                    f"Google returned an empty response for {operation}.",
-                    service_name="google",
-                    details={"operation": operation, "status_code": response.status_code},
-                )
-
-            try:
-                payload = response.json()
-            except (TypeError, ValueError) as exc:
-                raise ExternalServiceError(
-                    f"Google returned invalid JSON for {operation}.",
-                    service_name="google",
-                    details={"operation": operation, "status_code": response.status_code},
-                ) from exc
-            return payload
-
-        # The loop always returns or raises; this protects type checkers if the
-        # retry policy is changed in the future.
-        raise ExternalServiceError(
-            "Google API request failed.",
-            service_name="google",
-            details={"operation": operation},
-        )
+        if response.status_code in (204, 205):
+            if allow_empty:
+                return None
+            raise ExternalServiceError(
+                f"Google returned an empty response for {operation}.",
+                service_name="google",
+                details={"operation": operation, "status_code": response.status_code},
+            )
+        try:
+            return response.json()
+        except (TypeError, ValueError) as exc:
+            raise ExternalServiceError(
+                f"Google returned invalid JSON for {operation}.",
+                service_name="google",
+                details={"operation": operation, "status_code": response.status_code},
+            ) from exc
 
     async def _request_bytes(
         self,
@@ -192,55 +148,14 @@ class GoogleResourceAdapter:
         retryable: bool | None = None,
     ) -> tuple[bytes, dict[str, str]]:
         """Make one bounded request and return the raw response bytes and headers."""
-        url = self._url(path)
-        self.last_retry_count = 0
-        if not self._collect_operation_retries.get():
-            self._operation_retry_count.set(0)
+        request_kwargs: dict[str, Any] = {"params": dict(params) if params else None}
+        if headers:
+            request_kwargs["headers"] = dict(headers)
         can_retry = retryable if retryable is not None else method.upper() in {"GET", "HEAD"}
-        for attempt in range(1, self.retry_policy.max_attempts + 1):
-            try:
-                request_kwargs: dict[str, Any] = {
-                    "params": dict(params) if params else None,
-                }
-                if headers:
-                    request_kwargs["headers"] = dict(headers)
-                response = await self.client.request(
-                    method,
-                    url,
-                    **request_kwargs,
-                )
-            except (httpx.HTTPError, OSError) as exc:
-                if can_retry and attempt < self.retry_policy.max_attempts:
-                    self.last_retry_count = attempt
-                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
-                    await self.sleep(self.retry_policy.delay_for_retry(attempt))
-                    continue
-                raise ExternalServiceError(
-                    "Google API request failed.",
-                    service_name="google",
-                    details={"operation": operation, "retry_count": attempt - 1},
-                ) from exc
-
-            if (
-                can_retry
-                and response.status_code in self.retry_policy.retry_statuses
-                and attempt < self.retry_policy.max_attempts
-            ):
-                self.last_retry_count = attempt
-                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
-                await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
-                continue
-
-            if not 200 <= response.status_code < 300:
-                self._raise_provider_error(response, operation, attempt - 1)
-
-            return response.content, dict(response.headers)
-
-        raise ExternalServiceError(
-            "Google API request failed.",
-            service_name="google",
-            details={"operation": operation},
+        response = await self._send(
+            method, path, operation=operation, request_kwargs=request_kwargs, can_retry=can_retry
         )
+        return response.content, dict(response.headers)
 
     async def _request_raw(
         self,
@@ -255,35 +170,46 @@ class GoogleResourceAdapter:
         retryable: bool | None = None,
     ) -> httpx.Response:
         """Make one request with custom payload/headers and return the raw response."""
+        request_kwargs: dict[str, Any] = {"params": dict(params) if params else None}
+        if content is not None:
+            request_kwargs["content"] = content
+        elif json is not None:
+            request_kwargs["json"] = json
+        if headers:
+            request_kwargs["headers"] = dict(headers)
+        return await self._send(
+            method,
+            path,
+            operation=operation,
+            request_kwargs=request_kwargs,
+            can_retry=_default_retryable(method, retryable),
+        )
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        operation: str,
+        request_kwargs: dict[str, Any],
+        can_retry: bool,
+    ) -> httpx.Response:
+        """Send with bounded retries and return a 2xx response, or raise a domain error.
+
+        Transport errors and retryable statuses are retried only when ``can_retry``
+        (idempotent methods by default), with the policy's backoff; retries are counted
+        both per request and per logical tool operation.
+        """
         url = self._url(path)
         self.last_retry_count = 0
         if not self._collect_operation_retries.get():
             self._operation_retry_count.set(0)
-        can_retry = (
-            retryable
-            if retryable is not None
-            else method.upper() in {"GET", "HEAD", "PUT", "DELETE"}
-        )
         for attempt in range(1, self.retry_policy.max_attempts + 1):
             try:
-                request_kwargs: dict[str, Any] = {
-                    "params": dict(params) if params else None,
-                }
-                if content is not None:
-                    request_kwargs["content"] = content
-                elif json is not None:
-                    request_kwargs["json"] = json
-                if headers:
-                    request_kwargs["headers"] = dict(headers)
-                response = await self.client.request(
-                    method,
-                    url,
-                    **request_kwargs,
-                )
+                response = await self.client.request(method, url, **request_kwargs)
             except (httpx.HTTPError, OSError) as exc:
                 if can_retry and attempt < self.retry_policy.max_attempts:
-                    self.last_retry_count = attempt
-                    self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                    self._count_retry(attempt)
                     await self.sleep(self.retry_policy.delay_for_retry(attempt))
                     continue
                 raise ExternalServiceError(
@@ -297,14 +223,12 @@ class GoogleResourceAdapter:
                 and response.status_code in self.retry_policy.retry_statuses
                 and attempt < self.retry_policy.max_attempts
             ):
-                self.last_retry_count = attempt
-                self._operation_retry_count.set(self._operation_retry_count.get() + 1)
+                self._count_retry(attempt)
                 await self.sleep(self.retry_policy.delay_for_retry(attempt, response))
                 continue
 
             if not 200 <= response.status_code < 300:
                 self._raise_provider_error(response, operation, attempt - 1)
-
             return response
 
         raise ExternalServiceError(
@@ -312,6 +236,10 @@ class GoogleResourceAdapter:
             service_name="google",
             details={"operation": operation},
         )
+
+    def _count_retry(self, attempt: int) -> None:
+        self.last_retry_count = attempt
+        self._operation_retry_count.set(self._operation_retry_count.get() + 1)
 
     def _url(self, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
@@ -347,6 +275,13 @@ class GoogleResourceAdapter:
             service_name="google",
             details=details,
         )
+
+
+def _default_retryable(method: str, retryable: bool | None) -> bool:
+    """Retry idempotent methods unless the caller decided explicitly."""
+    if retryable is not None:
+        return retryable
+    return method.upper() in {"GET", "HEAD", "PUT", "DELETE"}
 
 
 def require_object(payload: Any, operation: str) -> dict[str, Any]:

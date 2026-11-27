@@ -44,6 +44,7 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: 'Đã huỷ',
 }
 
+/** Generated documents workspace: request an outline, edit and approve it, follow generation, review or rewrite sections and download the .docx / .xlsx. */
 export const DocumentsWorkspace: React.FC = () => {
   const [request, setRequest] = useState('')
   const [history, setHistory] = useState<GeneratedDocumentSummary[]>([])

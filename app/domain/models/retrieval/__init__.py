@@ -1,4 +1,4 @@
-"""Retrieval domain contracts (spec P10-01..P10-05).
+"""Retrieval domain contracts.
 
 Frozen typed models shared by the retrieval services: query intent, the
 canonical retrieved-chunk shape returned by every retriever, and the rank
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class RetrievalMode(StrEnum):
-    """Retrieval modes (spec P10-01). METADATA_LOOKUP never enters RAG."""
+    """Retrieval modes. METADATA_LOOKUP never enters RAG."""
 
     CORPUS_SEARCH = "CORPUS_SEARCH"
     DOCUMENT_SEARCH = "DOCUMENT_SEARCH"
@@ -25,7 +25,7 @@ class RetrievalMode(StrEnum):
 
 
 class ExpansionPolicy(StrEnum):
-    """Context expansion policies (spec P10-08; behaviour lands in P10B)."""
+    """Context expansion policies."""
 
     NONE = "NONE"
     NEIGHBORS = "NEIGHBORS"
@@ -33,7 +33,7 @@ class ExpansionPolicy(StrEnum):
 
 
 class RetrievalQuery(BaseModel):
-    """Everything a retriever needs for one search (spec P10-02).
+    """Everything a retriever needs for one search.
 
     ``search_query`` defaults to ``original_query``: resolve conversational
     references upstream and do NOT rewrite with an LLM when the query is
@@ -51,8 +51,7 @@ class RetrievalQuery(BaseModel):
     top_k_dense: int = Field(default=20, ge=1, le=100)
     top_k_sparse: int = Field(default=20, ge=1, le=100)
     limit: int = Field(default=10, ge=1, le=100)
-    # Caller-supplied packing budget (spec P10-08/13: expansion + packing under
-    # an explicit token/latency budget; hard max respected byte-exact).
+    # Caller-supplied packing budget.
     context_token_budget: int = Field(default=8192, ge=128, le=100_000)
     require_source_diversity: bool = False
     expansion_policy: ExpansionPolicy | None = None
@@ -72,7 +71,7 @@ class RetrievalQuery(BaseModel):
             if not self.document_ids:
                 raise ValueError(f"{self.mode.value} requires at least one document_id")
         if self.mode is RetrievalMode.METADATA_LOOKUP:
-            # P10-01: metadata/filename questions resolve through the Drive
+            # Metadata/filename questions resolve through the Drive
             # metadata path — semantic retrieval must reject them at the
             # contract boundary instead of silently searching embeddings.
             raise ValueError("METADATA_LOOKUP must not enter the RAG retrieval path")
@@ -80,7 +79,7 @@ class RetrievalQuery(BaseModel):
 
 
 class RetrievedChunk(BaseModel):
-    """Canonical candidate shape returned by dense, sparse and hybrid (P10-03/04)."""
+    """Canonical candidate shape returned by dense, sparse and hybrid."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -93,7 +92,7 @@ class RetrievedChunk(BaseModel):
     dense_rank: int | None = None
     sparse_rank: int | None = None
     fusion_score: float | None = None
-    # P10-07 bookkeeping: model/version tag + pre/post ranks (set by rerankers)
+    # Reranker bookkeeping: model/version tag + pre/post ranks (set by rerankers)
     pre_rerank_rank: int | None = None
     rerank_score: float | None = None
     rerank_rank: int | None = None
@@ -105,7 +104,7 @@ EvidenceUnitKind = Literal["CHILD", "NEIGHBOR_GROUP", "PARENT", "TABLE_CHILD"]
 
 
 class Evidence(BaseModel):
-    """One mixed-unit context item for generation (spec P10-13 + P10-15 provenance)."""
+    """One mixed-unit context item for generation."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -120,17 +119,17 @@ class Evidence(BaseModel):
     chunk_ids: list[str] = Field(default_factory=list)
     heading_path: list[str] = Field(default_factory=list)
     anchors: dict[str, Any] = Field(default_factory=dict)
-    # Score provenance for sufficiency evaluation (P10-16)
+    # Score provenance for sufficiency evaluation
     score: float | None = None
     rerank_score: float | None = None
-    # P10-15 citation provenance fields
+    # Citation provenance fields
     title: str | None = None
     filename: str | None = None
     source_type: str | None = None
 
 
 class EvidenceBundle(BaseModel):
-    """Budget-respecting packed context output (spec P10-13, normative shape)."""
+    """Budget-respecting packed context output."""
 
     model_config = ConfigDict(frozen=True)
 

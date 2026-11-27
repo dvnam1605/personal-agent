@@ -1,4 +1,4 @@
-"""Prompt templates for answer synthesis (spec P10-18, P10-20).
+"""Prompt templates for answer synthesis.
 
 Isolated from the synthesiser implementation so they are individually
 testable and replaceable without touching orchestration code.

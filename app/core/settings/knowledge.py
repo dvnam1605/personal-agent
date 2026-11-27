@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class EmbeddingSettings(BaseModel):
+    """Embedding model, its pinned Hub revision and how it is loaded."""
+
     model: str = Field(
         default="AITeamVN/Vietnamese_Embedding",
         description="Embedding model name (local snapshot by default, ADR 0012)",
@@ -31,6 +33,8 @@ class EmbeddingSettings(BaseModel):
 
 
 class RerankerSettings(BaseModel):
+    """Cross-encoder reranker model, its pinned Hub revision and how it is loaded."""
+
     model: str = Field(
         default="namdp-ptit/ViRanker",
         description="Cross-encoder reranker model (local snapshot by default, ADR 0012)",
@@ -58,13 +62,13 @@ class RerankerSettings(BaseModel):
 
 
 class ParsingSettings(BaseModel):
-    """Parse-quality gating and OCR fallback policy (spec P9B-3/P9B-4)."""
+    """Parse-quality gating and OCR fallback policy."""
 
     ocr_fallback_enabled: bool = Field(
         default=False,
         description=(
             "Runtime V1 default OFF: scanned PDFs get typed NEEDS_OCR and are "
-            "queued for the offline OCR path (P9E) instead of inline OCR."
+            "queued for the offline OCR path instead of inline OCR."
         ),
     )
     min_useful_text_length: int = Field(
@@ -113,7 +117,7 @@ class ProfilingSettings(BaseModel):
 
 
 class ChunkingSettings(BaseModel):
-    """Parent/child chunk budgets and merging policy (spec P9C)."""
+    """Parent/child chunk budgets and merging policy."""
 
     parent_target_tokens: int = Field(
         default=1600,

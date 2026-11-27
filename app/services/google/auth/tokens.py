@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.domain.errors import ExternalServiceError
 from app.domain.errors import ValidationError as DomainValidationError
+from app.services.platform.time import as_utc
 
 Clock = Callable[[], datetime]
 
@@ -19,9 +20,7 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _as_utc(value: datetime) -> datetime:
-    """Normalize timestamps received from providers or database drivers."""
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+_as_utc = as_utc
 
 
 class GoogleScopeValidator:
@@ -50,6 +49,7 @@ class GoogleScopeValidator:
 
     @staticmethod
     def normalize(scopes: Iterable[str] | str) -> list[str]:
+        """Split, trim and de-duplicate scopes, keeping their order."""
         values = scopes.split() if isinstance(scopes, str) else scopes
         normalized: list[str] = []
         for scope in values:
@@ -64,6 +64,7 @@ class GoogleScopeValidator:
     def missing(
         cls, granted_scopes: Iterable[str] | str, required_scopes: Iterable[str] | str
     ) -> list[str]:
+        """Required scopes not covered by the granted ones (a broad scope covers narrower)."""
         granted = set(cls.normalize(granted_scopes))
         missing: list[str] = []
         for scope in cls.normalize(required_scopes):
@@ -101,6 +102,7 @@ class GoogleTokenSet(BaseModel):
     @field_validator("access_token", "refresh_token", mode="before")
     @classmethod
     def reject_blank_tokens(cls, value: object) -> object:
+        """Treat blank token strings as absent."""
         if value is None:
             return None
         if isinstance(value, str) and not value.strip():
@@ -110,6 +112,7 @@ class GoogleTokenSet(BaseModel):
     @field_validator("scopes", mode="before")
     @classmethod
     def normalize_scopes(cls, value: object) -> list[str]:
+        """Accept scopes as a space-separated string or a collection."""
         if isinstance(value, str):
             return GoogleScopeValidator.normalize(value)
         if isinstance(value, list | tuple | set):
@@ -129,6 +132,11 @@ class GoogleTokenSet(BaseModel):
         clock: Clock = utc_now,
         fallback_to_requested_scopes: bool = True,
     ) -> GoogleTokenSet:
+        """Build a token set from Google's token endpoint response.
+
+        An absent access token is a provider error; missing scopes fall back to the
+        requested ones only when ``fallback_to_requested_scopes`` allows it.
+        """
         access_token = payload.get("access_token")
         if not isinstance(access_token, str) or not access_token.strip():
             raise ExternalServiceError(

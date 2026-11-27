@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class ReActBudgetSettings(BaseModel):
+    """Limits of one specialist ReAct loop: steps, tool calls and wall-clock time."""
+
     max_steps: int = Field(default=6, description="Max reasoning steps in specialist ReAct loop")
     max_tool_calls: int = Field(default=8, description="Max total tool calls per ReAct session")
     timeout_seconds: float = Field(default=30.0, description="ReAct execution timeout in seconds")
@@ -13,6 +15,8 @@ class ReActBudgetSettings(BaseModel):
 
 
 class SupervisorBudgetSettings(BaseModel):
+    """Limits of one supervisor DAG run: iterations, replans, parallelism and time."""
+
     max_iterations: int = Field(default=5, description="Max task execution iterations")
     max_replans: int = Field(default=2, description="Max allowed replanning attempts")
     max_parallel_tasks: int = Field(default=4, description="Max parallel sub-tasks")
@@ -29,12 +33,16 @@ class SupervisorBudgetSettings(BaseModel):
 
 
 class RouteBudget(BaseModel):
+    """Target LLM calls, latency and token ceiling for one route type."""
+
     target_llm_calls: int
     target_latency_seconds: float
     max_tokens: int
 
 
 class LLMBudgetSettings(BaseModel):
+    """Per-route LLM budgets, from a direct specialist call up to a full supervisor run."""
+
     direct_specialist: RouteBudget = Field(
         default_factory=lambda: RouteBudget(
             target_llm_calls=1, target_latency_seconds=2.0, max_tokens=2000
@@ -58,6 +66,8 @@ class LLMBudgetSettings(BaseModel):
 
 
 class TimeoutsSettings(BaseModel):
+    """Timeouts for calls that leave the process: Google, web search, LLM and database."""
+
     google_api_seconds: float = Field(default=10.0, description="Google API request timeout")
     web_search_seconds: float = Field(default=8.0, description="Web search provider timeout")
     llm_request_seconds: float = Field(default=90.0, description="LLM provider request timeout")

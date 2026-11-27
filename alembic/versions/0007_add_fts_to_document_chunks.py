@@ -1,4 +1,4 @@
-"""Full-text search over document_chunks (spec P10A).
+"""Full-text search over document_chunks.
 
 Creates the ``vietnamese_simple`` text-search configuration (``simple``
 copied with an unaccent mapping — required for accent-insensitive matching of
@@ -24,11 +24,12 @@ _UNACCENT_TOKEN_TYPES = "asciihword, hword_asciipart, word, hword, hword_part"
 
 
 def upgrade() -> None:
+    """Add the Vietnamese text-search configuration and the generated tsvector column with its index (PostgreSQL only)."""
     if op.get_bind().dialect.name != "postgresql":
         return  # FTS is PostgreSQL-only; sqlite unit-migration runs skip it.
 
     op.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
-    # NOTE (P12 verification): CREATE TEXT SEARCH CONFIGURATION does not
+    # NOTE: CREATE TEXT SEARCH CONFIGURATION does not
     # support IF NOT EXISTS on any PostgreSQL version, and the configuration
     # lives in the shared ``public`` schema while integration fixtures migrate
     # per-test schemas. Create it only when missing; never drop (dependent
@@ -64,6 +65,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the tsvector column, its index and the text-search configuration."""
     if op.get_bind().dialect.name != "postgresql":
         return
 

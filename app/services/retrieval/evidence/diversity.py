@@ -1,4 +1,4 @@
-"""Pre-rerank candidate hygiene: dedup, near-duplicate suppression, caps (P10-06).
+"""Pre-rerank candidate hygiene: dedup, near-duplicate suppression, caps.
 
 Deterministic and cheap on purpose — no embeddings, no LLM:
 
@@ -7,11 +7,11 @@ Deterministic and cheap on purpose — no embeddings, no LLM:
   (the first/better-ranked instance wins), which stops adjacent near-identical
   chunks from dominating the reranker input. Note: V1 implements exact
   whitespace-and-case normalised matching; fuzzy / Jaccard / MinHash shingle
-  thresholding is recorded as a tunable for P10D ablation testing;
+  thresholding is recorded as a tunable for ablation testing;
 - optional per-document candidate caps apply in arrival (fusion) order, giving
   every document fair candidate opportunity; COMPARE_DOCUMENTS gets a derived
   balance cap. Detecting and surfacing *missing* sources to the user belongs to
-  the P10C compare policy, while a diagnostic warning is logged here.
+  the compare policy, while a diagnostic warning is logged here.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def apply_diversity(
     per_document_cap: int | None = None,
     compare_document_ids: list[str] | None = None,
 ) -> list[RetrievedChunk]:
-    """Full P10-06 chain: dedup -> near-dup suppression -> caps."""
+    """Full hygiene chain: dedup -> near-dup suppression -> caps."""
     filtered = suppress_near_duplicates(dedup_candidates(candidates))
     cap = per_document_cap
     if compare_document_ids:

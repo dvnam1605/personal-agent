@@ -16,6 +16,8 @@ _READ_CHUNK = 1024 * 1024
 
 @dataclass(frozen=True)
 class CheckpointIdentity:
+    """Name and SHA-256 of the checkpoint a page was read with, recorded in each sidecar."""
+
     name: str
     sha256: str
 

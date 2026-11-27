@@ -1,30 +1,24 @@
-"""Async Redis client manager with environment-namespaced keys, TTLs, and graceful degradation."""
+"""Shared async Redis client: lazy connection, health probe and atomic run-budget reservations.
+
+Callers that need other Redis structures (rate limits, single-use tokens, the
+notification bus) take the client from ``get_client`` and namespace their own keys.
+"""
 
 from collections.abc import Mapping
 
-import orjson
 import redis.asyncio as aioredis
 import structlog
 from redis.exceptions import RedisError
 
-from app.core.config import Environment, settings
-from app.core.jsonutil import dumps_utf8
-from app.core.jsonutil import loads as json_loads
+from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
-_REDIS_IO_ERRORS = (
-    RedisError,
-    OSError,
-    TimeoutError,
-    TypeError,
-    ValueError,
-    orjson.JSONDecodeError,
-)
+_REDIS_IO_ERRORS = (RedisError, OSError, TimeoutError, ValueError)
 
 
 class RedisManager:
-    """Manages environment-namespaced Redis caching, session states, and rate limiting with fallback."""
+    """Owns the process-wide Redis client and the run-budget reservation script."""
 
     def __init__(self, url: str | None = None) -> None:
         self._url = url or settings.redis.url
@@ -43,24 +37,6 @@ class RedisManager:
         return self._client
 
     @staticmethod
-    def session_key(session_id: str) -> str:
-        """Generate environment-namespaced Redis key for session state."""
-        env = getattr(settings.environment, "value", str(settings.environment))
-        return f"assistant:{env}:session:{session_id}"
-
-    @staticmethod
-    def cache_key(key: str) -> str:
-        """Generate environment-namespaced Redis key for general cache."""
-        env = getattr(settings.environment, "value", str(settings.environment))
-        return f"assistant:{env}:cache:{key}"
-
-    @staticmethod
-    def ratelimit_key(user_id: str, bucket: str) -> str:
-        """Generate environment-namespaced Redis key for rate-limiting bucket."""
-        env = getattr(settings.environment, "value", str(settings.environment))
-        return f"assistant:{env}:ratelimit:{user_id}:{bucket}"
-
-    @staticmethod
     def budget_key(run_id: str) -> str:
         """Generate a run-scoped key for hard distributed budget reservations."""
         env = getattr(settings.environment, "value", str(settings.environment))
@@ -76,61 +52,6 @@ class RedisManager:
         except _REDIS_IO_ERRORS as e:
             logger.warning("redis_health_check_failed", error=str(e))
             self._is_connected = False
-            return False
-
-    async def get_session(self, session_id: str) -> dict[str, object] | None:
-        """Fetch versioned session state envelope from Redis."""
-        try:
-            client = await self.get_client()
-            raw = await client.get(self.session_key(session_id))
-            if not raw:
-                return None
-            data = json_loads(raw)
-            if isinstance(data, dict) and "data" in data:
-                inner = data["data"]
-                return inner if isinstance(inner, dict) else None
-            return data if isinstance(data, dict) else None
-        except _REDIS_IO_ERRORS as e:
-            logger.error("redis_get_session_failed", session_id=session_id, error=str(e))
-            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
-                raise RuntimeError("Redis session store is unavailable") from e
-            return None
-
-    async def set_session(self, session_id: str, data: dict[str, object], ttl: int = 86400) -> bool:
-        """Store versioned session state envelope with TTL (default 24h)."""
-        try:
-            client = await self.get_client()
-            envelope = {"version": 1, "data": data}
-            await client.set(self.session_key(session_id), dumps_utf8(envelope), ex=ttl)
-            return True
-        except _REDIS_IO_ERRORS as e:
-            logger.error("redis_set_session_failed", session_id=session_id, error=str(e))
-            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
-                raise RuntimeError("Redis session store is unavailable") from e
-            return False
-
-    async def get_cache(self, key: str) -> object | None:
-        """Fetch cached JSON payload. Production/staging fail closed (M4)."""
-        try:
-            client = await self.get_client()
-            raw = await client.get(self.cache_key(key))
-            return json_loads(raw) if raw else None
-        except _REDIS_IO_ERRORS as e:
-            logger.error("redis_get_cache_failed", key=key, error=str(e))
-            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
-                raise RuntimeError("Redis cache is unavailable") from e
-            return None
-
-    async def set_cache(self, key: str, value: object, ttl: int = 3600) -> bool:
-        """Store cached JSON payload with TTL (default 1h). Production/staging fail closed (M4)."""
-        try:
-            client = await self.get_client()
-            await client.set(self.cache_key(key), dumps_utf8(value), ex=ttl)
-            return True
-        except _REDIS_IO_ERRORS as e:
-            logger.error("redis_set_cache_failed", key=key, error=str(e))
-            if settings.environment in (Environment.PRODUCTION, Environment.STAGING):
-                raise RuntimeError("Redis cache is unavailable") from e
             return False
 
     async def reserve(
@@ -174,16 +95,6 @@ class RedisManager:
         client = await self.get_client()
         result = await client.eval(lua, 1, self.budget_key(run_id), *arguments)
         return bool(result)
-
-    async def delete(self, key: str) -> bool:
-        """Delete a key."""
-        try:
-            client = await self.get_client()
-            await client.delete(key)
-            return True
-        except _REDIS_IO_ERRORS as e:
-            logger.warning("redis_delete_fallback", key=key, error=str(e))
-            return False
 
     async def close(self) -> None:
         """Close underlying connection pool."""

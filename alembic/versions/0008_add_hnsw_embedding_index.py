@@ -1,4 +1,4 @@
-"""HNSW cosine ANN index over CHILD embedding vectors (spec P10-03, latency).
+"""HNSW cosine ANN index over CHILD embedding vectors.
 
 Dense retrieval orders candidates by ``embedding <=> :query`` on every search;
 without a matching index PostgreSQL performs a sequential scan over all stored
@@ -29,6 +29,7 @@ _HNSW_INDEX_SQL = (
 
 
 def upgrade() -> None:
+    """Create the HNSW cosine index over child embeddings (PostgreSQL only)."""
     bind = op.get_bind()
     if bind.dialect.name != "postgresql":
         return  # SQLite unit-migration runs exercise chain continuity only.
@@ -37,6 +38,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the HNSW embedding index."""
     bind = op.get_bind()
     if bind.dialect.name != "postgresql":
         return

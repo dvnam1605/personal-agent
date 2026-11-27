@@ -37,6 +37,7 @@ async def telegram_status(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> TelegramStatus:
+    """Whether the Telegram bot is configured and the caller's chat is linked."""
     link = await TelegramLinkService.by_user(session, user_id)
     return TelegramStatus(
         enabled=bool(settings.telegram.bot_token),
@@ -63,6 +64,7 @@ async def telegram_unlink(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> TelegramStatus:
+    """Unlink the caller's Telegram chat."""
     await TelegramLinkService.unlink(session, user_id)
     return TelegramStatus(
         enabled=bool(settings.telegram.bot_token),

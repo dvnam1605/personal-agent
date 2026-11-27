@@ -1,4 +1,4 @@
-"""Atomic consumed-token store for single-use approval tokens (H-NEW3 / H6).
+"""Atomic consumed-token store for single-use approval tokens.
 
 Replaces a process-local ``set`` with a store that can survive restarts and
 work across workers when Redis is wired at application startup.
@@ -52,6 +52,7 @@ class InMemoryConsumedTokenStore:
             del self._consumed[key]
 
     def is_consumed_sync(self, key: str) -> bool:
+        """Whether ``key`` was consumed and has not expired yet."""
         now = time.time()
         with self._lock:
             existing_expiry = self._consumed.get(key)
@@ -63,6 +64,7 @@ class InMemoryConsumedTokenStore:
             return True
 
     def try_consume_sync(self, key: str, ttl_seconds: int) -> bool:
+        """Mark ``key`` consumed for ``ttl_seconds``; False if it already was."""
         now = time.time()
         ttl = max(int(ttl_seconds), 1)
         with self._lock:
@@ -85,7 +87,7 @@ class InMemoryConsumedTokenStore:
 
 
 class RedisConsumedTokenStore:
-    """Redis-backed atomic consume using SET NX EX (H-NEW3).
+    """Redis-backed atomic consume using SET NX EX.
 
     ``SET key 1 NX EX ttl`` is atomic: returns True only on the first call
     for a given key; subsequent calls within the TTL return False.
@@ -119,6 +121,7 @@ class RedisConsumedTokenStore:
             return None
 
     def is_consumed_sync(self, key: str) -> bool:
+        """Check Redis for ``key``; outside production an outage falls back to memory."""
         from app.core.config import Environment, settings
 
         client = self._get_sync_client()
@@ -141,6 +144,7 @@ class RedisConsumedTokenStore:
         return self._fallback_memory.is_consumed_sync(key)
 
     def try_consume_sync(self, key: str, ttl_seconds: int) -> bool:
+        """Consume ``key`` with ``SET NX EX``; production fails closed when Redis is down."""
         from app.core.config import Environment, settings
 
         client = self._get_sync_client()
@@ -168,6 +172,7 @@ class RedisConsumedTokenStore:
         return self._fallback_memory.try_consume_sync(key, ttl_seconds)
 
     async def is_consumed(self, key: str) -> bool:
+        """Async variant of :meth:`is_consumed_sync` on the async Redis client."""
         from app.core.config import Environment, settings
 
         try:
@@ -183,6 +188,7 @@ class RedisConsumedTokenStore:
             return await self._fallback_memory.is_consumed(key)
 
     async def try_consume(self, key: str, ttl_seconds: int) -> bool:
+        """Async variant of :meth:`try_consume_sync` on the async Redis client."""
         from app.core.config import Environment, settings
 
         try:

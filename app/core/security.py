@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _restrict_windows_key_acl(key_path: Path) -> None:
-    """Restrict a Fernet key file to the current user on Windows (M6)."""
+    """Restrict a Fernet key file to the current user on Windows."""
     user = (os.environ.get("USERNAME") or "").strip()
     if not user:
         logger.warning(

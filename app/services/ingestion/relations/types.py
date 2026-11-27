@@ -12,6 +12,8 @@ RELATIONS_EXTRACTOR_VERSION = "relations-v1"
 
 
 class RelationType(StrEnum):
+    """Relation kinds stored between a document and its targets."""
+
     # document → document (rules)
     REPLACES = "replaces"
     AMENDS = "amends"
@@ -51,6 +53,8 @@ PERSONNEL_TYPES = frozenset(
 
 
 class TargetKind(StrEnum):
+    """What a relation points at: another document, a person or an organisation."""
+
     DOCUMENT = "document"
     PERSON = "person"
     ORGANIZATION = "organization"

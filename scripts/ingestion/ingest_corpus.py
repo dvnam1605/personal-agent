@@ -85,6 +85,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 async def main() -> None:
+    """Ingest every supported file under --root, then print a summary and the database totals."""
     args = _parse_args()
     data_dir = args.root if args.root.is_absolute() else REPO_ROOT / args.root
     if not data_dir.exists():
@@ -199,7 +200,7 @@ async def main() -> None:
                     f"[{idx:02d}/{len(md_files)}] FAILED: {file_path.name} | Reason: {obs.failure_reason}",
                     flush=True,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one failed file must not abort the batch
             fail_count += 1
             logger.exception("Error ingesting %s: %s", file_path.name, exc)
 

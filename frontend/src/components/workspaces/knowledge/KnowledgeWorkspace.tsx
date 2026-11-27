@@ -13,6 +13,7 @@ interface KnowledgeWorkspaceProps {
   onSelectCitation: (citation: RAGCitation) => void
 }
 
+/** Internal knowledge workspace: browse the document catalogue or ask a question, streamed as an answer with citations from the RAG corpus. */
 export const KnowledgeWorkspace: React.FC<KnowledgeWorkspaceProps> = ({ onSelectCitation }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [citations, setCitations] = useState<RAGCitation[]>([])

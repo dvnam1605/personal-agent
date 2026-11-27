@@ -63,6 +63,7 @@ class RuleFields:
     review_notes: list[str] = field(default_factory=list)
 
     def set(self, name: str, value: object, source: str = "rule") -> None:
+        """Set ``name`` once from ``source``; later, weaker sources never overwrite it."""
         if value in (None, "", [], {}):
             return
         if getattr(self, name, None) in (None, "", []):
@@ -212,6 +213,7 @@ _DOC_NUMBER = re.compile(
 
 
 def extract_doc_number(header_text: str) -> str | None:
+    """Document number from a "Số: …" line, else the first number-like code."""
     m = re.search(r"(?i)\bSố\s*[:.]?\s*(\d{1,5}(?:\s*[/\-–]\s*[A-Za-zĐđ0-9]+)+)", header_text)
     raw = m.group(1) if m else None
     if raw is None:

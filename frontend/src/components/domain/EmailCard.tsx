@@ -8,6 +8,7 @@ interface EmailCardProps {
   onSelectMessage?: (msg: GmailMessage) => void
 }
 
+/** Card listing Gmail messages (sender, subject, snippet); clicking one opens the email drawer. */
 export const EmailCard: React.FC<EmailCardProps> = ({ messages, onSelectMessage }) => {
   if (!messages || messages.length === 0) {
     return (

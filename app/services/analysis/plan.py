@@ -22,12 +22,16 @@ AggregateFn = Literal["sum", "avg", "count", "min", "max"]
 
 
 class Filter(BaseModel):
+    """Keep only rows whose ``column`` compares to ``value`` under ``op``."""
+
     column: str
     op: FilterOp
     value: str | float
 
 
 class Aggregate(BaseModel):
+    """One aggregate function applied to a column (or to rows, for ``count(*)``)."""
+
     fn: AggregateFn
     column: str = Field(default="*", description="Column to aggregate; '*' for count of rows")
 
@@ -60,7 +64,11 @@ _NUMBER_CLEAN = re.compile(r"[^\d,.\-]")
 
 
 def to_number(value: Any) -> float | None:
-    """Parse 1234, "1.234.567", "1,5", "12%", "3.000 đ"; ``None`` when not a number."""
+    """Parse 1234, "1.234.567", "1,5", "1,234.56", "12%", "3.000 đ"; ``None`` when not a number.
+
+    Whichever separator comes last is the decimal mark when both appear; a lone separator
+    followed by exactly three digits is read as a thousands separator (Vietnamese style).
+    """
     if isinstance(value, bool):
         return None
     if isinstance(value, int | float):
@@ -70,13 +78,12 @@ def to_number(value: Any) -> float | None:
         return None
     if text.count(".") > 1 or ("." in text and "," in text and text.rfind(".") < text.rfind(",")):
         text = text.replace(".", "").replace(",", ".")
-    elif text.count(",") > 1:
+    elif text.count(",") > 1 or ("." in text and "," in text):
         text = text.replace(",", "")
     elif "," in text and "." not in text:
         integer, _, fraction = text.partition(",")
         text = f"{integer}{fraction}" if len(fraction) == 3 else f"{integer}.{fraction}"
     elif "." in text and "," not in text:
-        # Vietnamese sheets write thousands as "3.000"; a decimal point has 1–2 or 4+ digits.
         integer, _, fraction = text.partition(".")
         text = f"{integer}{fraction}" if len(fraction) == 3 else text
     try:
@@ -138,7 +145,11 @@ def _aggregate(fn: str, column: str, rows: list[dict[str, Any]]) -> float | int 
 def run_plan(
     plan: QueryPlan, columns: list[str], rows: list[dict[str, Any]]
 ) -> tuple[list[str], list[list[Any]]]:
-    """Evaluate ``plan`` over ``rows``; returns the result header and rows."""
+    """Evaluate ``plan`` over ``rows``; returns the result header and rows.
+
+    Sorting puts rows whose sort cell is not a number last in both directions, so a blank
+    or text cell never outranks the real figures.
+    """
     filters = [
         item.model_copy(update={"column": resolve_column(item.column, columns)})
         for item in plan.filters
@@ -178,9 +189,9 @@ def run_plan(
             else header.index(resolve_column(plan.sort_by, header))
         )
 
-        def key(item: list[Any]) -> tuple[int, Any]:
-            number = to_number(item[index])
-            return (0, number) if number is not None else (1, str(item[index] or ""))
-
-        table.sort(key=key, reverse=plan.descending)
+        numeric = [item for item in table if to_number(item[index]) is not None]
+        textual = [item for item in table if to_number(item[index]) is None]
+        numeric.sort(key=lambda item: to_number(item[index]) or 0.0, reverse=plan.descending)
+        textual.sort(key=lambda item: str(item[index] or ""), reverse=plan.descending)
+        table = [*numeric, *textual]
     return header, table[: plan.limit]

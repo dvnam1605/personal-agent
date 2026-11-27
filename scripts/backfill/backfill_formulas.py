@@ -27,6 +27,7 @@ from app.services.ingestion.enrichment.formulas import rebuild_in_text  # noqa: 
 
 
 async def main() -> None:
+    """Rewrite stored equations of active documents as LaTeX, or only print them with --dry-run."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="print, do not write")
     args = parser.parse_args()

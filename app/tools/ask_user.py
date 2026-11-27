@@ -1,4 +1,4 @@
-"""Tool definition and helper for asking structured user questions (spec P18-02A).
+"""Tool definition and helper for asking structured user questions .
 
 Enables the model to request user feedback on draft plans or ask structured multiple-choice
 questions rather than relying exclusively on open-ended conversational output.
@@ -100,7 +100,7 @@ def ask_user_tool_definitions() -> list[ToolDefinition]:
 
 
 async def execute_ask_user(tool_input: ToolInput, context: ToolContext) -> ToolResult:
-    """Execute ask_user tool by triggering an interrupt or returning structured question payload (spec P18-02A, M2)."""
+    """Execute ask_user tool by triggering an interrupt or returning structured question payload."""
     import time
 
     from app.harness.interrupts import interrupt_for_question

@@ -44,6 +44,8 @@ ORIENTATION_MIN_SCORE = 0.6
 
 @dataclass
 class RenderedPage:
+    """One rendered page image, plus a high-resolution copy when one was made."""
+
     index: int
     png: Path
     hi_png: Path | None = None
@@ -51,6 +53,8 @@ class RenderedPage:
 
 @dataclass
 class PreparedPage:
+    """A page after layout and orientation: its blocks and the crops to read."""
+
     index: int
     blocks: list[Block] = field(default_factory=list)
     crops: list[tuple[Block, Image.Image]] = field(default_factory=list)
@@ -59,6 +63,8 @@ class PreparedPage:
 
 @dataclass
 class PageText:
+    """The Markdown read from one page, with any warnings."""
+
     index: int
     markdown: str
     warnings: list[str] = field(default_factory=list)
@@ -133,6 +139,7 @@ class PaddleModels:
         self._line_orientation: Any = None
 
     def layout(self, png: Path) -> list[Block]:
+        """Detect layout blocks on a page image, loading the model on first use."""
         if self._layout is None:
             from paddleocr import LayoutDetection
 
@@ -141,6 +148,7 @@ class PaddleModels:
         return blocks_from_layout(result.json)
 
     def page_orientation(self, png: Path) -> tuple[int, float]:
+        """Classify a page image's rotation and the confidence, loading the model on first use."""
         if self._orientation is None:
             from paddleocr import DocImgOrientationClassification
 
@@ -187,6 +195,7 @@ class VlPipeline:
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="paddle")
 
     def run(self, pdf_path: Path) -> list[PageText]:
+        """Render, prepare and read every page of a PDF; pending work is cancelled on failure."""
         with tempfile.TemporaryDirectory(prefix="ocr_vl_") as tmp:
             rendered = render_pages(pdf_path, Path(tmp))
             futures = [self._worker.submit(self._prepare, page) for page in rendered]

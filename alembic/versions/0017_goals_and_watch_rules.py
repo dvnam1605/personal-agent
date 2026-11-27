@@ -32,6 +32,7 @@ def _timestamps() -> list[sa.Column]:
 
 
 def upgrade() -> None:
+    """Create goals (with their dated steps) and watch_rules."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = postgresql.JSONB() if is_pg else sa.JSON()
     owner = sa.ForeignKey("users.id", ondelete="CASCADE")
@@ -66,6 +67,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the goal and watch-rule tables."""
     op.drop_index("ix_watch_rules_user_active", table_name="watch_rules")
     op.drop_table("watch_rules")
     op.drop_index("ix_goals_user_status", table_name="goals")

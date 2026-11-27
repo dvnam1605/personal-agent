@@ -1,4 +1,4 @@
-"""Child-level sparse retrieval over PostgreSQL FTS (spec P10-04).
+"""Child-level sparse retrieval over PostgreSQL FTS.
 
 Uses the generated ``search_vector`` column (``vietnamese_simple``
 configuration with unaccent mapping, created by migration 0007) and
@@ -47,6 +47,7 @@ class SparseRetrievalService:
         self._provider: RowProvider = provider or SqlAlchemyRowProvider()
 
     async def retrieve(self, query: RetrievalQuery) -> list[RetrievedChunk]:
+        """CHILD chunks matching the reformulated FTS query, ranked by ``ts_rank_cd``."""
         filters = CANDIDATE_FILTERS_TEMPLATE.format(
             level=SEARCHABLE_LEVEL,
             owner_scope=owner_scope_sql(query.requester_id),
@@ -54,8 +55,9 @@ class SparseRetrievalService:
                 query.document_ids if query.mode is not RetrievalMode.CORPUS_SEARCH else []
             ),
         )
-        await get_entity_catalog().ensure_loaded()
-        _, fts_query = await areformulate_query(query.search_query)
+        catalog = get_entity_catalog(query.requester_id)
+        await catalog.ensure_loaded()
+        _, fts_query = await areformulate_query(query.search_query, catalog=catalog)
         sql = _SPARSE_SQL_TEMPLATE.format(
             tsquery=fts_query_expression(fts_query),
             filters=filters,

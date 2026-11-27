@@ -157,6 +157,7 @@ def _last_sentence(text: str) -> str:
 
 
 def refs_in(text: str) -> ImageRefs:
+    """Image references in ``text`` as (alt, key, sentence before the image), in order."""
     refs: ImageRefs = []
     last = 0
     for m in IMAGE_REF.finditer(text):

@@ -23,6 +23,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create document_relations with its lookup indexes."""
     is_pg = op.get_bind().dialect.name == "postgresql"
     json_type = postgresql.JSONB() if is_pg else sa.JSON()
     op.create_table(
@@ -64,6 +65,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop document_relations."""
     op.drop_index("ix_document_relations_type_target", table_name="document_relations")
     op.drop_index("ix_document_relations_type_number", table_name="document_relations")
     op.drop_index("ix_document_relations_document", table_name="document_relations")

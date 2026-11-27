@@ -51,6 +51,15 @@ interface MessageItemProps {
   onRetry?: (query: string) => void
 }
 
+/**
+ * One conversation turn: the user's message and the assistant's reply with everything attached to
+ * it — Markdown answer, error card with retry, domain cards (calendar, mail, meeting dossier,
+ * generated document), citations, a clarification card and the approval card.
+ *
+ * Clarification answers are turned back into a full request: a paused server request takes the
+ * answer as is, while calendar and email follow-ups are prefixed with the original intent so the
+ * router sees a complete command.
+ */
 export const MessageItem: React.FC<MessageItemProps> = ({
   turn,
   onSelectCitation,
@@ -81,7 +90,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   const domain = getDomainLabel()
 
-  // Format error gracefully
   const getFriendlyError = (rawError: string) => {
     if (rawError.includes('502') || rawError.includes('Bad Gateway') || rawError.includes('fetch')) {
       return 'Không thể kết nối với máy chủ. Vui lòng kiểm tra dịch vụ hoặc thử lại sau.'
@@ -92,7 +100,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     return rawError
   }
 
-  // Determine if clarification belongs to calendar creation or email drafting
   const isCalendarCreation =
     result?.route?.target_agent === 'CalendarAgent' ||
     domains.includes('calendar') ||
@@ -121,7 +128,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const trimmed = answer.trim()
     if (!trimmed) return
 
-    // If user explicitly asks to cancel
     if (trimmed.toLowerCase() === 'huỷ yêu cầu' || trimmed.toLowerCase() === 'hủy yêu cầu') {
       onClarifyAnswer('Huỷ yêu cầu')
       return
@@ -134,14 +140,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     }
 
     if (isCalendarCreation) {
-      // If user typed a complete command like "Tạo cuộc họp ...", send directly
       const hasCreationVerb = /\b(tạo|đặt|book|create|schedule|lên lịch|xếp lịch)\b/i.test(trimmed)
       if (hasCreationVerb) {
         onClarifyAnswer(trimmed)
         return
       }
 
-      // Preserve the user's initial creation intent
       const baseQuery = (turn.userQuery || '').replace(/[.,;:!?]+$/, '').trim()
       const baseHasCreationVerb = /\b(tạo|đặt|book|create|schedule|lên lịch|xếp lịch)\b/i.test(baseQuery)
       const queryPrefix = baseHasCreationVerb ? baseQuery : `Tạo cuộc họp ${baseQuery}`
@@ -188,7 +192,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   return (
     <div className="chat-turn animate-slide-in">
-      {/* 1. User Message */}
       <div className="user-message-row">
         <div className="user-message-bubble">
           <p className="user-message-text">{turn.userQuery}</p>
@@ -199,7 +202,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         </div>
       </div>
 
-      {/* 2. Assistant Response */}
       <div className="assistant-message-row">
         <div className="assistant-avatar">
           <NammLogo size={16} />
@@ -225,12 +227,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             )}
           </div>
 
-          {/* Assistant Text Message Body */}
           {result && (
             <MarkdownContent content={result.message} className="assistant-body-markdown" />
           )}
 
-          {/* Error Message with single clean card & Retry button */}
           {turn.error && (
             <div className="assistant-error-card">
               <div className="assistant-error-icon">
@@ -253,7 +253,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          {/* Blocked message with 1-click Google connect */}
           {result?.status === 'blocked' && (
             <div className="assistant-blocked-box">
               <p>Google Workspace cần được cấp quyền bổ sung để thực hiện yêu cầu này.</p>
@@ -271,13 +270,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          {/* Domain Specific Cards */}
-          {/* Calendar Events */}
           {data.events && Array.isArray(data.events) && (
             <CalendarCard events={data.events as CalendarEvent[]} window={data.window} />
           )}
 
-          {/* Gmail Messages */}
           {data.messages && Array.isArray(data.messages) && (
             <EmailCard
               messages={data.messages as GmailMessage[]}
@@ -285,7 +281,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* Meeting Prep Dossier */}
           {data.meeting && (
             <MeetingDossierCard
               meeting={data.meeting}
@@ -295,7 +290,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* Generated document (.docx) or table (.xlsx) */}
           {data.generated_document?.has_docx && (
             <button
               type="button"
@@ -320,7 +314,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </button>
           )}
 
-          {/* RAG Citations */}
           {data.citations && Array.isArray(data.citations) && data.citations.length > 0 && (
             <CitationCard
               citations={data.citations as RAGCitation[]}
@@ -329,7 +322,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* Question Plane Clarification Card */}
           {result?.status === 'clarification_needed' && (
             <QuestionPlaneCard
               questionText={result.message}
@@ -338,7 +330,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* HITL Approval Card */}
           {effectiveApproval && (
             <ApprovalCard
               approval={effectiveApproval}

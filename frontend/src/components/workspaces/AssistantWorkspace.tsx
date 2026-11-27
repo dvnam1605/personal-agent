@@ -17,6 +17,8 @@ import './AssistantWorkspace.css'
 interface AssistantWorkspaceProps {
   turns: ChatTurn[]
   isLoading: boolean
+  isStreaming: boolean
+  onStopStreaming?: () => void
   onSendMessage: (query: string) => void
   onSelectCitation: (citation: RAGCitation) => void
   onSelectEmailMessage?: (msg: GmailMessage) => void
@@ -26,9 +28,15 @@ interface AssistantWorkspaceProps {
   onNavigateWorkspace?: (ws: 'calendar' | 'email' | 'meetings' | 'knowledge') => void
 }
 
+/**
+ * The chat workspace: a welcome view with quick-start cards before the first message, then the
+ * conversation feed, with the composer docked below. The composer stays locked while a reply streams.
+ */
 export const AssistantWorkspace: React.FC<AssistantWorkspaceProps> = ({
   turns,
   isLoading,
+  isStreaming,
+  onStopStreaming,
   onSendMessage,
   onSelectCitation,
   onSelectEmailMessage,
@@ -71,12 +79,10 @@ export const AssistantWorkspace: React.FC<AssistantWorkspaceProps> = ({
 
   return (
     <div className="executive-cockpit-layout">
-      {/* Main Conversation Feed / Cockpit Stage */}
       <div className="cockpit-main-stage">
         <div className="assistant-feed-container">
           {!isConversationActive ? (
             <div className="cockpit-welcome-view animate-fade-in">
-              {/* Date & Title Banner */}
               <div className="cockpit-hero-banner">
                 <div className="hero-status-pill">
                   <NammLogo size={14} />
@@ -88,7 +94,6 @@ export const AssistantWorkspace: React.FC<AssistantWorkspaceProps> = ({
                 </p>
               </div>
 
-              {/* 4 Rich Capability Cards */}
               <div className="cockpit-cards-grid">
                 {quickCapabilities.map((cap) => (
                   <div
@@ -127,9 +132,8 @@ export const AssistantWorkspace: React.FC<AssistantWorkspaceProps> = ({
           )}
         </div>
 
-        {/* Composer */}
         <div className="assistant-composer-wrapper">
-          <Composer onSendMessage={onSendMessage} isLoading={isLoading} />
+          <Composer onSendMessage={onSendMessage} isBusy={isStreaming} onStop={onStopStreaming} />
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-"""Dynamic skill substrate (P14)."""
+"""Dynamic skill substrate: definitions, registry, matching and activation."""
 
 from app.services.skills.execution import (
     SkillActivation,

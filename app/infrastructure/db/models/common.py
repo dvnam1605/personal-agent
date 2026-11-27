@@ -12,13 +12,17 @@ _JSONB = JSON().with_variant(JSONB(), "postgresql")
 
 
 def _sanitize_approval_arguments(value: Any) -> dict[str, Any]:
-    """Bound approval JSON while keeping recipient emails executable."""
+    """Bound approval JSON while keeping recipient emails executable.
+
+    The limits match what an approval accepts (app.services.approvals), so an approved
+    email body is stored whole instead of being cut at the database layer.
+    """
     sanitized = sanitize_payload(
         value if isinstance(value, dict) else {},
-        max_string_len=1000,
+        max_string_len=10_000,
         max_depth=8,
         max_items=100,
-        max_payload_bytes=32_768,
+        max_payload_bytes=65_536,
         mask_emails=False,
     )
     return sanitized if isinstance(sanitized, dict) else {}

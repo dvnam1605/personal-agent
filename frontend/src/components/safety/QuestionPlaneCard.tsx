@@ -10,6 +10,7 @@ interface QuestionPlaneCardProps {
   disabled?: boolean
 }
 
+/** Clarification card: when the assistant needs more information it shows the question with suggested answers and a free-text reply. */
 export const QuestionPlaneCard: React.FC<QuestionPlaneCardProps> = ({
   questionText,
   suggestedChoices = ['Hôm nay', 'Ngày mai', 'Tuần này', 'Huỷ yêu cầu'],

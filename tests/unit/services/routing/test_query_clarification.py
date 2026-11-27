@@ -14,8 +14,8 @@ from app.infrastructure.db.models import Conversation, User
 from app.services.critic import Critique, EmailDraft
 from app.services.routing.query import QueryOrchestrator
 from app.services.routing.query import specialists as specialists_module
-from app.services.routing.query.clarification import PENDING_KEY
-from app.services.routing.query.drafting import DraftPlan, prepare_draft, review_note
+from app.services.routing.query.mail.clarification import PENDING_KEY
+from app.services.routing.query.mail.drafting import DraftPlan, prepare_draft, review_note
 from tests.unit.services.routing._critics import AcceptingCritic
 
 DRAFT_QUERY = "Soạn email xin nghỉ phép ngày mai"

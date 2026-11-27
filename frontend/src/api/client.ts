@@ -1,11 +1,14 @@
 /**
- * Typed API Client for Personal AI Assistant FastAPI Backend.
+ * Typed client for the assistant's FastAPI backend.
+ *
+ * `ApiCore` (core.ts) owns the session and the JSON request helper; sse.ts reads the streamed
+ * endpoints. This class adds one method per backend operation, grouped by domain, and the single
+ * `apiClient` instance is what the rest of the app imports.
  */
 
 import type {
   AnswerQuestionRequestBody,
   AnswerQuestionResponse,
-  AppErrorEnvelope,
   ApprovalRequestResponse,
   ApproveRequestBody,
   ApproveResponse,
@@ -37,130 +40,12 @@ import type {
   UserProfile,
   UserQuestionAnswer,
 } from '../types/api'
+import { ApiCore } from './core'
+import { streamNotifications, streamQuery, type QueryStreamCallbacks } from './sse'
 
-class ApiClient {
-  private userId: string = 'default-user'
-  private apiKey: string = ''
-  private displayName: string = 'namm'
-  private token: string | null = null
+export type { QueryStreamCallbacks } from './sse'
 
-  constructor() {
-    // Read optional overrides and auth token from localStorage
-    this.token = localStorage.getItem('personal_ai_auth_token')
-    const storedUser = localStorage.getItem('personal_ai_user_id')
-    const storedKey = localStorage.getItem('personal_ai_api_key')
-    const storedDisplayName = localStorage.getItem('personal_ai_display_name')
-
-    if (storedDisplayName) {
-      this.displayName = storedDisplayName
-    } else if (storedUser && storedUser !== 'default-user') {
-      this.displayName = storedUser
-    }
-
-    if (storedKey) {
-      this.apiKey = storedKey
-      if (storedUser) this.userId = storedUser
-    } else {
-      this.userId = storedUser || 'default-user'
-    }
-  }
-
-  setToken(token: string | null) {
-    this.token = token
-    if (token) {
-      localStorage.setItem('personal_ai_auth_token', token)
-    } else {
-      localStorage.removeItem('personal_ai_auth_token')
-    }
-  }
-
-  getToken(): string | null {
-    return this.token
-  }
-
-  setDisplayName(name: string) {
-    this.displayName = name
-    localStorage.setItem('personal_ai_display_name', name)
-  }
-
-  getDisplayName(): string {
-    return this.displayName || 'namm'
-  }
-
-  setUserId(id: string) {
-    this.userId = id
-    localStorage.setItem('personal_ai_user_id', id)
-  }
-
-  getUserId(): string {
-    return this.userId
-  }
-
-  setApiKey(key: string) {
-    this.apiKey = key
-    localStorage.setItem('personal_ai_api_key', key)
-  }
-
-  getApiKey(): string {
-    return this.apiKey
-  }
-
-  private getHeaders(): HeadersInit {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    } else {
-      headers['X-User-ID'] = this.userId || 'default-user'
-    }
-    if (this.apiKey) {
-      headers['X-API-Key'] = this.apiKey
-    }
-    return headers
-  }
-
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const url = path
-    const mergedOptions: RequestInit = {
-      ...options,
-      headers: {
-        ...this.getHeaders(),
-        ...(options.headers || {}),
-      },
-    }
-
-    try {
-      const response = await fetch(url, mergedOptions)
-
-      if (!response.ok) {
-        let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`
-        try {
-          const errorData: AppErrorEnvelope | { detail?: string } = await response.json()
-          if ('error' in errorData && errorData.error?.message) {
-            errorMessage = errorData.error.message
-          } else if ('detail' in errorData && typeof errorData.detail === 'string') {
-            errorMessage = errorData.detail
-          }
-        } catch {
-          // If response is not JSON, retain default error message
-        }
-
-        const error = new Error(errorMessage) as Error & { status?: number }
-        error.status = response.status
-        throw error
-      }
-
-      if (response.status === 204) return undefined as T
-      return (await response.json()) as T
-    } catch (err: any) {
-      if (err.name === 'TypeError' && err.message?.includes('fetch')) {
-        throw new Error('Không thể kết nối đến máy chủ backend (127.0.0.1:8000). Vui lòng kiểm tra dịch vụ.')
-      }
-      throw err
-    }
-  }
-
+class ApiClient extends ApiCore {
   /* 1. Natural Language Query */
   async submitQuery(query: string): Promise<QueryResult> {
     const payload: QueryRequest = { query }
@@ -173,115 +58,15 @@ class ApiClient {
   /* 1b. Natural Language Query with SSE Streaming */
   async submitQueryStream(
     query: string,
-    callbacks: {
-      onMetadata?: (data: { run_id: string; status: string; route: any }) => void
-      onToken?: (delta: string) => void
-      // `answer`: the final text with the cited images placed, replacing the streamed text.
-      onCitations?: (data: {
-        citations?: any[]
-        sufficiency?: string
-        data?: any
-        approval_id?: string
-        answer?: string
-      }) => void
-      onError?: (err: Error) => void
-      onDone?: (data: {
-        run_id: string
-        status: string
-        ttft?: number
-        token_count?: number
-        duration?: number
-        tok_per_sec?: number
-      }) => void
-    },
-    conversationId?: string
+    callbacks: QueryStreamCallbacks,
+    conversationId?: string,
+    signal?: AbortSignal
   ): Promise<void> {
     const payload: QueryRequest & { conversation_id?: string } = {
       query,
       ...(conversationId ? { conversation_id: conversationId } : {}),
     }
-    const url = '/query/stream'
-    const headers = {
-      ...this.getHeaders(),
-      Accept: 'text/event-stream',
-    }
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`
-        try {
-          const errorData = await response.json()
-          if (errorData?.error?.message) {
-            errorMessage = errorData.error.message
-          }
-        } catch {
-          // keep default
-        }
-        throw new Error(errorMessage)
-      }
-
-      if (!response.body) {
-        throw new Error('ReadableStream not supported by response.')
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder('utf-8')
-      let buffer = ''
-      let currentEvent = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed) {
-            currentEvent = ''
-            continue
-          }
-          if (trimmed.startsWith('event:')) {
-            currentEvent = trimmed.slice(6).trim()
-          } else if (trimmed.startsWith('data:')) {
-            const dataStr = trimmed.slice(5).trim()
-            try {
-              const data = JSON.parse(dataStr)
-              if (currentEvent === 'metadata' && callbacks.onMetadata) {
-                callbacks.onMetadata(data)
-              } else if (currentEvent === 'token' && callbacks.onToken) {
-                if (data.delta) callbacks.onToken(data.delta)
-              } else if (currentEvent === 'citations' && callbacks.onCitations) {
-                callbacks.onCitations(data)
-              } else if (currentEvent === 'document' && callbacks.onCitations) {
-                // Generated-document status rides the same merge path as citations.
-                callbacks.onCitations({ data: { generated_document: data } })
-              } else if (currentEvent === 'done' && callbacks.onDone) {
-                callbacks.onDone(data)
-              } else if (currentEvent === 'error' && callbacks.onError) {
-                callbacks.onError(new Error(data.message || 'Lỗi streaming'))
-              }
-            } catch {
-              // ignore malformed JSON chunk
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      if (callbacks.onError) {
-        callbacks.onError(err)
-      } else {
-        throw err
-      }
-    }
+    return streamQuery(this.getHeaders(), payload, callbacks, signal)
   }
 
   /* 1c. Generated documents */
@@ -329,13 +114,7 @@ class ApiClient {
 
   /* .docx download needs the auth header, so no plain link */
   async downloadGeneratedDocument(id: string, title?: string, ext: string = 'docx'): Promise<void> {
-    const response = await fetch(`/documents/${encodeURIComponent(id)}/download`, {
-      headers: this.getHeaders(),
-    })
-    if (!response.ok) {
-      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
-    }
-    const blob = await response.blob()
+    const blob = await this.fetchBlob(`/documents/${encodeURIComponent(id)}/download`)
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
@@ -348,13 +127,7 @@ class ApiClient {
 
   /* Document images need the auth header too: fetched as an object URL (caller revokes it) */
   async fetchDocumentImage(key: string): Promise<string> {
-    const response = await fetch(`/documents/images/${encodeURIComponent(key)}`, {
-      headers: this.getHeaders(),
-    })
-    if (!response.ok) {
-      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
-    }
-    return URL.createObjectURL(await response.blob())
+    return URL.createObjectURL(await this.fetchBlob(`/documents/images/${encodeURIComponent(key)}`))
   }
 
   /* 2. Approvals (Human-in-the-Loop) */
@@ -500,41 +273,7 @@ class ApiClient {
     onNotification: (id: string) => void,
     signal: AbortSignal
   ): Promise<boolean> {
-    const response = await fetch('/notifications/stream', {
-      headers: { ...this.getHeaders(), Accept: 'text/event-stream' },
-      signal,
-    })
-    if (!response.ok || !response.body) {
-      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`)
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let currentEvent = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) return true
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          currentEvent = line.slice(6).trim()
-        } else if (line.startsWith('data:')) {
-          if (currentEvent === 'unavailable') return false
-          if (currentEvent === 'notification') {
-            try {
-              const payload = JSON.parse(line.slice(5).trim()) as { id?: string }
-              if (payload.id) onNotification(payload.id)
-            } catch {
-              // Ignore a malformed frame; the next poll catches up.
-            }
-          }
-        } else if (line === '') {
-          currentEvent = ''
-        }
-      }
-    }
+    return streamNotifications(this.getHeaders(), onNotification, signal)
   }
 
   /* 5. Health & Diagnostics */
@@ -580,7 +319,7 @@ class ApiClient {
   }
 
   logout() {
-    this.setToken(null)
+    this.clearSession()
   }
 
   /* 7. Conversations & Messages Persistence */

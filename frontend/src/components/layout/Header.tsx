@@ -34,6 +34,7 @@ interface HeaderProps {
   onAskAssistant?: (prompt: string) => void
 }
 
+/** Top bar: sidebar toggle, workspace navigation, Google connection status, notifications, theme switch and the account menu. */
 export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
   activeWorkspace,

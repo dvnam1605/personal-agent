@@ -1,16 +1,16 @@
 """Deterministic token estimation, normalization and sentence utilities.
 
-Pure functions only (spec P9C objective). The estimator is character-based,
+Pure functions only. The estimator is character-based,
 zero-dependency, and calibrated against the real XLM-RoBERTa tokenizer shipped
 with ``AITeamVN/Vietnamese_Embedding`` (benchmark 2026-08-24, recorded in the
-P09C review pack): plain Vietnamese prose lands at ~0.95-1.00x of chars/4,
+review pack): plain Vietnamese prose lands at ~0.95-1.00x of chars/4,
 English prose ~1.08x, and table/markdown structure up to ~1.75x because pipe
 and heading glyphs fragment into many word-pieces. The estimator therefore
 prices structural glyphs separately so construction budgets stay conservative
 exactly where real token counts explode.
 
 Benchmark status: re-run against the production embedding tokenizer
-2026-08-24 (P09C review M1) — the coefficients above ARE the calibrated
+2026-08-24 — the coefficients above ARE the calibrated
 result. Re-benchmark only if the embedding snapshot is replaced, and pair
 that with a chunker version bump so affected documents reindex.
 """
@@ -101,7 +101,7 @@ def truncate_at_token_boundary(text: str, max_tokens: int) -> tuple[str, int]:
 
     Returns ``(prefix, consumed_chars)`` where ``consumed_chars`` covers the
     prefix BEFORE trailing-whitespace stripping so callers can slice the
-    remainder losslessly (review L3).
+    remainder losslessly.
     """
     if max_tokens < 1:
         raise ValueError("max_tokens must be >= 1")

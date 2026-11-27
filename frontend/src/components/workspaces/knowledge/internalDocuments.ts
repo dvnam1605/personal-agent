@@ -12,10 +12,11 @@ export interface InternalDoc {
 }
 
 /**
- * Danh mục văn bản bám sát kho RAG thật: 37 quyết định/chỉ thị đã số hóa trong
- * `data/QuyetDinh` (số hiệu, ngày ký, số trang OCR đều lấy từ file nguồn).
- * Mọi thẻ đều có văn bản đối ứng trong DB nên nút "Tra cứu"/"Tóm tắt" luôn
- * truy xuất được evidence thay vì trả lời "không có văn bản".
+ * Catalogue of the internal documents shown in the knowledge workspace, matching the real RAG
+ * corpus: the 37 digitised decisions and directives in `data/QuyetDinh` (document number, signing
+ * date and OCR page count all come from the source files). Every card has a counterpart in the
+ * database, so its search and summary buttons always retrieve evidence. The list is hard-coded and
+ * has to be kept in sync with the corpus by hand.
  */
 export const INTERNAL_DOCUMENTS: InternalDoc[] = [
   // ---- Quy chế & Chỉ đạo (policy) ----

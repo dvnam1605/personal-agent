@@ -341,7 +341,11 @@ def _apply_tool_restriction(
     is_read_only: bool = False,
     prior_restricted: Iterable[ToolDefinition] | None = None,
 ) -> ScopedToolView:
-    """Evaluate ToolRestriction rules against tools and partition into visible vs restricted."""
+    """Evaluate ToolRestriction rules against tools and partition into visible vs restricted.
+
+    A tool stays visible when it matches at least one allow pattern (if an allow list
+    is given) and no deny pattern (if a deny list is given).
+    """
     visible: list[ToolDefinition] = []
     restricted: dict[str, ToolDefinition] = {
         t.name: t.model_copy(deep=True) for t in (prior_restricted or ())
@@ -349,7 +353,6 @@ def _apply_tool_restriction(
 
     for tool in tools:
         is_allowed = True
-        # If allow list is provided, tool must match at least one allow pattern
         if restriction.allow is not None:
             matches_allow = any(
                 capability_matches(pattern, candidate)
@@ -359,7 +362,6 @@ def _apply_tool_restriction(
             if not matches_allow:
                 is_allowed = False
 
-        # If deny list is provided, tool must not match any deny pattern
         if is_allowed and restriction.deny is not None:
             matches_deny = any(
                 capability_matches(pattern, candidate)

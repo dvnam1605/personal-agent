@@ -4,7 +4,8 @@ FastTriage still chooses the route. Execution here uses live Calendar / Gmail /
 retrieval services instead of the unwired default harness dispatcher.
 Mutations never hit Google directly: they become approval requests.
 The class is the last link of a mixin chain (see base.py): follow-ups,
-knowledge, specialists, streaming.
+knowledge, commands, specialists, streaming. Chat commands and routed requests run
+through the same helpers as the SSE path (``_handle_command``, ``_dispatch_routed``).
 """
 
 from __future__ import annotations
@@ -13,12 +14,8 @@ import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.declarations import (
-    CALENDAR_AGENT_NAME,
-    COMMUNICATION_AGENT_NAME,
-    KNOWLEDGE_RESEARCH_AGENT_NAME,
-)
-from app.domain.enums import RouteType, RunStatus, is_supervisor_route, is_workflow_route
+from app.agents.declarations import KNOWLEDGE_RESEARCH_AGENT_NAME
+from app.domain.enums import RouteType, RunStatus
 from app.domain.errors import (
     AuthenticationError,
     ExternalServiceError,
@@ -28,17 +25,17 @@ from app.domain.errors import (
 from app.domain.models.routing.route import RouteDecision
 from app.services.platform.run_persistence import RunPersistenceService
 
-from .email_synthesis import (
-    compose_email_draft,
-    fallback_summarize_emails,
-    summarize_emails,
-)
 from .followup import (
     FOLLOWUP_PATTERNS,
     answer_anchor,
     condense_query_with_history,
     is_followup_query,
     standalone_followup,
+)
+from .mail.email_synthesis import (
+    compose_email_draft,
+    fallback_summarize_emails,
+    summarize_emails,
 )
 from .models import (
     GOOGLE_CONNECT_HINT,
@@ -47,7 +44,7 @@ from .models import (
     route_info,
 )
 from .parsing import (
-    _blocked_message,
+    blocked_message,
     build_gmail_search_query,
     calendar_mutation_kind,
     infer_calendar_window,
@@ -58,6 +55,7 @@ from .parsing import (
     parse_event_times,
     retrieval_requester_id,
 )
+from .specialists import fixed_reply
 from .streaming import StreamMixin
 
 
@@ -84,7 +82,7 @@ class QueryOrchestrator(StreamMixin):
             query, None if resumed else history
         )
         await self._set_followup_scope(session, conversation_id, user_id, anchor)
-        await self._ensure_user(session, user_id)
+        await self.ensure_user(session, user_id)
         run_id = self._new_run_id()
         await RunPersistenceService.create_run(
             session,
@@ -131,7 +129,7 @@ class QueryOrchestrator(StreamMixin):
             return QueryResult(
                 run_id=run_id,
                 status="blocked",
-                message=_blocked_message(exc),
+                message=blocked_message(exc),
                 route=route_info(decision),
                 data={"error_code": exc.code},
             )
@@ -150,40 +148,6 @@ class QueryOrchestrator(StreamMixin):
             await self._complete(session, run_id, started, status=RunStatus.COMPLETED)
         return result
 
-    async def _handle_command(
-        self,
-        session: AsyncSession,
-        user_id: str,
-        query: str,
-        effective_query: str,
-        run_id: str,
-        decision: RouteDecision,
-        conversation_id: str | None,
-    ) -> QueryResult | None:
-        """Run the first chat command the turn is (memory, web, routine, analysis, minutes,
-        goal, task, document); ``None`` when it is an ordinary request for routing.
-
-        Commands run inside the same error handling as routed requests, so a provider that
-        refuses (an API not enabled, a revoked grant) becomes a "blocked" answer, not a 500.
-        """
-        handlers = (
-            lambda: self._maybe_handle_memory(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_web(query, run_id, decision),
-            lambda: self._maybe_handle_routines(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_analysis(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_minutes(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_goals(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_tasks(session, user_id, query, run_id, decision),
-            lambda: self._maybe_handle_document(
-                session, user_id, query, effective_query, run_id, decision, conversation_id
-            ),
-        )
-        for handler in handlers:
-            result = await handler()
-            if result is not None:
-                return result
-        return None
-
     async def _dispatch(
         self,
         session: AsyncSession,
@@ -193,48 +157,16 @@ class QueryOrchestrator(StreamMixin):
         decision: RouteDecision,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> QueryResult:
+        """Answer a routed request: canned replies, knowledge, then the shared dispatch."""
         route = route_info(decision)
-        if decision.route_type is RouteType.REJECT:
-            return QueryResult(
-                run_id=run_id,
-                status="rejected",
-                message="Yêu cầu bị từ chối vì vi phạm ranh giới an toàn.",
-                route=route,
-            )
-        if decision.route_type is RouteType.CLARIFICATION:
-            return QueryResult(
-                run_id=run_id,
-                status="clarification_needed",
-                message=(
-                    "Bạn có thể nói rõ hơn được không? Ví dụ: xem lịch ngày mai, "
-                    "hỏi tài liệu nội bộ, hoặc tạo một cuộc họp."
-                ),
-                route=route,
-            )
-        if decision.route_type is RouteType.CASUAL_RESPONSE:
-            return QueryResult(
-                run_id=run_id,
-                status="casual_response",
-                message="Xin chào. Bạn cần tôi giúp gì?",
-                route=route,
-            )
-        if is_workflow_route(decision.route_type) or is_supervisor_route(decision.route_type):
-            handled = await self._handle_workflow(session, user_id, query, run_id, decision, route)
-            if handled is not None:
-                return handled
-            return self._fallback_workflow_result(run_id, decision, route)
-        if decision.route_type is not RouteType.DIRECT_SPECIALIST:
-            return QueryResult(
-                run_id=run_id,
-                status="routed",
-                message="Yêu cầu đã được định tuyến nhưng POST /query chưa thực thi đường này.",
-                route=route,
-            )
-
-        agent = decision.target_agent
-        if agent == CALENDAR_AGENT_NAME:
-            return await self._handle_calendar(session, user_id, query, run_id, route)
-        if agent == KNOWLEDGE_RESEARCH_AGENT_NAME:
+        fixed = fixed_reply(decision.route_type)
+        if fixed is not None:
+            status, message = fixed
+            return QueryResult(run_id=run_id, status=status, message=message, route=route)
+        if (
+            decision.route_type is RouteType.DIRECT_SPECIALIST
+            and decision.target_agent == KNOWLEDGE_RESEARCH_AGENT_NAME
+        ):
             return await self._handle_knowledge(
                 user_id,
                 query,
@@ -243,17 +175,7 @@ class QueryOrchestrator(StreamMixin):
                 conversation_history=conversation_history,
                 session=session,
             )
-        if agent == COMMUNICATION_AGENT_NAME:
-            return await self._handle_communication(session, user_id, query, run_id, route)
-        return QueryResult(
-            run_id=run_id,
-            status="routed",
-            message=(
-                f"Đã định tuyến tới {agent or 'specialist'}, nhưng POST /query "
-                "chưa thực thi agent này."
-            ),
-            route=route,
-        )
+        return await self._dispatch_routed(session, user_id, query, run_id, decision, route)
 
 
 __all__ = [

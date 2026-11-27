@@ -30,7 +30,7 @@ async def test_get_current_user_id_blocks_spoofing_without_api_key(
     assert uid == DEFAULT_USER_ID
 
     # With spoofed X-User-ID -> rejected!
-    with pytest.raises(AuthenticationError, match="requires API key authentication"):
+    with pytest.raises(AuthenticationError, match="cần xác thực bằng API key"):
         await get_current_user_id(x_user_id="attacker-user", x_api_key=None)
 
 
@@ -48,14 +48,14 @@ async def test_get_current_user_id_allows_custom_id_with_valid_api_key(
     assert uid == "authorized-user"
 
     monkeypatch.setattr(settings.security, "api_key_user_id", "bound-user")
-    with pytest.raises(AuthenticationError, match="does not match the API key binding"):
+    with pytest.raises(AuthenticationError, match="không khớp với người dùng gắn với API key"):
         await get_current_user_id(x_user_id="authorized-user", x_api_key="secret-key-123")
     assert await get_current_user_id(x_user_id="bound-user", x_api_key="secret-key-123") == (
         "bound-user"
     )
 
     # With incorrect API key -> rejected
-    with pytest.raises(AuthenticationError, match="A valid API key is required"):
+    with pytest.raises(AuthenticationError, match="Cần API key hợp lệ"):
         await get_current_user_id(x_user_id="authorized-user", x_api_key="wrong-key")
 
 
@@ -120,3 +120,14 @@ def test_spill_session_dir_has_64_hex_entropy(tmp_path) -> None:
     assert dir_name.startswith("session-")
     hash_part = dir_name[len("session-") :]
     assert len(hash_part) == 64
+
+
+def test_register_requires_an_eight_character_password() -> None:
+    """Passwords shorter than eight characters are rejected before reaching the service."""
+    from pydantic import ValidationError
+
+    from app.api.routes.auth import RegisterRequest
+
+    with pytest.raises(ValidationError):
+        RegisterRequest(email="a@example.com", password="1234567")
+    assert RegisterRequest(email="a@example.com", password="12345678").password == "12345678"

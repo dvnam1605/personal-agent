@@ -17,6 +17,7 @@ interface KnowledgeSearchHeroProps {
   onSearch: (queryToRun?: string) => void
 }
 
+/** Search box at the top of the knowledge workspace. */
 export const KnowledgeSearchHero: React.FC<KnowledgeSearchHeroProps> = ({
   searchQuery,
   isLoading,

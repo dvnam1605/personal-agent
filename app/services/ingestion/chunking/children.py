@@ -2,7 +2,7 @@
 
 Boundary priority inside a single parent (spec 9.2): paragraph/list segment
 boundaries first, then sentences, then a hard token cut. Children inherit the
-parent's identity and heading path; provenance stays sharp (review M2): each
+parent's identity and heading path; provenance stays sharp: each
 child anchors to the specific parent segment(s) it was built from via
 ``segment_anchors``, not to the whole-parent union. Overlap: none in V1
 (rule 9.4 permits zero overlap when boundaries are already semantic).
@@ -209,6 +209,7 @@ class SentenceChildChunker:
         self._settings = settings if settings is not None else app_settings.chunking
 
     def build_children(self, parent: ParentChunkDraft) -> list[ChildChunkDraft]:
+        """Split a parent into sentence-packed children within the token budget, keeping anchors."""
         segments = [
             normalized
             for segment in parent.raw_text.split("\n\n")

@@ -19,6 +19,8 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
 class MessageItem(BaseModel):
+    """One stored chat message."""
+
     id: str
     role: str
     content: str
@@ -27,6 +29,8 @@ class MessageItem(BaseModel):
 
 
 class ConversationSummary(BaseModel):
+    """A conversation as listed in the sidebar."""
+
     id: str
     title: str
     created_at: datetime
@@ -35,6 +39,8 @@ class ConversationSummary(BaseModel):
 
 
 class ConversationDetail(BaseModel):
+    """A conversation with its messages in chronological order."""
+
     id: str
     title: str
     created_at: datetime
@@ -43,11 +49,15 @@ class ConversationDetail(BaseModel):
 
 
 class CreateConversationRequest(BaseModel):
+    """Optional title for a new conversation."""
+
     model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, max_length=255)
 
 
 class UpdateConversationRequest(BaseModel):
+    """New title for a conversation."""
+
     model_config = ConfigDict(extra="forbid")
     title: str = Field(..., min_length=1, max_length=255)
 
@@ -58,15 +68,9 @@ MAX_USER_TURN_CHARS = 4000
 MAX_ASSISTANT_TURN_CHARS = 200_000
 
 
-class AppendMessageRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    role: str = Field(..., max_length=32)
-    content: str = Field(..., min_length=1, max_length=MAX_ASSISTANT_TURN_CHARS)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    run_id: str | None = Field(default=None, max_length=36)
-
-
 class SaveTurnRequest(BaseModel):
+    """One question/answer turn the frontend saves after streaming an answer."""
+
     model_config = ConfigDict(extra="forbid")
     user_query: str = Field(..., min_length=1, max_length=MAX_USER_TURN_CHARS)
     assistant_response: str = Field(default="", max_length=MAX_ASSISTANT_TURN_CHARS)
@@ -121,7 +125,7 @@ async def list_conversations(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> list[ConversationSummary]:
-    # Query conversations with message count
+    """List the caller's conversations, newest activity first, with message counts."""
     stmt = (
         select(
             Conversation,
@@ -160,6 +164,7 @@ async def create_conversation(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> ConversationSummary:
+    """Create an empty conversation for the caller."""
     now = datetime.now(UTC)
     conv = Conversation(
         id=str(uuid.uuid4()),
@@ -192,6 +197,7 @@ async def get_conversation(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> ConversationDetail:
+    """Return one of the caller's conversations with its messages; 404 otherwise."""
     stmt = (
         select(Conversation)
         .options(selectinload(Conversation.messages))
@@ -205,7 +211,6 @@ async def get_conversation(
             detail="Không tìm thấy cuộc trò chuyện.",
         )
 
-    # Sort messages chronologically
     sorted_messages = sorted(conv.messages, key=lambda m: m.created_at)
     messages_out = [
         MessageItem(
@@ -238,6 +243,7 @@ async def update_conversation(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> ConversationSummary:
+    """Rename one of the caller's conversations."""
     stmt = select(Conversation).where(
         Conversation.id == conversation_id,
         Conversation.user_id == user_id,
@@ -274,6 +280,7 @@ async def delete_conversation(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> None:
+    """Delete one of the caller's conversations together with its messages."""
     stmt = select(Conversation).where(
         Conversation.id == conversation_id,
         Conversation.user_id == user_id,
@@ -286,11 +293,9 @@ async def delete_conversation(
             detail="Không tìm thấy cuộc trò chuyện.",
         )
 
-    # Delete messages first
     del_msg = delete(Message).where(Message.conversation_id == conversation_id)
     await session.execute(del_msg)
 
-    # Delete conversation
     del_conv = delete(Conversation).where(Conversation.id == conversation_id)
     await session.execute(del_conv)
 
@@ -308,6 +313,12 @@ async def save_turn(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, str]:
+    """Save a question and its answer into one of the caller's conversations.
+
+    The first saved question names a still-untitled conversation. The run id is
+    kept only when the run is the caller's, and citations are rebuilt from the
+    run's stored evidence rather than trusted from the client.
+    """
     stmt = select(Conversation).where(
         Conversation.id == conversation_id,
         Conversation.user_id == user_id,
@@ -322,7 +333,6 @@ async def save_turn(
 
     now = datetime.now(UTC)
 
-    # Automatically derive title if conversation title is still default
     if not conv.title or conv.title == "Cuộc trò chuyện mới":
         trimmed = body.user_query.strip()
         conv.title = trimmed[:42] + ("..." if len(trimmed) > 42 else "")
@@ -330,7 +340,6 @@ async def save_turn(
     conv.updated_at = now
     run_id = await _owned_run_id(session, user_id, body.run_id)
 
-    # 1. User message
     user_msg = Message(
         id=str(uuid.uuid4()),
         conversation_id=conv.id,
@@ -342,7 +351,6 @@ async def save_turn(
     )
     session.add(user_msg)
 
-    # 2. Assistant message (if answer provided)
     if body.assistant_response:
         assistant_msg = Message(
             id=str(uuid.uuid4()),

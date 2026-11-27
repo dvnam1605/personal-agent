@@ -24,6 +24,8 @@ PROBE_TIMEOUT_SECONDS = 2.0
 
 
 class HealthResponse(BaseModel):
+    """Liveness answer: the process is up, with its name, version and environment."""
+
     status: str = "ok"
     app: str
     version: str
@@ -31,6 +33,8 @@ class HealthResponse(BaseModel):
 
 
 class ReadinessResponse(BaseModel):
+    """Readiness answer with the verdict of each dependency probe."""
+
     status: str
     checks: dict[str, Any]
 
@@ -76,7 +80,7 @@ def check_configuration() -> bool:
         ):
             return False
 
-        # Validate Google credentials only when explicitly configured (M7)
+        # Validate Google credentials only when explicitly configured
         secrets_file = settings.google.client_secrets_file
         if secrets_file:
             from app.core.config import PROJECT_ROOT
@@ -136,7 +140,7 @@ async def readiness_check() -> ReadinessResponse | JSONResponse:
     if is_ready:
         return ReadinessResponse(status="ready", checks=checks)
 
-    # In production without debug, conceal granular internal dependency details (L6)
+    # In production without debug, conceal granular internal dependency details
     if settings.environment == Environment.PRODUCTION and not settings.debug:
         return JSONResponse(status_code=503, content={"status": "degraded"})
     return JSONResponse(status_code=503, content={"status": "degraded", "checks": checks})

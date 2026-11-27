@@ -13,17 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.settings.proactive import ProactiveSettings
 from app.infrastructure.db.models import GoogleIntegration, Notification, User
-from app.services.proactive.briefing import MorningBriefingJob
 from app.services.proactive.events import NotificationBus, get_notification_bus
-from app.services.proactive.followup import MeetingFollowupJob
-from app.services.proactive.goals import GoalReminderJob
-from app.services.proactive.mail_watch import MailWatchJob
-from app.services.proactive.meeting_prep import MeetingPrepJob
-from app.services.proactive.minutes import MeetingMinutesJob
+from app.services.proactive.jobs.briefing import MorningBriefingJob
+from app.services.proactive.jobs.followup import MeetingFollowupJob
+from app.services.proactive.jobs.goals import GoalReminderJob
+from app.services.proactive.jobs.mail_watch import MailWatchJob
+from app.services.proactive.jobs.meeting_prep import MeetingPrepJob
+from app.services.proactive.jobs.minutes import MeetingMinutesJob
+from app.services.proactive.jobs.routines import RoutineJob
+from app.services.proactive.jobs.watcher import WatcherJob
 from app.services.proactive.notifications import NotificationService
-from app.services.proactive.routines import RoutineJob
 from app.services.proactive.sources import ProactiveSources
-from app.services.proactive.watcher import WatcherJob
 
 logger = structlog.get_logger(__name__)
 

@@ -30,6 +30,7 @@ interface SidebarProps {
   onSelectHistory?: (title: string) => void
 }
 
+/** Left sidebar: workspace shortcuts and the saved conversation list (open, start new, delete); collapsible on desktop, a drawer on mobile. */
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,

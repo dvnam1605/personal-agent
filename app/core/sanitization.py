@@ -52,7 +52,7 @@ DEFAULT_MAX_PAYLOAD_BYTES = 32_768
 
 
 def mask_email(value: str) -> str:
-    """Mask local-part and domain so addresses cannot be re-identified from logs (L3)."""
+    """Mask local-part and domain so addresses cannot be re-identified from logs."""
     return EMAIL_PATTERN.sub(r"\1***@[REDACTED]", value)
 
 

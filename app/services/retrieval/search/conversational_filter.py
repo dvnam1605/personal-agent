@@ -110,21 +110,16 @@ def clean_conversational_phrasing(query: str) -> str:
     """
     cleaned = normalize_unicode(query)
 
-    # 1. Apply typos
     for pat, rep in UNIVERSAL_TYPOS:
         cleaned = pat.sub(rep, cleaned)
 
-    # 2. Strip polite prefixes
     cleaned = _POLITE_PREFIXES.sub("", cleaned)
 
-    # 3. Strip question endings and conversational fillers
     for pat in _INTERROGATIVE_FILLERS:
         cleaned = pat.sub(" ", cleaned)
 
-    # 4. Remove punctuation marks
     cleaned = re.sub(r"[?!.,:;\"'()\[\]{}]+", " ", cleaned)
 
-    # 5. Clean whitespace
     return re.sub(r"\s+", " ", cleaned).strip()
 
 

@@ -8,6 +8,11 @@ from typing import Any
 import httpx
 import structlog
 
+from app.agents.declarations import (
+    CALENDAR_AGENT_NAME,
+    COMMUNICATION_AGENT_NAME,
+    KNOWLEDGE_RESEARCH_AGENT_NAME,
+)
 from app.domain.enums import Complexity, Domain, RouteType
 from app.domain.models.routing.route import RouteDecision
 
@@ -31,9 +36,9 @@ _SYSTEM_PROMPT = (
 )
 
 _AGENT_BY_DOMAIN: dict[Domain, str] = {
-    Domain.CALENDAR: "CalendarAgent",
-    Domain.COMMUNICATION: "CommunicationAgent",
-    Domain.KNOWLEDGE_RESEARCH: "KnowledgeResearchAgent",
+    Domain.CALENDAR: CALENDAR_AGENT_NAME,
+    Domain.COMMUNICATION: COMMUNICATION_AGENT_NAME,
+    Domain.KNOWLEDGE_RESEARCH: KNOWLEDGE_RESEARCH_AGENT_NAME,
 }
 
 _LABEL_RE = re.compile(

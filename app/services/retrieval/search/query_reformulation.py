@@ -34,10 +34,6 @@ from app.services.retrieval.search.vietnamese_orthography import (
 
 logger = logging.getLogger(__name__)
 
-# Export for backward compatibility
-TYPO_REPLACEMENTS = UNIVERSAL_TYPOS
-
-# Regex patterns for administrative and document identifiers (generic)
 _DOC_NUMBER_PATTERN = re.compile(
     r"\b(?:số\s+)?(\d{1,5}(?:\s*/\s*[A-ZĐa-zđ\-_]+)?)\b",
     re.IGNORECASE,
@@ -51,25 +47,22 @@ def reformulate_query(
 ) -> tuple[str, str]:
     """Reformulate a user query for both dense vector and sparse lexical retrieval deterministically.
 
-    This function operates dynamically without hardcoding specific dataset entities:
-    1. Normalizes Unicode to standard NFC.
-    2. Corrects common typographical errors.
-    3. Matches entities dynamically from the DB Entity Catalog (signers, doc types, authorities).
-    4. Dynamically extracts any person names with honorifics/titles and generates
-       their full Vietnamese spelling variants (e.g. y/i interchangeability) on the fly.
-    5. Extracts specific document numbers and years.
-    6. Strips conversational question noise to produce a clean semantic query for embeddings.
+    No dataset entity is hardcoded. The query is NFC-normalised and typo-fixed;
+    catalog entities (signers, document types, authorities), honorific-led
+    person names with their Vietnamese spelling variants (y/i), document
+    numbers and years become quoted FTS phrases; conversational noise is
+    stripped for the embedding query. A lone document-type match is not
+    precise enough to stand alone, so the question's own bigrams join it.
 
     Args:
         query: The raw query from the user.
-        catalog: Optional custom DynamicEntityCatalog. If None, uses the global singleton.
+        catalog: The requester's entity catalog; ``None`` uses the shared-corpus one.
 
     Returns:
         tuple[str, str]: (cleaned_semantic_query, fts_search_query)
     """
     normalized = normalize_unicode(query)
 
-    # 1. Apply typos
     for pattern, replacement in UNIVERSAL_TYPOS:
         normalized = pattern.sub(replacement, normalized)
 
@@ -79,7 +72,6 @@ def reformulate_query(
     # question's keywords must stay in the query or recall collapses.
     precise = False
 
-    # 2. Dynamic Entity Matching from Catalog (if loaded)
     cat = catalog or get_entity_catalog()
     if cat:
         entity_matches = cat.match_entities(normalized)
@@ -92,7 +84,6 @@ def reformulate_query(
                 if phrase not in matched_phrases:
                     matched_phrases.append(phrase)
 
-    # 3. Dynamic Honorific / Person Name Extraction
     detected_names = extract_potential_honorific_names(normalized)
     for raw_name in detected_names:
         precise = True
@@ -102,7 +93,6 @@ def reformulate_query(
             if phrase not in matched_phrases:
                 matched_phrases.append(phrase)
 
-    # 4. Extract specific document numbers (e.g. "số 427", "1367/QĐ", "4351")
     # A bare number only counts when it is introduced as one ("số 427"):
     # "Điều 5", "khoản 2" or "3 người" are not document numbers.
     for m in _DOC_NUMBER_PATTERN.finditer(normalized):
@@ -120,7 +110,6 @@ def reformulate_query(
             if phrase not in matched_phrases:
                 matched_phrases.append(phrase)
 
-    # 5. Extract 4-digit years (e.g. 2024, 2025, 2026)
     for m in _YEAR_PATTERN.finditer(normalized):
         precise = True
         year = m.group(1)
@@ -128,10 +117,8 @@ def reformulate_query(
         if phrase not in matched_phrases:
             matched_phrases.append(phrase)
 
-    # 6. Strip conversational noise for clean semantic embedding query
     cleaned_semantic = clean_conversational_phrasing(normalized)
 
-    # 7. Construct PostgreSQL FTS websearch query
     if matched_phrases and not precise:
         extra = fallback_fts_query(cleaned_semantic or normalized).split(" OR ")
         terms = matched_phrases + [
@@ -364,20 +351,21 @@ async def areformulate_query(
     catalog: DynamicEntityCatalog | None = None,
     use_llm_fallback: bool = True,
 ) -> tuple[str, str]:
-    """Asynchronously reformulate query with deterministic rules first, falling back to LLM rewriting."""
+    """Reformulate with the deterministic rules first, falling back to an LLM rewrite.
+
+    Rules that found exact phrases answer at no cost; otherwise one cached,
+    single-flight LLM call rewrites the question, and its failure falls back
+    to syllable-bigram FTS terms.
+    """
     cleaned_semantic, fts_query = reformulate_query(query, catalog=catalog)
 
-    # If deterministic reformulation matched concrete entities/phrases, return immediately (0ms, 0 tokens)
-    has_exact_phrases = '"' in fts_query
-
-    if has_exact_phrases:
+    if '"' in fts_query:
         return cleaned_semantic, fts_query
 
     fts_fallback = fallback_fts_query(fts_query)
     if not use_llm_fallback:
         return cleaned_semantic, fts_fallback
 
-    # Fallback to LLM query reformulation when no specific entities or keywords were extracted
     rewritten = await _cached_llm_reformulation(query)
     if rewritten is None:
         return cleaned_semantic, fts_fallback

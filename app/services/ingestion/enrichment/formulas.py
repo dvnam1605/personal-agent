@@ -47,6 +47,7 @@ def normalize_latex(latex: str) -> str:
 
 
 def is_valid_latex(latex: str) -> bool:
+    """Whether ``latex`` converts to MathML, i.e. is usable in the rendered answer."""
     if not latex:
         return False
     try:
@@ -95,6 +96,7 @@ class FormulaLatexRebuilder:
     """Replaces parsed equation paragraphs with their LaTeX form."""
 
     async def arebuild(self, document: ParsedDocument) -> ParsedDocument:
+        """Replace parsed equation paragraphs with LLM-rebuilt LaTeX; failures keep the parsed text."""
         targets = [
             (i, m)
             for i, node in enumerate(document.nodes)

@@ -169,8 +169,8 @@ async def test_deny_mutation_api(app: FastAPI, db_session: AsyncSession) -> None
 
 
 @pytest.mark.asyncio
-async def test_cross_user_approval_forbidden(app: FastAPI, db_session: AsyncSession) -> None:
-    """Approving an action belonging to another user raises 403 Forbidden (M4)."""
+async def test_cross_user_approval_is_not_found(app: FastAPI, db_session: AsyncSession) -> None:
+    """Another user's approval answers 404, like a missing one, so ids cannot be probed."""
     user = User(id="other-user-999", email="other@example.com")
     db_session.add(user)
     await db_session.flush()
@@ -199,10 +199,17 @@ async def test_cross_user_approval_forbidden(app: FastAPI, db_session: AsyncSess
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # app has user_id="test-user-123", but approval belongs to "other-user-999"
         res_approve = await client.post(f"/approvals/{req.id}/approve")
-        assert res_approve.status_code == 403
+        assert res_approve.status_code == 404
 
         res_deny = await client.post(f"/approvals/{req.id}/deny")
-        assert res_deny.status_code == 403
+        assert res_deny.status_code == 404
+
+        res_missing = await client.post("/approvals/does-not-exist/deny")
+        assert res_missing.status_code == 404
+        assert res_missing.json()["detail"] == res_deny.json()["detail"]
+
+        res_long = await client.post(f"/approvals/{req.id}/deny", json={"reason": "x" * 2001})
+        assert res_long.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -242,7 +249,7 @@ async def test_approve_idempotent_does_not_remint(app: FastAPI, db_session: Asyn
 
         res2 = await client.post(f"/approvals/{req.id}/approve")
         assert res2.status_code == 409
-        assert "already issued" in res2.json()["detail"]
+        assert "đã được cấp" in res2.json()["detail"]
 
 
 @pytest.mark.asyncio

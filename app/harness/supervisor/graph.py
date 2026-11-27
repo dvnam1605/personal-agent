@@ -24,7 +24,6 @@ from app.domain.errors import AppTimeoutError, BudgetExceededError, Configuratio
 from app.domain.models.platform.budget import ExecutionBudget
 from app.domain.models.platform.tool import ToolRestriction
 from app.domain.models.supervisor import CapabilityCatalog
-from app.domain.models.supervisor.plan import ExecutionPlan
 from app.harness.supervisor.channels import SupervisorChannels, TaskDispatchChannel
 from app.services.supervisor.planner import SupervisorPlanner
 from app.services.supervisor.session_manager import ContinuableSessionManager
@@ -74,7 +73,6 @@ class SupervisorGraphBuilder:
             if timeout_seconds is not None
             else float(self._budget.timeout_seconds)
         )
-        self._previous_plans: list[ExecutionPlan] = []
         self._active_sessions: dict[tuple[str, str], str] = {}
 
     def compile(self, *, checkpointer: Any | None = None) -> Any:
@@ -103,8 +101,8 @@ class SupervisorGraphBuilder:
                     catalog=self._catalog,
                     budget=self._budget,
                 )
-                self._previous_plans.append(plan)
                 return {
+                    "previous_plans": [plan],
                     "plan": plan,
                     "status": "planning",
                     "replan_count": 0,
@@ -380,16 +378,15 @@ class SupervisorGraphBuilder:
                     budget=self._budget,
                 )
 
-                # Check no-progress loop (P16-07)
-                if self._planner.detect_no_progress(self._previous_plans, new_plan):
+                if self._planner.detect_no_progress(state.get("previous_plans", []), new_plan):
                     logger.warning("supervisor_replan_no_progress_halt")
                     return {
                         "status": "no_progress_halted",
                         "branch_errors": ["No progress detected during plan refinement."],
                     }
 
-                self._previous_plans.append(new_plan)
                 return {
+                    "previous_plans": [new_plan],
                     "plan": new_plan,
                     "replan_count": replan_count + 1,
                     "handled_missing_task_ids": list(needs_more_ids),

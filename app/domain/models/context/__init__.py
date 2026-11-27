@@ -1,4 +1,4 @@
-"""Domain models for assembled context slices (spec P17-06)."""
+"""Domain models for assembled context slices."""
 
 from __future__ import annotations
 

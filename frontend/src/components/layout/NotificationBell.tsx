@@ -37,10 +37,19 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ enabled, onA
   const [unreadCount, setUnreadCount] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const seenIds = useRef<Set<string> | null>(null)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
       const response = await apiClient.getNotifications()
+      if (!mounted.current) return
       setItems(response.items)
       setUnreadCount(response.unread_count)
       const previous = seenIds.current

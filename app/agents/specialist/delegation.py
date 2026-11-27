@@ -146,6 +146,7 @@ class DelegationService:
             success=report.status is SpecialistStatus.SUCCESS,
             output=report.summary,
             needs_approval=outcome.needs_approval,
+            data=dict(report.data or {}),
             delegation_depth=outcome.delegation_depth,
             status=report.status.value,
             missing_context=list(report.missing_context or []),

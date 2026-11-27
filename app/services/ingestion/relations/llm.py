@@ -135,6 +135,7 @@ def parse_llm_relations(reply: dict[str, Any] | None, document_text: str) -> lis
 
 
 async def extract_llm_relations(text: str) -> list[RelationDraft]:
+    """LLM-extracted relations, only for text the rules flag as needing it."""
     api_key = str(settings.llm.openai_api_key or "")
     if not api_key or not needs_llm(text):
         return []
