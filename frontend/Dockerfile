@@ -2,7 +2,7 @@
 # Multi-stage frontend image: Node (the version CI builds with) bundles the Vite
 # app, an unprivileged nginx serves it and proxies the API to the backend.
 
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
